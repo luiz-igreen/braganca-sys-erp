@@ -6,11 +6,15 @@ import plotly.express as px
 # Configuração da Página do Sistema
 st.set_page_config(page_title="Gestão de Prémios - Construart", page_icon="🏆", layout="wide")
 
-# URL de Conexão com o Supabase (Substitua [YOUR-PASSWORD] pela sua senha real)
-URL_BANCO = "postgresql://postgres:[YOUR-PASSWORD]@db.iiiuyqlpnwshwxpmfdar.supabase.co:5432/postgres"
-
 def conectar_supabase():
-    return psycopg2.connect(URL_BANCO)
+    # Conecta puxando as senhas seguras das Secrets do Streamlit
+    return psycopg2.connect(
+        host=st.secrets["DB_HOST"],
+        database=st.secrets["DB_NAME"],
+        user=st.secrets["DB_USER"],
+        password=st.secrets["DB_PASS"],
+        port=st.secrets["DB_PORT"]
+    )
 
 # Interface Principal do Painel
 st.title("🏆 Painel Web de Gestão de Prémios — Obras Construart")
