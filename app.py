@@ -153,4 +153,4 @@ with tab4:
             else:
                 st.warning("Nenhum registro exato com esse nome encontrado. Verifique maiúsculas/minúsculas no separador de Consultas.")
         except Exception as e:
-            st.error(f"Erro operacional: {e}")
+            st.error(f"Erro operacional: {e}")    
