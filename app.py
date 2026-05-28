@@ -1,61 +1,52 @@
 import streamlit as st
-import psycopg2
 import pandas as pd
+from sqlalchemy import create_engine
 
-st.set_page_config(page_title="Dashboard Prêmios", layout="wide")
+# 1. Configuração da página
+st.set_page_config(page_title="Sistema de Prêmios - Construart", layout="wide")
 
-st.title("📊 Dashboard de Prêmios - CONSTRUART")
+# 2. Conexão com o Banco de Dados (puxando a senha das Secrets)
+db_url = st.secrets["DATABASE_URL"]
+engine = create_engine(db_url)
+conn = st.connection("postgresql", type="sql", url=db_url)
 
-try:
-    # Pega a string de conexão das Secrets
-    DATABASE_URL = st.secrets["DATABASE_URL"]
-    
-    # Conecta ao banco
-    conn = psycopg2.connect(DATABASE_URL)
-    cursor = conn.cursor()
-    
-    # Busca os dados da tabela
-    cursor.execute("SELECT id, mes_ano, mes, ano, nome, pix, valor_pago_rs FROM public.pagamentos_premios ORDER BY ano DESC, mes DESC")
-    dados = cursor.fetchall()
-    
-    # Pega os nomes das colunas
-    colunas = ['ID', 'Mês/Ano', 'Mês', 'Ano', 'Nome', 'PIX', 'Valor (R$)']
-    
-    # Cria DataFrame
-    df = pd.DataFrame(dados, columns=colunas)
-    
-    if len(df) > 0:
-        st.success(f"✅ {len(df)} registros carregados!")
+# 3. Função para ler os dados do banco com segurança
+def carregar_dados():
+    try:
+        return conn.query("SELECT * FROM public.pagamentos_premios;", ttl="0")
+    except Exception:
+        return pd.DataFrame()
+
+# 4. Interface Principal (Título)
+st.title("🏆 Sistema de Prêmios - Construart")
+st.markdown("---")
+
+# 5. Barra Lateral (Upload da Planilha)
+st.sidebar.header("📥 Importar Planilha")
+st.sidebar.write("Faça o upload do arquivo Excel com os dados dos colaboradores.")
+arquivo_excel = st.sidebar.file_uploader("Selecione o arquivo Excel", type=["xlsx", "xls"])
+
+if arquivo_excel is not None:
+    try:
+        # Lê a planilha que o usuário enviou
+        df_excel = pd.read_excel(arquivo_excel)
+        st.sidebar.success(f"Planilha lida com sucesso! ({len(df_excel)} linhas)")
         
-        # Métricas
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            total = df['Valor (R$)'].sum()
-            st.metric("💰 Orçamento Consumido", f"R$ {total:,.2f}")
-        
-        with col2:
-            quantidade = len(df)
-            st.metric("📋 Quantidade de Lançamentos", quantidade)
-        
-        with col3:
-            ticket_medio = df['Valor (R$)'].mean()
-            st.metric("🎯 Ticket Médio", f"R$ {ticket_medio:,.2f}")
-        
-        # Histórico mensal
-        st.subheader("📈 Histórico Mensal")
-        df_mensal = df.groupby('Mês/Ano')['Valor (R$)'].sum().reset_index()
-        st.bar_chart(df_mensal.set_index('Mês/Ano'))
-        
-        # Tabela completa
-        st.subheader("📋 Tabela Completa")
-        st.dataframe(df, use_container_width=True)
-    else:
-        st.warning("⚠️ Nenhum registro encontrado na tabela!")
-    
-    cursor.close()
-    conn.close()
-    
-except Exception as e:
-    st.error(f"❌ Erro ao processar: {str(e)}")
-    st.info("💡 Verifique se a DATABASE_URL nas Secrets está correta")
+        # Botão para salvar no banco
+        if st.sidebar.button("Salvar no Banco de Dados"):
+            with st.spinner("Salvando dados no sistema..."):
+                # Insere os dados da planilha na tabela do Supabase
+                df_excel.to_sql('pagamentos_premios', con=engine, if_exists='append', index=False)
+                st.sidebar.success("✅ Dados salvos com sucesso!")
+                st.rerun() # Atualiza a página automaticamente
+    except Exception as e:
+        st.sidebar.error(f"Erro ao processar a planilha: {e}")
+
+# 6. Exibição dos Dados na Tela Principal
+df_banco = carregar_dados()
+
+if df_banco.empty:
+    st.info("💡 O banco de dados está conectado, mas a tabela está vazia. Por favor, use o menu lateral esquerdo para fazer o upload da planilha Excel.")
+else:
+    st.success(f"✅ Exibindo {len(df_banco)} registros do banco de dados.")
+    st.dataframe(df_banco, use_container_width=True)
