@@ -1,5 +1,4 @@
 pandas
-st-postgresql-connection
 sqlalchemy
 psycopg2-binary
-openpyxl  
+openpyxl
