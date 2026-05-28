@@ -5,12 +5,12 @@ from sqlalchemy import create_engine
 # 1. Configuração da página
 st.set_page_config(page_title="Sistema de Prêmios - Construart", layout="wide")
 
-# 2. Conexão Blindada com o Banco de Dados
+# 2. Conexão com o Banco de Dados (puxando a senha das Secrets)
 db_url = st.secrets["DATABASE_URL"]
 engine = create_engine(db_url)
 conn = st.connection("postgresql", type="sql", url=db_url)
 
-# 3. Função para ler os dados do banco
+# 3. Função para ler os dados do banco com segurança
 def carregar_dados():
     try:
         return conn.query("SELECT * FROM public.pagamentos_premios;", ttl="0")
@@ -46,7 +46,7 @@ if arquivo_excel is not None:
 df_banco = carregar_dados()
 
 if df_banco.empty:
-    st.info("💡 O banco de dados está conectado perfeitamente, mas a tabela está vazia. Por favor, use o menu lateral esquerdo para fazer o upload da planilha Excel.")
+    st.info("💡 O banco de dados está conectado, mas a tabela está vazia. Por favor, use o menu lateral esquerdo para fazer o upload da planilha Excel.")
 else:
     st.success(f"✅ Exibindo {len(df_banco)} registros do banco de dados.")
-    st.dataframe(df_banco, use_container_width=True)  
+    st.dataframe(df_banco, use_container_width=True)
