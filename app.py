@@ -2,8 +2,11 @@ import streamlit as st
 import pandas as pd
 import sqlalchemy
 
-# Criamos a conexão com o banco de dados
-conn = st.connection("postgresql", type="sql")
+# Puxa o link do banco de dados que salvamos nas Secrets
+db_url = st.secrets["DATABASE_URL"]
+
+# Criamos a conexão apontando exatamente para a URL
+conn = st.connection("postgresql", type="sql", url=db_url)
 
 # Função segura para ler dados sem travar a tela
 def carregar_dados_seguro():
@@ -22,4 +25,4 @@ if df_visualizacao.empty:
     st.info("💡 O banco de dados está pronto, mas a tabela está vazia. Por favor, faça a importação da planilha abaixo para começar.")
 else:
     st.write(f"Exibindo {len(df_visualizacao)} colaboradores.")
-    st.dataframe(df_visualizacao)
+    st.dataframe(df_visualizacao)    
