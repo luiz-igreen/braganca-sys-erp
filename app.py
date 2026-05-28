@@ -19,4 +19,4 @@ if df_visualizacao.empty:
     st.info("💡 O banco de dados está pronto, mas a tabela está vazia. Por favor, faça a importação da planilha abaixo para começar.")
 else:
     st.write(f"Exibindo {len(df_visualizacao)} colaboradores.")
-    st.dataframe(df_visualizacao)
+    st.dataframe(df_visualizacao)    
