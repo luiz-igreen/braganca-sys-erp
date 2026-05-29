@@ -28,27 +28,18 @@ with st.sidebar:
             # Leitura bruta do Excel
             df = pd.read_excel(arquivo_excel)
             
-            # --- LIMPEZA E FORMATAÇÃO (ESTRUTURA NOVA) ---
-            # 1. Renomeia a primeira coluna para 'REG'
+            # --- LIMPEZA E FORMATAÇÃO ---
             primeira_coluna = df.columns[0]
             df.rename(columns={primeira_coluna: 'REG'}, inplace=True)
             
-            # 2. Renomeia a coluna 'Nome.1' para 'Cargo'
             if 'Nome.1' in df.columns:
                 df.rename(columns={'Nome.1': 'Cargo'}, inplace=True)
             
-            # 3. Remove colunas indesejadas (lixo do Excel)
             df = df.loc[:, ~df.columns.astype(str).str.contains('^Unnamed')]
-            
-            # 4. Remove colunas totalmente vazias
             df = df.dropna(axis=1, how='all')
-
-            # 5. NOVO: Remove espaços em branco invisíveis nos nomes das colunas
-            # Isso resolve o problema da coluna " Demissão" ser rejeitada pelo banco
             df.columns = df.columns.str.strip()
-            # --- FIM DA LIMPEZA DE DADOS ---
+            # --- FIM DA LIMPEZA ---
             
-            # Guarda na memória da aplicação
             st.session_state.df_lido = df
             st.success(f"✅ Planilha pronta! ({len(df)} colaboradores)")
             
@@ -69,12 +60,24 @@ else:
 if salvar_btn:
     if st.session_state.df_lido is not None:
         try:
-            # Puxa a chave única do Streamlit Secrets
             db_url = st.secrets["DATABASE_URL"]
             engine = create_engine(db_url)
             
+            # --- O GRANDE TRUQUE: TRADUÇÃO DE COLUNAS ---
+            # Cria uma cópia isolada para enviar ao banco sem mudar a tela do usuário
+            df_banco = st.session_state.df_lido.copy()
+            
+            # Traduz os nomes do Excel para os nomes exatos do Supabase
+            df_banco.rename(columns={
+                'REG': 'id',
+                'Nome': 'nome',
+                'Cargo': 'cargo',
+                'Admissão': 'data_admissao',
+                'Demissão': 'data_demissao'
+            }, inplace=True)
+            
             with st.spinner("Conectando ao banco e enviando colaboradores..."):
-                st.session_state.df_lido.to_sql(
+                df_banco.to_sql(
                     'pagamentos_premios',
                     con=engine,
                     schema='public',
@@ -90,4 +93,4 @@ if salvar_btn:
         except Exception as e:
             st.error(f"❌ Erro interno ao processar: {e}")
     else:
-        st.warning("⚠️ Importe a planilha de colaboradores primeiro.")
+        st.warning("⚠️ Importe a planilha de colaboradores primeiro.")    
