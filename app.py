@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, exc
 
-# 1. CONFIGURAÇÃO DA PÁGINA (Deve ser o primeiro comando Streamlit)
+# 1. CONFIGURAÇÃO DA PÁGINA
 st.set_page_config(
     page_title="Sistema de Prêmios - Construart", 
     page_icon="🏆", 
@@ -13,7 +13,7 @@ st.set_page_config(
 st.title("🏆 Sistema de Prêmios - Construart")
 st.markdown("---")
 
-# 3. INICIALIZAÇÃO DE VARIÁVEIS DE ESTADO (Para manter o arquivo na memória)
+# 3. INICIALIZAÇÃO DE VARIÁVEIS DE ESTADO
 if 'df_lido' not in st.session_state:
     st.session_state.df_lido = None
 
@@ -29,18 +29,25 @@ with st.sidebar:
             # Lê o Excel
             df = pd.read_excel(arquivo_excel)
             
-            # --- INÍCIO DA LIMPEZA DE DADOS AUTOMÁTICA ---
-            # Remove todas as colunas indesejadas (ex: 'Unnamed: 1', 'Unnamed: 3')
-            # O .astype(str) transforma tudo em texto antes de filtrar, evitando o erro de 'float'
+            # --- INÍCIO DA LIMPEZA E FORMATAÇÃO DE DADOS ---
+            # 1. Renomeia a primeira coluna para 'ORD'
+            primeira_coluna = df.columns[0]
+            df.rename(columns={primeira_coluna: 'ORD'}, inplace=True)
+            
+            # 2. Renomeia a coluna 'Nome.1' para 'Cargo'
+            if 'Nome.1' in df.columns:
+                df.rename(columns={'Nome.1': 'Cargo'}, inplace=True)
+            
+            # 3. Remove outras colunas indesejadas (blindado contra float)
             df = df.loc[:, ~df.columns.astype(str).str.contains('^Unnamed')]
             
-            # Remove colunas que estejam 100% vazias
+            # 4. Remove colunas que estejam 100% vazias
             df = df.dropna(axis=1, how='all')
             # --- FIM DA LIMPEZA DE DADOS ---
             
             # Guarda na sessão
             st.session_state.df_lido = df
-            st.success(f"✅ Planilha lida e limpa com sucesso! ({len(df)} linhas)")
+            st.success(f"✅ Planilha lida e formatada com sucesso! ({len(df)} linhas)")
         except Exception as e:
             st.error(f"❌ Erro ao ler a planilha: {e}")
     
@@ -51,10 +58,8 @@ with st.sidebar:
 
 # 5. ÁREA PRINCIPAL DA INTERFACE
 if st.session_state.df_lido is None:
-    # Mensagem de alerta padrão quando não há arquivo
     st.info("💡 O banco de dados está conectado, mas a tabela está vazia. Por favor, use o menu lateral esquerdo para fazer o upload da planilha Excel.")
 else:
-    # Mostra um preview dos dados lidos já sem as colunas 'Unnamed'
     st.markdown("#### Pré-visualização dos Dados Prontos para Envio")
     st.dataframe(st.session_state.df_lido, use_container_width=True)
 
@@ -62,13 +67,12 @@ else:
 if salvar_btn:
     if st.session_state.df_lido is not None:
         try:
-            # Conecta usando a Secret exata que configuramos no painel
+            # Puxa a URL única configurada nas Secrets
             db_url = st.secrets["DATABASE_URL"]
             engine = create_engine(db_url)
             
             with st.spinner("Salvando dados no Supabase... Aguarde."):
-                # IMPORTANTE: Nome correto da tabela é 'pagamentos_premios' no schema 'public'
-                # if_exists='append' garante que os dados sejam adicionados sem apagar os existentes
+                # Envia os dados limpos para a tabela pagamentos_premios
                 st.session_state.df_lido.to_sql(
                     'pagamentos_premios',
                     con=engine,
@@ -82,8 +86,7 @@ if salvar_btn:
             
         except exc.OperationalError as e:
             st.error(f"❌ Erro de conexão com o servidor: {e}")
-            st.info("💡 Se o erro mencionar o projeto antigo ('baqcrtgkw...'), certifique-se de ir ao painel do Streamlit > Manage App > Reboot App para forçar a leitura da nova variável.")
         except Exception as e:
             st.error(f"❌ Erro ao processar a planilha: {e}")
     else:
-        st.warning("⚠️ Por favor, faça o upload da planilha Excel antes de tentar salvar no banco de dados.")    
+        st.warning("⚠️ Por favor, faça o upload da planilha Excel antes de tentar salvar no banco de dados.")
