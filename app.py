@@ -31,7 +31,9 @@ with st.sidebar:
             
             # --- INÍCIO DA LIMPEZA DE DADOS AUTOMÁTICA ---
             # Remove todas as colunas indesejadas (ex: 'Unnamed: 1', 'Unnamed: 3')
-            df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+            # O .astype(str) transforma tudo em texto antes de filtrar, evitando o erro de 'float'
+            df = df.loc[:, ~df.columns.astype(str).str.contains('^Unnamed')]
+            
             # Remove colunas que estejam 100% vazias
             df = df.dropna(axis=1, how='all')
             # --- FIM DA LIMPEZA DE DADOS ---
@@ -84,4 +86,4 @@ if salvar_btn:
         except Exception as e:
             st.error(f"❌ Erro ao processar a planilha: {e}")
     else:
-        st.warning("⚠️ Por favor, faça o upload da planilha Excel antes de tentar salvar no banco de dados.")
+        st.warning("⚠️ Por favor, faça o upload da planilha Excel antes de tentar salvar no banco de dados.")    
