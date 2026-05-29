@@ -26,10 +26,19 @@ with st.sidebar:
     # Processamento imediato do upload
     if arquivo_excel is not None:
         try:
-            # Lê o Excel e guarda na sessão
+            # Lê o Excel
             df = pd.read_excel(arquivo_excel)
+            
+            # --- INÍCIO DA LIMPEZA DE DADOS AUTOMÁTICA ---
+            # Remove todas as colunas indesejadas (ex: 'Unnamed: 1', 'Unnamed: 3')
+            df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+            # Remove colunas que estejam 100% vazias
+            df = df.dropna(axis=1, how='all')
+            # --- FIM DA LIMPEZA DE DADOS ---
+            
+            # Guarda na sessão
             st.session_state.df_lido = df
-            st.success(f"✅ Planilha lida com sucesso! ({len(df)} linhas)")
+            st.success(f"✅ Planilha lida e limpa com sucesso! ({len(df)} linhas)")
         except Exception as e:
             st.error(f"❌ Erro ao ler a planilha: {e}")
     
@@ -43,8 +52,8 @@ if st.session_state.df_lido is None:
     # Mensagem de alerta padrão quando não há arquivo
     st.info("💡 O banco de dados está conectado, mas a tabela está vazia. Por favor, use o menu lateral esquerdo para fazer o upload da planilha Excel.")
 else:
-    # Mostra um preview dos dados lidos
-    st.markdown("#### Pré-visualização dos Dados")
+    # Mostra um preview dos dados lidos já sem as colunas 'Unnamed'
+    st.markdown("#### Pré-visualização dos Dados Prontos para Envio")
     st.dataframe(st.session_state.df_lido, use_container_width=True)
 
 # 6. LÓGICA DE GRAVAÇÃO NO SUPABASE
@@ -71,7 +80,7 @@ if salvar_btn:
             
         except exc.OperationalError as e:
             st.error(f"❌ Erro de conexão com o servidor: {e}")
-            st.info("💡 Verifique se a DATABASE_URL nas Secrets está correta")
+            st.info("💡 Se o erro mencionar o projeto antigo ('baqcrtgkw...'), certifique-se de ir ao painel do Streamlit > Manage App > Reboot App para forçar a leitura da nova variável.")
         except Exception as e:
             st.error(f"❌ Erro ao processar a planilha: {e}")
     else:
