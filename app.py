@@ -2,33 +2,131 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, exc
 
-# 1. CONFIGURAÇÃO DA PÁGINA
-st.set_page_config(
-    page_title="Sistema de Prêmios - Construart", 
-    page_icon="🏆", 
-    layout="wide"
+# ==========================================
+# 1. CONFIGURAÇÃO E ESTILO VISUAL PREMIUM
+# ==========================================
+st.set_page_config(page_title="Sistema de Prêmios - Construart", page_icon="🏆", layout="wide")
+
+# CSS para o efeito Glassmorphism (Dark Navy Blue)
+st.markdown("""
+<style>
+    .glass-container {
+        background-color: rgba(15, 23, 42, 0.6);
+        border-radius: 15px;
+        padding: 25px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        margin-bottom: 20px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ==========================================
+# 2. MOTOR DE CONEXÃO GLOBAL
+# ==========================================
+# Mantém a conexão ativa na memória para deixar o sistema super rápido
+@st.cache_resource
+def iniciar_conexao():
+    db_url = st.secrets["DATABASE_URL"]
+    return create_engine(db_url)
+
+engine = iniciar_conexao()
+
+# ==========================================
+# 3. ROTEADOR DO SISTEMA (MENU LATERAL)
+# ==========================================
+st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3061/3061341.png", width=60) # Ícone genérico de sistema
+st.sidebar.markdown("## Construart Sys")
+st.sidebar.markdown("---")
+menu = st.sidebar.radio(
+    "Navegação de Módulos", 
+    ["📊 Dashboard Principal", "👥 Gestão de Colaboradores", "📥 Importar Planilha"]
 )
+st.sidebar.markdown("---")
 
-# 2. TÍTULO PRINCIPAL
-st.title("🏆 Sistema de Prêmios - Construart")
-st.markdown("---")
+# ==========================================
+# MÓDULO A: DASHBOARD PRINCIPAL
+# ==========================================
+if menu == "📊 Dashboard Principal":
+    st.title("📊 Painel de Controle")
+    st.markdown('<div class="glass-container">', unsafe_allow_html=True)
+    
+    try:
+        # Puxa os dados reais do Supabase para montar os gráficos
+        df_banco = pd.read_sql('pagamentos_premios', con=engine)
+        total_colab = len(df_banco)
+        
+        # Cartões de Métricas (KPIs)
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("👥 Total Colaboradores", f"{total_colab}")
+        col2.metric("⏳ Prêmios Pendentes", "0")
+        col3.metric("💰 Prêmios Pagos (Mês)", "R$ 0,00")
+        col4.metric("⚠️ Alertas", "0")
+        
+        st.markdown("---")
+        st.markdown("#### Últimos Registros Sincronizados")
+        # Mostra apenas as 5 últimas linhas para não poluir
+        st.dataframe(df_banco.tail(5), use_container_width=True)
+        
+    except Exception as e:
+        st.info("Nenhum dado encontrado no momento. Faça a importação da planilha.")
+        
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# 3. INICIALIZAÇÃO DE VARIÁVEIS
-if 'df_lido' not in st.session_state:
-    st.session_state.df_lido = None
+# ==========================================
+# MÓDULO B: GESTÃO DE COLABORADORES
+# ==========================================
+elif menu == "👥 Gestão de Colaboradores":
+    st.title("👥 Central de Colaboradores")
+    
+    st.markdown('<div class="glass-container">', unsafe_allow_html=True)
+    
+    # Barra de Ferramentas Superior
+    col1, col2, col3, col4, col5 = st.columns([3, 1, 1, 1, 1])
+    with col1:
+        termo_pesquisa = st.text_input("🔍 Pesquisar por Nome, REG ou Cargo:")
+    with col2:
+        st.write("") # Alinhamento
+        st.button("🔍 Buscar", use_container_width=True)
+    with col3:
+        st.write("")
+        st.button("➕ Novo", type="primary", use_container_width=True)
+    with col4:
+        st.write("")
+        st.button("✏️ Alterar", use_container_width=True)
+    with col5:
+        st.write("")
+        st.button("🗑️ Excluir", use_container_width=True)
+        
+    st.markdown("---")
+    
+    # Grid de Exibição
+    try:
+        df_gestao = pd.read_sql('pagamentos_premios', con=engine)
+        st.dataframe(df_gestao, use_container_width=True, height=400)
+    except:
+        st.warning("Erro ao carregar a lista de colaboradores.")
+        
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# 4. MENU LATERAL E IMPORTAÇÃO
-with st.sidebar:
-    st.markdown("### 📥 Importar Planilha")
-    st.write("Faça o upload do arquivo Excel com os dados dos colaboradores.")
+# ==========================================
+# MÓDULO C: IMPORTAÇÃO (INTOCÁVEL)
+# ==========================================
+elif menu == "📥 Importar Planilha":
+    st.title("📥 Importação de Dados")
+    
+    if 'df_lido' not in st.session_state:
+        st.session_state.df_lido = None
+
+    st.markdown('<div class="glass-container">', unsafe_allow_html=True)
+    st.write("Faça o upload do arquivo Excel com os dados dos colaboradores para alimentar a base central.")
+    
     arquivo_excel = st.file_uploader("Selecione o arquivo Excel", type=['xlsx', 'xls'])
     
     if arquivo_excel is not None:
         try:
-            # Leitura bruta do Excel
             df = pd.read_excel(arquivo_excel)
             
-            # --- LIMPEZA E FORMATAÇÃO ---
             primeira_coluna = df.columns[0]
             df.rename(columns={primeira_coluna: 'REG'}, inplace=True)
             
@@ -38,59 +136,44 @@ with st.sidebar:
             df = df.loc[:, ~df.columns.astype(str).str.contains('^Unnamed')]
             df = df.dropna(axis=1, how='all')
             df.columns = df.columns.str.strip()
-            # --- FIM DA LIMPEZA ---
             
             st.session_state.df_lido = df
-            st.success(f"✅ Planilha pronta! ({len(df)} colaboradores)")
+            st.success(f"✅ Planilha pronta! ({len(df)} colaboradores lidos)")
             
         except Exception as e:
             st.error(f"❌ Erro ao ler a planilha: {e}")
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    salvar_btn = st.button("Salvar no Banco de Dados", type="primary")
+            
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# 5. ÁREA PRINCIPAL DA INTERFACE
-if st.session_state.df_lido is None:
-    st.info("💡 Bem-vindo ao novo sistema. Faça o upload da planilha no menu lateral para começar a importação.")
-else:
-    st.markdown("#### Pré-visualização dos Dados (Validação)")
-    st.dataframe(st.session_state.df_lido, use_container_width=True)
-
-# 6. CONEXÃO COM O BANCO DE DADOS (FERRAMENTA)
-if salvar_btn:
+    # Pré-visualização
     if st.session_state.df_lido is not None:
-        try:
-            db_url = st.secrets["DATABASE_URL"]
-            engine = create_engine(db_url)
-            
-            # --- O GRANDE TRUQUE: TRADUÇÃO DE COLUNAS ---
-            # Cria uma cópia isolada para enviar ao banco sem mudar a tela do usuário
-            df_banco = st.session_state.df_lido.copy()
-            
-            # Traduz os nomes do Excel para os nomes exatos do Supabase
-            df_banco.rename(columns={
-                'REG': 'id',
-                'Nome': 'nome',
-                'Cargo': 'cargo',
-                'Admissão': 'data_admissao',
-                'Demissão': 'data_demissao'
-            }, inplace=True)
-            
-            with st.spinner("Conectando ao banco e enviando colaboradores..."):
-                df_banco.to_sql(
-                    'pagamentos_premios',
-                    con=engine,
-                    schema='public',
-                    if_exists='append',
-                    index=False
-                )
-            
-            st.success("✅ Tudo certo! Colaboradores salvos com sucesso no Supabase!")
-            st.balloons()
-            
-        except exc.OperationalError as e:
-            st.error("❌ Erro de conexão: O banco de dados recusou a senha ou o endereço.")
-        except Exception as e:
-            st.error(f"❌ Erro interno ao processar: {e}")
-    else:
-        st.warning("⚠️ Importe a planilha de colaboradores primeiro.")    
+        st.markdown("#### Pré-visualização dos Dados")
+        st.dataframe(st.session_state.df_lido, use_container_width=True)
+        
+        salvar_btn = st.button("Gravar no Banco de Dados", type="primary")
+        
+        if salvar_btn:
+            try:
+                df_banco = st.session_state.df_lido.copy()
+                df_banco.rename(columns={
+                    'REG': 'id',
+                    'Nome': 'nome',
+                    'Cargo': 'cargo',
+                    'Admissão': 'data_admissao',
+                    'Demissão': 'data_demissao'
+                }, inplace=True)
+                
+                with st.spinner("Conectando ao banco e enviando colaboradores..."):
+                    df_banco.to_sql(
+                        'pagamentos_premios',
+                        con=engine,
+                        schema='public',
+                        if_exists='append',
+                        index=False
+                    )
+                st.success("✅ Tudo certo! Colaboradores salvos com sucesso no Supabase!")
+                st.balloons()
+            except exc.OperationalError as e:
+                st.error("❌ Erro de conexão com o banco de dados.")
+            except Exception as e:
+                st.error(f"❌ Erro interno ao processar: {e}")    
