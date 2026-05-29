@@ -42,6 +42,11 @@ with st.sidebar:
             
             # 4. Remove colunas totalmente vazias
             df = df.dropna(axis=1, how='all')
+
+            # 5. NOVO: Remove espaços em branco invisíveis nos nomes das colunas
+            # Isso resolve o problema da coluna " Demissão" ser rejeitada pelo banco
+            df.columns = df.columns.str.strip()
+            # --- FIM DA LIMPEZA DE DADOS ---
             
             # Guarda na memória da aplicação
             st.session_state.df_lido = df
