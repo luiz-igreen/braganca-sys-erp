@@ -24,7 +24,6 @@ st.markdown("""
 # ==========================================
 # 2. MOTOR DE CONEXÃO GLOBAL
 # ==========================================
-# Mantém a conexão ativa na memória para deixar o sistema super rápido
 @st.cache_resource
 def iniciar_conexao():
     db_url = st.secrets["DATABASE_URL"]
@@ -35,7 +34,7 @@ engine = iniciar_conexao()
 # ==========================================
 # 3. ROTEADOR DO SISTEMA (MENU LATERAL)
 # ==========================================
-st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3061/3061341.png", width=60) # Ícone genérico de sistema
+st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3061/3061341.png", width=60)
 st.sidebar.markdown("## Construart Sys")
 st.sidebar.markdown("---")
 menu = st.sidebar.radio(
@@ -52,11 +51,9 @@ if menu == "📊 Dashboard Principal":
     st.markdown('<div class="glass-container">', unsafe_allow_html=True)
     
     try:
-        # Puxa os dados reais do Supabase para montar os gráficos
         df_banco = pd.read_sql('pagamentos_premios', con=engine)
         total_colab = len(df_banco)
         
-        # Cartões de Métricas (KPIs)
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("👥 Total Colaboradores", f"{total_colab}")
         col2.metric("⏳ Prêmios Pendentes", "0")
@@ -65,7 +62,6 @@ if menu == "📊 Dashboard Principal":
         
         st.markdown("---")
         st.markdown("#### Últimos Registros Sincronizados")
-        # Mostra apenas as 5 últimas linhas para não poluir
         st.dataframe(df_banco.tail(5), use_container_width=True)
         
     except Exception as e:
@@ -86,26 +82,48 @@ elif menu == "👥 Gestão de Colaboradores":
     with col1:
         termo_pesquisa = st.text_input("🔍 Pesquisar por Nome, REG ou Cargo:")
     with col2:
-        st.write("") # Alinhamento
-        st.button("🔍 Buscar", use_container_width=True)
+        st.write("") 
+        btn_buscar = st.button("🔍 Buscar", use_container_width=True)
     with col3:
         st.write("")
-        st.button("➕ Novo", type="primary", use_container_width=True)
+        btn_novo = st.button("➕ Novo", type="primary", use_container_width=True)
     with col4:
         st.write("")
-        st.button("✏️ Alterar", use_container_width=True)
+        btn_alterar = st.button("✏️ Alterar", use_container_width=True)
     with col5:
         st.write("")
-        st.button("🗑️ Excluir", use_container_width=True)
+        btn_excluir = st.button("🗑️ Excluir", use_container_width=True)
         
     st.markdown("---")
     
-    # Grid de Exibição
+    # Grid de Exibição com Lógica de Pesquisa
     try:
+        # Lê os dados do banco
         df_gestao = pd.read_sql('pagamentos_premios', con=engine)
+        
+        # Se o botão de buscar for clicado e houver algo digitado
+        if btn_buscar and termo_pesquisa:
+            # Converte tudo para string minúscula para facilitar a busca
+            termo = termo_pesquisa.lower()
+            mascara = (
+                df_gestao['nome'].str.lower().str.contains(termo, na=False) |
+                df_gestao['cargo'].str.lower().str.contains(termo, na=False) |
+                df_gestao['id'].astype(str).str.contains(termo, na=False)
+            )
+            df_gestao = df_gestao[mascara]
+            
+            if len(df_gestao) > 0:
+                st.success(f"✅ {len(df_gestao)} colaborador(es) encontrado(s)!")
+            else:
+                st.warning("⚠️ Nenhum colaborador encontrado com esse termo.")
+        elif btn_buscar and not termo_pesquisa:
+            st.info("💡 Digite algo na caixa de texto antes de buscar.")
+
+        # Exibe a tabela (filtrada ou completa)
         st.dataframe(df_gestao, use_container_width=True, height=400)
-    except:
-        st.warning("Erro ao carregar a lista de colaboradores.")
+        
+    except Exception as e:
+        st.warning(f"Erro ao carregar a lista de colaboradores: {e}")
         
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -145,7 +163,6 @@ elif menu == "📥 Importar Planilha":
             
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Pré-visualização
     if st.session_state.df_lido is not None:
         st.markdown("#### Pré-visualização dos Dados")
         st.dataframe(st.session_state.df_lido, use_container_width=True)
@@ -154,6 +171,9 @@ elif menu == "📥 Importar Planilha":
         
         if salvar_btn:
             try:
+                db_url = st.secrets["DATABASE_URL"]
+                engine_temp = create_engine(db_url)
+                
                 df_banco = st.session_state.df_lido.copy()
                 df_banco.rename(columns={
                     'REG': 'id',
@@ -166,7 +186,7 @@ elif menu == "📥 Importar Planilha":
                 with st.spinner("Conectando ao banco e enviando colaboradores..."):
                     df_banco.to_sql(
                         'pagamentos_premios',
-                        con=engine,
+                        con=engine_temp,
                         schema='public',
                         if_exists='append',
                         index=False
@@ -176,4 +196,4 @@ elif menu == "📥 Importar Planilha":
             except exc.OperationalError as e:
                 st.error("❌ Erro de conexão com o banco de dados.")
             except Exception as e:
-                st.error(f"❌ Erro interno ao processar: {e}")    
+                st.error(f"❌ Erro interno ao processar: {e}")
