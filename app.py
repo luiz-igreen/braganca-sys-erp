@@ -2,24 +2,45 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine
 
-# 1. Captura da URL de conexão diretamente das Secrets
-# O nome da chave aqui precisa ser exatamente igual ao que configuramos no painel
+st.set_page_config(page_title="Sistema de Prêmios", layout="wide")
+st.title("🏆 Sistema de Prêmios - CONSTRUART")
+
+# 1. Captura da URL de conexão das Secrets
 db_url = st.secrets["DATABASE_URL"]
 
-# 2. Criação do motor de conexão (Engine) do SQLAlchemy
+# 2. Criação do motor de conexão
 engine = create_engine(db_url)
 
-# ... (seu código de upload e leitura do Excel aqui) ...
+# 3. Upload do arquivo Excel
+uploaded_file = st.file_uploader("Escolha o arquivo Excel", type=["xls", "xlsx"])
 
-# 3. Lógica de inserção ao clicar no botão
-if st.button("Salvar no Banco de Dados"):
+if uploaded_file is not None:
     try:
-        # df é a variável onde você leu o Excel (pd.read_excel)
-        # Substitua 'nome_da_sua_tabela' pelo nome exato da tabela criada no Supabase
-        df.to_sql('nome_da_sua_tabela', con=engine, if_exists='append', index=False)
+        # Lê o Excel
+        df = pd.read_excel(uploaded_file)
+        st.success(f"✅ Planilha lida com sucesso! ({len(df)} linhas)")
         
-        st.success("Dados salvos com sucesso!")
+        # Mostra preview
+        st.dataframe(df.head())
         
+        # Botão para salvar
+        if st.button("Salvar no Banco de Dados"):
+            try:
+                # Insere na tabela pagamentos_premios no schema public
+                df.to_sql(
+                    'pagamentos_premios',
+                    con=engine,
+                    schema='public',
+                    if_exists='append',
+                    index=False
+                )
+                st.success("✅ Dados salvos com sucesso no Supabase!")
+                
+            except Exception as e:
+                st.error(f"❌ Erro ao salvar: {str(e)}")
+    
     except Exception as e:
-        # É exatamente aqui que aquele erro longo em vermelho estava sendo impresso
-        st.error(f"Erro ao processar a planilha: {e}")
+        st.error(f"❌ Erro ao processar a planilha: {str(e)}")
+
+else:
+    st.info("💡 Faça upload de um arquivo Excel para começar")
