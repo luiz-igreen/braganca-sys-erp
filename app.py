@@ -30,7 +30,7 @@ st.markdown("""
 if 'busca_selecionada_id' not in st.session_state:
     st.session_state['busca_selecionada_id'] = None
 if 'status_acao' not in st.session_state:
-    st.session_state['status_acao'] = None # Pode ser: None, 'solicitou_alterar', 'solicitou_excluir'
+    st.session_state['status_acao'] = None # None, 'solicitou_alterar', 'solicitou_excluir'
 
 # --- NAVEGAÇÃO SPA ---
 menu = st.sidebar.radio("Navegação", ["👥 Visão Geral", "📥 Importação Inteligente", "🛠️ Gestão de Cadastros"])
@@ -58,7 +58,6 @@ elif menu == "📥 Importação Inteligente":
             
             with engine.begin() as conn:
                 for _, row in df_bruto.iterrows():
-                    # Garante mapeamento resiliente dos cabeçalhos primários
                     conn.execute(text("""
                         INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao) 
                         VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao)
@@ -88,12 +87,11 @@ elif menu == "🛠️ Gestão de Cadastros":
     with aba1:
         st.subheader("Consultar Ficha do Colaborador")
         
-        # Campo de busca principal
-        termo = st.text_input("Digite o ID exato ou parte do Nome:", key="input_busca_central")
+        # autocomplete="off" impede o navegador de sugerir lixo de histórico aqui
+        termo = st.text_input("Digite o ID exato ou parte do Nome:", key="input_busca_central", autocomplete="off")
         btn_buscar = st.button("Buscar Registro")
         
         if btn_buscar and termo:
-            # Reseta ações antigas ao fazer nova busca
             st.session_state['status_acao'] = None
             st.session_state['busca_selecionada_id'] = None
             
@@ -122,7 +120,6 @@ elif menu == "🛠️ Gestão de Cadastros":
             except Exception as e:
                 st.error(f"Erro ao pesquisar no banco: {e}")
 
-        # Se houver um colaborador ativo na seção de visualização
         if st.session_state['busca_selecionada_id']:
             colab_id = st.session_state['busca_selecionada_id']
             
@@ -133,7 +130,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                 if colab:
                     st.markdown("### 📋 Ficha Completa do Colaborador")
                     
-                    # Layout em formato de card/painel exibindo TODOS os campos
                     st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                     c1, c2, c3 = st.columns(3)
                     with c1:
@@ -153,7 +149,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.markdown(f'<p class="field-value">{colab.demissao if colab.demissao else "Ativo / Em Aberto"}</p>', unsafe_allow_html=True)
                     st.markdown('</div>', unsafe_allow_html=True)
 
-                    # --- INTERFACE DINÂMICA DE AÇÕES DIRETA ---
                     if st.session_state['status_acao'] is None:
                         col_b1, col_b2, col_b3 = st.columns([1, 1, 2])
                         if col_b1.button("✏️ Alterar Cadastro"):
@@ -167,7 +162,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.session_state['status_acao'] = None
                             st.rerun()
 
-                    # --- FLUXO DE CONFIRMAÇÃO: EXCLUSÃO ---
                     if st.session_state['status_acao'] == 'solicitou_excluir':
                         st.warning(f"⚠️ **PERGUNTA:** Deseja realmente excluir permanentemente o colaborador **{colab.nome}** (ID: {colab.id})?")
                         col_conf1, col_conf2 = st.columns(2)
@@ -182,16 +176,15 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.session_state['status_acao'] = None
                             st.rerun()
 
-                    # --- FLUXO DE CONFIRMAÇÃO E FORMULÁRIO: ALTERAÇÃO ---
                     if st.session_state['status_acao'] == 'solicitou_alterar':
                         st.info("📝 **Modo de Edição Ativo.** Modifique os dados desejados nos campos abaixo:")
                         
                         with st.form("form_edicao_direta"):
-                            edit_nome = st.text_input("Nome Completo", value=str(colab.nome))
-                            edit_cpf = st.text_input("CPF", value=str(colab.cpf) if colab.cpf else "")
-                            edit_cargo = st.text_input("Cargo", value=str(colab.cargo) if colab.cargo else "")
-                            edit_adm = st.text_input("Data Admissão (AAAA-MM-DD)", value=str(colab.admissao) if colab.admissao else "")
-                            edit_dem = st.text_input("Data Demissão (AAAA-MM-DD)", value=str(colab.demissao) if colab.demissao else "")
+                            edit_nome = st.text_input("Nome Completo", value=str(colab.nome), autocomplete="off")
+                            edit_cpf = st.text_input("CPF", value=str(colab.cpf) if colab.cpf else "", autocomplete="off")
+                            edit_cargo = st.text_input("Cargo", value=str(colab.cargo) if colab.cargo else "", autocomplete="off")
+                            edit_adm = st.text_input("Data Admissão (AAAA-MM-DD)", value=str(colab.admissao) if colab.admissao else "", autocomplete="off")
+                            edit_dem = st.text_input("Data Demissão (AAAA-MM-DD)", value=str(colab.demissao) if colab.demissao else "", autocomplete="off")
                             
                             btn_salvar_alt = st.form_submit_button("Confirmar e Salvar Alterações")
                             
@@ -199,7 +192,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 if not edit_nome.strip():
                                     st.error("O nome do colaborador não pode ficar vazio.")
                                 else:
-                                    # Executa a query de atualização com todos os dados tratados
                                     with engine.begin() as conn:
                                         conn.execute(text("""
                                             UPDATE cadastro_geral_colaborador 
@@ -233,12 +225,13 @@ elif menu == "🛠️ Gestão de Cadastros":
             st.rerun()
         
         with st.form("form_novo_cadastro", clear_on_submit=True):
-            n_id = st.text_input("Código ID / Matrícula (Ex: 1025)")
-            n_nome = st.text_input("Nome Completo")
-            n_cpf = st.text_input("CPF (Apenas números)")
-            n_cargo = st.text_input("Cargo Ocupado")
-            n_admissao = st.text_input("Data de Admissão (Formatada AAAA-MM-DD)")
-            n_demissao = st.text_input("Data de Demissão (Opcional - AAAA-MM-DD)")
+            # Adicionado autocomplete="off" em cada um para blindagem completa do formulário de inserção
+            n_id = st.text_input("Código ID / Matrícula (Ex: 1025)", autocomplete="off")
+            n_nome = st.text_input("Nome Completo", autocomplete="off")
+            n_cpf = st.text_input("CPF (Apenas números)", autocomplete="off")
+            n_cargo = st.text_input("Cargo Ocupado", autocomplete="off")
+            n_admissao = st.text_input("Data de Admissão (Formatada AAAA-MM-DD)", autocomplete="off")
+            n_demissao = st.text_input("Data de Demissão (Opcional - AAAA-MM-DD)", autocomplete="off")
             
             if st.form_submit_button("Salvar Registro no Sistema"):
                 if not n_id.strip() or not n_nome.strip():
