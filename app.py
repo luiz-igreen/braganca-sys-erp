@@ -5,6 +5,7 @@ st.set_page_config(page_title="BRAGANÇA SYS - Gestão Corporativa", page_icon="
 
 import pandas as pd
 from sqlalchemy import create_engine, text
+import sqlalchemy.exc
 import datetime
 import io
 
@@ -99,7 +100,6 @@ inicializar_banco_de_dados()
 # --- REGRAS DE NEGÓCIO E AUXILIARES ---
 def validar_id_clt(id_texto):
     id_limpo = str(id_texto).split('.')[0].strip().lower()
-    # Ignora lixo eletrônico, títulos repetidos ou IDs padrão do sistema
     if id_limpo in ['1', '01', '001', '0001', '', 'nan', 'null', 'id', 'matricula', 'matrícula', 'código', 'codigo', 'num', 'número']:
         return False
     return True
@@ -167,13 +167,12 @@ if menu == "👥 Visão Geral":
         st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================================
-# 2. MENU: IMPORTAÇÃO INTELIGENTE (SISTEMA DE MAPEAMENTO DINÂMICO E POSICIONAL)
+# 2. MENU: IMPORTAÇÃO INTELIGENTE (SISTEMA UPSERT BLINDADO CONTRA DUPLICADOS)
 # =========================================================================
 elif menu == "📥 Importação Inteligente":
     st.markdown("<h2>📥 Importação e Ingestão de Dados</h2>", unsafe_allow_html=True)
-    st.markdown("Carregue a planilha exportada. O motor executará varreduras tolerantes a falhas estruturais ou linhas malformadas.")
+    st.markdown("Carregue a planilha exportada. O motor executará sincronizações resilientes via UPSERT (Insere novos e atualiza existentes).")
     
-    # --- SISTEMA DE FEEDBACK SEGURO ---
     if 'flash_sucesso' in st.session_state:
         st.success(st.session_state['flash_sucesso'])
         del st.session_state['flash_sucesso']
@@ -189,27 +188,24 @@ elif menu == "📥 Importação Inteligente":
     if arquivo_carregado:
         st.markdown("<div class='panel-glass'>", unsafe_allow_html=True)
         if st.button("Executar Ingestão Certificada", type="primary"):
-            with st.spinner("Mapeando colunas e cruzando dados com o Supabase..."):
+            with st.spinner("Sincronizando dados com o Supabase sem risco de duplicidade..."):
                 
                 conteudo_bytes = arquivo_carregado.read()
                 nome_arquivo = arquivo_carregado.name.lower()
                 df_bruto = None
                 
-                # Camada 1: Excel Moderno
                 if nome_arquivo.endswith('.xlsx'):
                     try:
                         df_bruto = pd.read_excel(io.BytesIO(conteudo_bytes), sheet_name=0, engine='openpyxl')
                     except Exception:
                         pass
                 
-                # Camada 2: Excel Antigo
                 if (df_bruto is None or df_bruto.empty) and nome_arquivo.endswith('.xls'):
                     try:
                         df_bruto = pd.read_excel(io.BytesIO(conteudo_bytes), sheet_name=0, engine='xlrd')
                     except Exception:
                         pass
                 
-                # Camada 3: CSV Dinâmico
                 if df_bruto is None or df_bruto.empty:
                     for caractere_separador in [';', ',', '\t']:
                         for codificacao_texto in ['utf-8', 'latin1', 'iso-8859-1']:
@@ -228,86 +224,79 @@ elif menu == "📥 Importação Inteligente":
                         if df_bruto is not None and not df_bruto.empty:
                             break
                 
-                # Processamento com Mapeamento Tolerante
                 if df_bruto is None or df_bruto.empty:
                     st.session_state['flash_erro'] = "❌ Erro Crítico: Não foi possível estruturar o arquivo enviado."
                     st.rerun()
                 else:
-                    # --- ALGORITMO DE MAPEAMENTO POR SINÔNIMOS OU FALLBACK POSICIONAL ---
                     cols = df_bruto.columns
                     
-                    # Procura coluna de ID por sinônimo, senão adota a 1ª coluna (Índice 0)
                     col_id = next((c for c in cols if any(x in str(c).lower() for x in ['id', 'matr', 'cod', 'nº', 'num'])), cols[0] if len(cols) > 0 else None)
-                    
-                    # Procura coluna de Nome por sinônimo, senão adota a 2ª coluna (Índice 1)
                     col_nome = next((c for c in cols if any(x in str(c).lower() for x in ['nome', 'colab', 'func', 'empreg'])), cols[1] if len(cols) > 1 else None)
-                    
-                    # Procura coluna de CPF, senão adota a 3ª coluna (Índice 2)
                     col_cpf = next((c for c in cols if 'cpf' in str(c).lower()), cols[2] if len(cols) > 2 else None)
-                    
-                    # Procura coluna de Cargo, senão adota a 4ª coluna (Índice 3)
                     col_cargo = next((c for c in cols if any(x in str(c).lower() for x in ['cargo', 'funç', 'ocupa'])), cols[3] if len(cols) > 3 else None)
-                    
-                    # Procura coluna de Admissão, senão adota a 5ª coluna (Índice 4)
                     col_adm = next((c for c in cols if any(x in str(c).lower() for x in ['adm', 'ingr', 'data'])), cols[4] if len(cols) > 4 else None)
-                    
-                    # Procura coluna de Demissão, senão adota a 6ª coluna (Índice 5)
                     col_dem = next((c for c in cols if any(x in str(c).lower() for x in ['dem', 'saida', 'deslig'])), cols[5] if len(cols) > 5 else None)
-                    
-                    # Canal PIX opcional
                     col_pix = next((c for c in cols if any(x in str(c).lower() for x in ['pix', 'chave'])), None)
                     
-                    # CARGA INICIAL DE VALIDAÇÃO EM LOTE
                     with engine.connect() as conn:
                         ids_existentes = set(str(r[0]).strip() for r in conn.execute(text("SELECT id FROM cadastro_geral_colaborador")).fetchall())
                     
                     novos_cadastros = 0
-                    ja_existentes = 0
+                    atualizados_cadastros = 0
                     linhas_invalidas = 0
+                    ids_processados_nesta_execucao = set()
                     
-                    with engine.begin() as conn:
-                        for _, row in df_bruto.iterrows():
-                            val_id = row[col_id] if col_id is not None else None
-                            id_func = formatar_id_limpo(val_id)
-                            
-                            # Validação rigorosa do ID extraído da coluna mapeada
-                            if not id_func or not validar_id_clt(id_func):
-                                linhas_invalidas += 1
-                                continue
-                            
-                            if id_func in ids_existentes:
-                                ja_existentes += 1
-                                continue
-                            
-                            # Coleta resiliente de metadados
-                            nome_func = str(row[col_nome]).strip() if col_nome is not None and pd.notna(row[col_nome]) else "Colaborador Sem Nome"
-                            cpf_func = limpar_cpf(row[col_cpf]) if col_cpf is not None else ""
-                            cargo_func = str(row[col_cargo]).strip() if col_cargo is not None and pd.notna(row[col_cargo]) else ""
-                            
-                            dt_adm = converter_data_resiliente(row[col_adm]) if col_adm is not None else None
-                            dt_dem = converter_data_resiliente(row[col_dem]) if col_dem is not None else None
-                            
-                            pix_func = str(row[col_pix]).strip() if col_pix is not None and pd.notna(row[col_pix]) else None
-                            
-                            conn.execute(
-                                text("""
-                                    INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, chave_pix)
-                                    VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :pix)
-                                """),
-                                {
-                                    "id": id_func, "nome": nome_func, "cpf": cpf_func, "cargo": cargo_func,
-                                    "admissao": dt_adm, "demissao": dt_dem, "pix": pix_func
-                                }
-                            )
-                            novos_cadastros += 1
+                    try:
+                        with engine.begin() as conn:
+                            for _, row in df_bruto.iterrows():
+                                val_id = row[col_id] if col_id is not None else None
+                                id_func = formatar_id_limpo(val_id)
+                                
+                                if not id_func or not validar_id_clt(id_func):
+                                    linhas_invalidas += 1
+                                    continue
+                                
+                                # Define métricas reais de novos vs atualizados
+                                if id_func in ids_existentes or id_func in ids_processados_nesta_execucao:
+                                    atualizados_cadastros += 1
+                                else:
+                                    novos_cadastros += 1
+                                
+                                ids_processados_nesta_execucao.add(id_func)
+                                
+                                nome_func = str(row[col_nome]).strip() if col_nome is not None and pd.notna(row[col_nome]) else "Colaborador Sem Nome"
+                                cpf_func = limpar_cpf(row[col_cpf]) if col_cpf is not None else ""
+                                cargo_func = str(row[col_cargo]).strip() if col_cargo is not None and pd.notna(row[col_cargo]) else ""
+                                dt_adm = converter_data_resiliente(row[col_adm]) if col_adm is not None else None
+                                dt_dem = converter_data_resiliente(row[col_dem]) if col_dem is not None else None
+                                pix_func = str(row[col_pix]).strip() if col_pix is not None and pd.notna(row[col_pix]) else None
+                                
+                                # OPERAÇÃO UPSERT: Se houver conflito de ID, atualiza os dados
+                                conn.execute(
+                                    text("""
+                                        INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, chave_pix)
+                                        VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :pix)
+                                        ON CONFLICT (id) DO UPDATE SET
+                                            nome = EXCLUDED.nome,
+                                            cpf = EXCLUDED.cpf,
+                                            cargo = EXCLUDED.cargo,
+                                            admissao = EXCLUDED.admissao,
+                                            demissao = EXCLUDED.demissao,
+                                            chave_pix = EXCLUDED.chave_pix
+                                    """),
+                                    {
+                                        "id": id_func, "nome": nome_func, "cpf": cpf_func, "cargo": cargo_func,
+                                        "admissao": dt_adm, "demissao": dt_dem, "pix": pix_func
+                                    }
+                                )
+                        
+                        if novos_cadastros > 0 or atualizados_cadastros > 0:
+                            st.session_state['flash_sucesso'] = f"🎉 Ingestão executada com total integridade! {novos_cadastros} novos registros criados e {atualizados_cadastros} registros atualizados/sincronizados com sucesso. (Linhas descartadas/cabeçalhos: {linhas_invalidas})"
+                        else:
+                            st.session_state['flash_aviso'] = f"⚠️ Nenhum dado útil pôde ser processado das {linhas_invalidas} linhas analisadas."
                     
-                    # --- CRITÉRIOS DE FEEDBACK DE AUDITORIA ---
-                    if novos_cadastros > 0:
-                        st.session_state['flash_sucesso'] = f"🎉 Sucesso! {novos_cadastros} novos colaboradores foram integrados ao Supabase. (Já mapeados anteriormente: {ja_existentes} | Linhas vazias ou cabeçalhos filtrados: {linhas_invalidas})"
-                    elif ja_existentes > 0:
-                        st.session_state['flash_aviso'] = f"⚠️ Ingestão Concluída: Nenhum registro novo foi adicionado porque todos os {ja_existentes} colaboradores localizados no arquivo já constam na base do Supabase."
-                    else:
-                        st.session_state['flash_erro'] = f"❌ Erro de Leitura: Não foi possível extrair dados válidos. O sistema analisou o arquivo e processou {linhas_invalidas} linhas como inválidas ou cabeçalhos de texto. Verifique o conteúdo interno da tabela."
+                    except sqlalchemy.exc.IntegrityError as ie:
+                        st.session_state['flash_erro'] = "❌ Erro de Integridade Estrutural: Conflito intransponível detectado nos dados estruturais da planilha."
                     
                     st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
@@ -380,23 +369,31 @@ elif menu == "🛠️ Gestão de Cadastros":
                     st.error("❌ Os campos ID e Nome são estritamente obrigatórios.")
                 elif not validar_id_clt(id_limpo):
                     st.error("❌ Erro de Segurança: Este formato de ID é protegido ou inválido para fins do sistema.")
-                elif not df_colab.empty and id_limpo in df_colab['id'].astype(str).tolist():
-                    st.error(f"❌ Conflito de Chave: O ID '{id_limpo}' já está cadastrado.")
                 else:
-                    with engine.begin() as conn:
-                        conn.execute(
-                            text("""
-                                INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, chave_pix)
-                                VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :pix)
-                            """),
-                            {
-                                "id": id_limpo, "nome": n_nome.strip(), "cpf": cpf_limpo,
-                                "cargo": n_cargo.strip(), "admissao": n_adm,
-                                "demissao": n_dem, "pix": n_pix.strip()
-                            }
-                        )
-                    st.success("🎉 Colaborador inserido com sucesso absoluto no Supabase!")
-                    st.rerun()
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(
+                                text("""
+                                    INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, chave_pix)
+                                    VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :pix)
+                                    ON CONFLICT (id) DO UPDATE SET
+                                        nome = EXCLUDED.nome,
+                                        cpf = EXCLUDED.cpf,
+                                        cargo = EXCLUDED.cargo,
+                                        admissao = EXCLUDED.admissao,
+                                        demissao = EXCLUDED.demissao,
+                                        chave_pix = EXCLUDED.chave_pix
+                                """),
+                                {
+                                    "id": id_limpo, "nome": n_nome.strip(), "cpf": cpf_limpo,
+                                    "cargo": n_cargo.strip(), "admissao": n_adm,
+                                    "demissao": n_dem, "pix": n_pix.strip()
+                                }
+                            )
+                        st.success("🎉 Colaborador gravado e sincronizado com sucesso no Supabase!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Erro operacional ao gravar dados: {str(e)}")
         st.markdown("</div>", unsafe_allow_html=True)
 
     # --- ALTERAR ---
@@ -477,4 +474,4 @@ elif menu == "🛠️ Gestão de Cadastros":
                         conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_deletar})
                     st.success(f"💥 Matrícula {id_deletar} removida permanentemente do banco de dados.")
                     st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)    
+        st.markdown("</div>", unsafe_allow_html=True)
