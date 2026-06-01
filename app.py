@@ -23,12 +23,12 @@ engine = create_engine(st.secrets["DATABASE_URL"])
 # --- FUNÇÃO DE SEGURANÇA PARA CARGA DE DADOS ---
 def carregar_dados():
     """Tenta ler a tabela do Supabase. Se ela não existir, evita o crash 
-    e retorna um DataFrame estruturado vazio."""
+    e retorna um DataFrame estruturado vazio com o novo campo 'id_funcionario'."""
     try:
         return pd.read_sql("SELECT * FROM premios_funcionarios", engine)
     except Exception:
         return pd.DataFrame(columns=[
-            'codigo_funcionario', 'nome', 'cpf', 
+            'id_funcionario', 'nome', 'cpf', 
             'valor_premio_final', 'competencia_mes_ano'
         ])
 
@@ -56,8 +56,8 @@ if menu == "👥 Visão Geral":
     if df_banco.empty:
         st.info("💡 A tabela de prêmios ainda não foi detectada no novo banco de dados Supabase. Mude para a aba **📥 Importação** na lateral para carregar a planilha oficial pela primeira vez.")
     else:
-        # KPIs Dinâmicos com Fallbacks de segurança de colunas
-        total_func = df_banco['codigo_funcionario'].nunique() if 'codigo_funcionario' in df_banco.columns else df_banco['nome'].nunique()
+        # KPIs Dinâmicos com Fallbacks atualizados para 'id_funcionario'
+        total_func = df_banco['id_funcionario'].nunique() if 'id_funcionario' in df_banco.columns else df_banco['nome'].nunique()
         total_valor = df_banco['valor_premio_final'].sum() if 'valor_premio_final' in df_banco.columns else 0.0
         
         col1, col2 = st.columns(2)
@@ -96,7 +96,6 @@ elif menu == "🛠️ Gestão Manual":
             comp = c2.text_input("Competência (Ex: 04-2024)")
             
             if st.form_submit_button("💾 Salvar"):
-                # Uso de bloco transacional explícito (engine.begin) garante a persistência física imediata (COMMIT)
                 with engine.begin() as conn:
                     conn.execute(
                         text("INSERT INTO premios_funcionarios (nome, cpf, valor_premio_final, competencia_mes_ano) VALUES (:n, :c, :v, :m)"), 
@@ -122,4 +121,4 @@ elif menu == "🛠️ Gestão Manual":
     if st.button("✏️ Alterar Selecionado"): pass 
     if st.button("🗑️ Excluir Selecionado"): 
         if st.checkbox("Confirmar deleção?"):
-            pass    
+            pass
