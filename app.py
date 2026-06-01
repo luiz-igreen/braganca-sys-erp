@@ -55,13 +55,14 @@ elif menu == "📥 Importação Inteligente":
 elif menu == "🛠️ Gestão de Cadastros":
     aba1, aba2, aba3, aba4 = st.tabs(["🔍 Consultar", "➕ Novo", "✏️ Alterar", "❌ Excluir"])
 
-    with aba1: # CONSULTAR
+    with aba1: # CONSULTAR (Corrigido para buscar ID ou Nome)
         st.subheader("Consultar")
-        termo = st.text_input("Busca:", key="busca_consulta")
-        # Botão explícito para busca
+        termo = st.text_input("Busca (ID ou Nome):", key="busca_consulta")
         if st.button("Buscar"):
             if termo:
-                res = engine.connect().execute(text("SELECT * FROM cadastro_geral_colaborador WHERE nome ILIKE :t"), {"t": f"%{termo}%"}).fetchall()
+                # Query ajustada para buscar nome OU id
+                sql = "SELECT * FROM cadastro_geral_colaborador WHERE nome ILIKE :t OR CAST(id AS TEXT) ILIKE :t"
+                res = engine.connect().execute(text(sql), {"t": f"%{termo}%"}).fetchall()
                 if res:
                     for r in res: st.write(f"ID: {r.id} | Nome: {r.nome}")
                 else:
@@ -69,9 +70,8 @@ elif menu == "🛠️ Gestão de Cadastros":
 
     with aba2: # NOVO
         st.subheader("Novo Cadastro")
-        # Botão cancelar direto
         if st.button("Cancelar Operação"): 
-            st.rerun()
+            st.rerun() # Comando direto para limpar
         
         with st.form("form_novo", clear_on_submit=True):
             i_id = st.text_input("ID")
@@ -124,4 +124,4 @@ elif menu == "🛠️ Gestão de Cadastros":
             with engine.begin() as conn: conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": sel_del.split(" - ")[0]})
             st.rerun()
         if cols[1].button("Cancelar"):
-            st.rerun()    
+            st.rerun() # Limpa a tela imediatamente    
