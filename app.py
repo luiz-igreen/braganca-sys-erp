@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, text
-import datetime
 
 # --- CONFIGURAÇÃO INICIAL ---
 st.set_page_config(page_title="BRAGANÇA SYS", page_icon="🏗️", layout="wide")
@@ -22,20 +21,21 @@ st.markdown("""
 if 'id_edicao' not in st.session_state: st.session_state['id_edicao'] = None
 
 def reset_state():
-    """Função centralizada para resetar estados e limpar formulários"""
+    """Limpa o estado da edição para resetar a interface"""
     st.session_state['id_edicao'] = None
-    st.rerun()
+    # O comando st.rerun() foi removido daqui para evitar o aviso técnico, 
+    # pois o clique do botão já atualiza a tela automaticamente.
 
 # --- NAVEGAÇÃO ---
 menu = st.sidebar.radio("Navegação", ["👥 Visão Geral", "📥 Importação Inteligente", "🛠️ Gestão de Cadastros"])
 
-# --- 1. VISÃO GERAL (Preservado) ---
+# --- 1. VISÃO GERAL ---
 if menu == "👥 Visão Geral":
     st.title("📊 Painel Corporativo")
     df = pd.read_sql("SELECT * FROM cadastro_geral_colaborador", engine)
     st.dataframe(df, use_container_width=True)
 
-# --- 2. IMPORTAÇÃO INTELIGENTE (Preservado) ---
+# --- 2. IMPORTAÇÃO INTELIGENTE ---
 elif menu == "📥 Importação Inteligente":
     st.title("📥 Importação Inteligente")
     arquivo = st.file_uploader("Selecione o arquivo (.xlsx, .csv)", type=["xlsx", "csv"])
@@ -70,7 +70,7 @@ elif menu == "🛠️ Gestão de Cadastros":
 
     with aba2: # NOVO
         st.subheader("Novo Cadastro")
-        # Botão de cancelamento com callback (on_click) - Infalível
+        # Botão de cancelamento limpo
         st.button("Cancelar Operação", on_click=reset_state, key="cancel_novo")
         
         with st.form("form_novo", clear_on_submit=True):
@@ -98,7 +98,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                 st.rerun()
         else:
             id_alt = st.session_state['id_edicao']
-            # Botão de cancelamento com callback
+            # Botão de cancelamento limpo
             st.button("Cancelar Edição", on_click=reset_state, key="cancel_alt")
             
             dados = engine.connect().execute(text("SELECT * FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_alt}).fetchone()
@@ -111,7 +111,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                         with engine.begin() as conn: 
                             conn.execute(text("UPDATE cadastro_geral_colaborador SET nome = :n WHERE id = :id"), {"n": n_nome, "id": id_alt})
                         st.success("Alterado com sucesso!")
-                        reset_state() # Reseta e força o rerun
+                        reset_state()
 
     with aba4: # EXCLUIR
         st.subheader("Excluir Cadastro")
@@ -122,4 +122,4 @@ elif menu == "🛠️ Gestão de Cadastros":
             with engine.begin() as conn: conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": sel_del.split(" - ")[0]})
             st.rerun()
         if cols[1].button("Cancelar"):
-            st.rerun()
+            st.rerun()    
