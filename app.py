@@ -20,12 +20,6 @@ st.markdown("""
 # --- CONTROLE DE ESTADO ---
 if 'id_edicao' not in st.session_state: st.session_state['id_edicao'] = None
 
-def reset_state():
-    """Limpa o estado da edição para resetar a interface"""
-    st.session_state['id_edicao'] = None
-    # O comando st.rerun() foi removido daqui para evitar o aviso técnico, 
-    # pois o clique do botão já atualiza a tela automaticamente.
-
 # --- NAVEGAÇÃO ---
 menu = st.sidebar.radio("Navegação", ["👥 Visão Geral", "📥 Importação Inteligente", "🛠️ Gestão de Cadastros"])
 
@@ -61,17 +55,23 @@ elif menu == "📥 Importação Inteligente":
 elif menu == "🛠️ Gestão de Cadastros":
     aba1, aba2, aba3, aba4 = st.tabs(["🔍 Consultar", "➕ Novo", "✏️ Alterar", "❌ Excluir"])
 
-    with aba1:
+    with aba1: # CONSULTAR
         st.subheader("Consultar")
         termo = st.text_input("Busca:", key="busca_consulta")
-        if termo:
-            res = engine.connect().execute(text("SELECT * FROM cadastro_geral_colaborador WHERE nome ILIKE :t"), {"t": f"%{termo}%"}).fetchall()
-            for r in res: st.write(f"ID: {r.id} | Nome: {r.nome}")
+        # Botão explícito para busca
+        if st.button("Buscar"):
+            if termo:
+                res = engine.connect().execute(text("SELECT * FROM cadastro_geral_colaborador WHERE nome ILIKE :t"), {"t": f"%{termo}%"}).fetchall()
+                if res:
+                    for r in res: st.write(f"ID: {r.id} | Nome: {r.nome}")
+                else:
+                    st.warning("Nenhum registro encontrado.")
 
     with aba2: # NOVO
         st.subheader("Novo Cadastro")
-        # Botão de cancelamento limpo
-        st.button("Cancelar Operação", on_click=reset_state, key="cancel_novo")
+        # Botão cancelar direto
+        if st.button("Cancelar Operação"): 
+            st.rerun()
         
         with st.form("form_novo", clear_on_submit=True):
             i_id = st.text_input("ID")
@@ -98,8 +98,9 @@ elif menu == "🛠️ Gestão de Cadastros":
                 st.rerun()
         else:
             id_alt = st.session_state['id_edicao']
-            # Botão de cancelamento limpo
-            st.button("Cancelar Edição", on_click=reset_state, key="cancel_alt")
+            if st.button("Cancelar Edição"): 
+                st.session_state['id_edicao'] = None
+                st.rerun()
             
             dados = engine.connect().execute(text("SELECT * FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_alt}).fetchone()
             with st.form("form_alt"):
@@ -110,8 +111,9 @@ elif menu == "🛠️ Gestão de Cadastros":
                     else:
                         with engine.begin() as conn: 
                             conn.execute(text("UPDATE cadastro_geral_colaborador SET nome = :n WHERE id = :id"), {"n": n_nome, "id": id_alt})
+                        st.session_state['id_edicao'] = None
                         st.success("Alterado com sucesso!")
-                        reset_state()
+                        st.rerun()
 
     with aba4: # EXCLUIR
         st.subheader("Excluir Cadastro")
