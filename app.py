@@ -24,7 +24,7 @@ st.markdown("""
     .field-label { color: #94a3b8; font-size: 0.9rem; font-weight: bold; }
     .field-value { color: #f8fafc; font-size: 1.1rem; margin-bottom: 12px; background: rgba(15, 23, 42, 0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); }
     
-    /* Customização para transformar o radio button em abas premium clicáveis */
+    /* Abas customizadas premium via radio */
     div[data-testid="stRadio"] > div {
         flex-direction: row;
         gap: 10px;
@@ -104,7 +104,7 @@ elif menu == "📥 Importação Inteligente":
 elif menu == "🛠️ Gestão de Cadastros":
     st.title("🛠️ Gestão de Cadastros")
     
-    # Abas dinâmicas controladas via código para permitir redirecionamento no Cancelar
+    # Abas dinâmicas via Session State
     sub_menu = st.radio(
         label="Menu de Operações",
         options=["🔍 Consultar & Gerenciar", "➕ Novo Cadastro"],
@@ -118,7 +118,7 @@ elif menu == "🛠️ Gestão de Cadastros":
     if sub_menu == "🔍 Consultar & Gerenciar":
         st.subheader("Consultar Ficha do Colaborador")
         
-        termo = st.text_input("Digite o ID exato ou parte do Nome:", key="input_busca_central", autocomplete="off")
+        termo = st.text_input("Digite o ID exato ou parte do Nome:", key="input_busca_central", autocomplete="new-password")
         btn_buscar = st.button("Buscar Registro")
         
         if btn_buscar and termo:
@@ -207,14 +207,14 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.rerun()
 
                     if st.session_state['status_acao'] == 'solicitou_alterar':
-                        st.info("📝 **Modo de Edição Ativo.** Modifique os dados desejados nos campos abaixo:")
+                        st.info("📝 **Modo de Edição Active.** Modifique os dados desejados nos campos abaixo:")
                         
                         with st.form("form_edicao_direta"):
-                            edit_nome = st.text_input("Nome Completo", value=str(colab.nome), autocomplete="off")
-                            edit_cpf = st.text_input("CPF", value=str(colab.cpf) if colab.cpf else "", autocomplete="off")
-                            edit_cargo = st.text_input("Cargo", value=str(colab.cargo) if colab.cargo else "", autocomplete="off")
-                            edit_adm = st.text_input("Data Admissão (AAAA-MM-DD)", value=str(colab.admissao) if colab.admissao else "", autocomplete="off")
-                            edit_dem = st.text_input("Data Demissão (AAAA-MM-DD)", value=str(colab.demissao) if colab.demissao else "", autocomplete="off")
+                            edit_nome = st.text_input("Nome Completo", value=str(colab.nome), autocomplete="new-password")
+                            edit_cpf = st.text_input("CPF", value=str(colab.cpf) if colab.cpf else "", placeholder="00000000000", autocomplete="new-password")
+                            edit_cargo = st.text_input("Cargo", value=str(colab.cargo) if colab.cargo else "", autocomplete="new-password")
+                            edit_adm = st.text_input("Data Admissão (AAAA-MM-DD)", value=str(colab.admissao) if colab.admissao else "", autocomplete="new-password")
+                            edit_dem = st.text_input("Data Demissão (AAAA-MM-DD)", value=str(colab.demissao) if colab.demissao else "", autocomplete="new-password")
                             
                             btn_salvar_alt = st.form_submit_button("Confirmar e Salvar Alterações")
                             
@@ -248,27 +248,26 @@ elif menu == "🛠️ Gestão de Cadastros":
             except Exception as e:
                 st.error(f"Falha de comunicação operacional: {e}")
 
-    # --- ABA: NOVO CADASTRO (COM BOTÃO CANCELAR INTEGRADO) ---
+    # --- ABA: NOVO CADASTRO ---
     elif sub_menu == "➕ Novo Cadastro":
-        # Layout de cabeçalho com título e botão de cancelamento imediato ao lado
         col_tit, col_can = st.columns([3, 1])
         with col_tit:
             st.subheader("Inserir Novo Colaborador")
         with col_can:
-            # Botão de Cancelamento para retornar ao estado padrão imediatamente
             if st.button("⬅️ Cancelar e Voltar", use_container_width=True):
                 st.session_state['sub_menu_cadastro'] = "🔍 Consultar & Gerenciar"
                 st.rerun()
                 
-        st.markdown('</div>', unsafe_allow_html=True)
-        
         with st.form("form_novo_cadastro", clear_on_submit=True):
-            n_id = st.text_input("Código ID / Matrícula (Ex: 1025)", autocomplete="off")
-            n_nome = st.text_input("Nome Completo", autocomplete="off")
-            n_cpf = st.text_input("CPF (Apenas números)", autocomplete="off")
-            n_cargo = st.text_input("Cargo Ocupado", autocomplete="off")
-            n_admissao = st.text_input("Data de Admissão (Formatada AAAA-MM-DD)", autocomplete="off")
-            n_demissao = st.text_input("Data de Demissão (Opcional - AAAA-MM-DD)", autocomplete="off")
+            n_id = st.text_input("Código ID / Matrícula (Ex: 1025)", autocomplete="new-password")
+            n_nome = st.text_input("Nome Completo", autocomplete="new-password")
+            
+            # Blindagem absoluta contra vazamento e sugestão de cartões de crédito locais
+            n_cpf = st.text_input("CPF (Apenas números)", placeholder="Ex: 00011122233", autocomplete="new-password")
+            
+            n_cargo = st.text_input("Cargo Ocupado", autocomplete="new-password")
+            n_admissao = st.text_input("Data de Admissão (Formatada AAAA-MM-DD)", autocomplete="new-password")
+            n_demissao = st.text_input("Data de Demissão (Opcional - AAAA-MM-DD)", autocomplete="new-password")
             
             st.markdown("<br>", unsafe_allow_html=True)
             col_sb1, col_sb2 = st.columns([2, 2])
@@ -296,7 +295,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 "demissao": str(n_demissao) if n_demissao.strip() else None
                             })
                         st.success(f"Colaborador {n_nome} inserido com total integridade!")
-                        # Redireciona de volta após salvar com sucesso
                         st.session_state['sub_menu_cadastro'] = "🔍 Consultar & Gerenciar"
                         st.rerun()
                     except Exception as e:
