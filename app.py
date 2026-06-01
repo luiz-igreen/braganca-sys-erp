@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, text
+from datetime import datetime
 
 # --- CONFIGURAÇÃO DE DESIGN (UI/UX PREMIUM) ---
 st.set_page_config(page_title="BRAGANÇA SYS - Módulo de Prêmios", page_icon="🏗️", layout="wide")
@@ -23,7 +24,6 @@ engine = create_engine(st.secrets["DATABASE_URL"])
 def inicializar_estrutura_banco():
     """Garante a criação das tabelas com restrições rígidas de integridade diretamente no Supabase."""
     with engine.begin() as conn:
-        # Tabela Cadastral com ID definido como Chave Primária Absoluta (Registro do Livro)
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS cadastro_geral_colaborador (
                 id TEXT PRIMARY KEY,
@@ -35,7 +35,6 @@ def inicializar_estrutura_banco():
                 chave_pix TEXT
             );
         """))
-        # Tabela de Histórico de Prêmios/Salários
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS premios_funcionarios (
                 id_sn SERIAL PRIMARY KEY,
@@ -46,26 +45,40 @@ def inicializar_estrutura_banco():
             );
         """))
 
-# Executa a validação estrutural antes de renderizar a interface
 inicializar_estrutura_banco()
 
-# --- FUNÇÃO AUXILIAR DE VALIDAÇÃO LEGISLATIVA (CLT/MTE) ---
+# --- FUNÇÕES AUXILIARES DE TRATAMENTO DE ENGENHARIA DE DADOS ---
 def validar_id_clt(id_texto):
-    """Retorna False se o ID for a Chave Mestra 1 (ou variações com zero à esquerda), protegendo a legalidade do sistema."""
-    id_limpo = str(id_texto).strip()
-    if id_limpo in ['1', '01', '001', '0001', '00001']:
+    """Bloqueia o ID 1 (Chave Mestra) em conformidade com as normas do MTE/CLT."""
+    id_limpo = str(id_texto).split('.')[0].strip()
+    if id_limpo in ['1', '01', '001', '0001']:
         return False
-    try:
-        if int(float(id_limpo)) == 1:
-            return False
-    except ValueError:
-        pass
     return True
+
+def formatar_id_limpo(id_original):
+    """Remove pontos flutuantes vindos de leituras incorretas de arquivos (ex: 2.0 vira 2)."""
+    if pd.isna(id_original):
+        return None
+    return str(id_original).split('.')[0].strip()
+
+def converter_data_excel(valor_coluna):
+    """Converte números seriais do Excel (ex: 44460.0) ou strings comuns para objetos de data reais."""
+    if pd.isna(valor_coluna) or str(valor_coluna).strip() == "":
+        return None
+    try:
+        # Tenta converter caso o Excel tenha enviado como número serial bruto
+        num_serial = float(valor_coluna)
+        return pd.to_datetime(num_serial, unit='D', origin='1899-12-30').date()
+    except ValueError:
+        try:
+            # Caso venha como string de data tradicional
+            return pd.to_datetime(valor_coluna).date()
+        except:
+            return None
 
 # --- FUNÇÕES SEGURAS DE LEITURA DE DADOS ---
 def carregar_colaboradores():
     try:
-        # Mantém a listagem estritamente ordenada pela ordem cronológica de admissão
         return pd.read_sql("SELECT id, nome, cpf, cargo, admissao, demissao, chave_pix FROM cadastro_geral_colaborador ORDER BY admissao ASC", engine)
     except Exception:
         return pd.DataFrame(columns=['id', 'nome', 'cpf', 'cargo', 'admissao', 'demissao', 'chave_pix'])
@@ -99,79 +112,98 @@ if menu == "👥 Visão Geral":
         st.subheader("📋 Lista Geral de Funcionários (Ordenado por Data de Admissão)")
         st.dataframe(df_colab, use_container_width=True, hide_index=True)
 
-# --- ABA 2: IMPORTAÇÃO INTELIGENTE (COM FILTRO RÍGIDO DE LEGISLAÇÃO) ---
+# --- ABA 2: IMPORTAÇÃO INTELIGENTE (COM CONVERSOR DE DATA EXCEL E FILTRO CLT) ---
 elif menu == "📥 Importação Inteligente":
     st.title("📥 Importação e Ingestão de Dados")
-    st.markdown("Carregue a planilha `Empregados-Bragança.xlsx`. O sistema aplicará as travas automáticas da CLT para o ID de Registro.")
+    st.markdown("Carregue a planilha `Empregados-Bragança.xlsx` para realizar a carga automática segura no Supabase.")
     
-    uploaded_file = st.file_uploader("Selecione o arquivo Excel", type=["xlsx"])
+    uploaded_file = st.file_uploader("Selecione o arquivo Excel", type=["xlsx", "csv"])
     
     if uploaded_file:
-        if st.button("Executar Engenharia de Dados", type="primary"):
+        if st.button("Executar Ingestão Certificada", type="primary"):
             with st.spinner("Processando dados e aplicando travas de integridade..."):
-                df_raw = pd.read_excel(uploaded_file, sheet_name=0)
+                
+                # Leitura dinâmica para aceitar Excel ou CSV convertidos
+                if uploaded_file.name.endswith('.csv'):
+                    df_raw = pd.read_csv(uploaded_file, sep=None, engine='python')
+                else:
+                    df_raw = pd.read_excel(uploaded_file, sheet_name=0)
+                
                 df_raw.columns = [col.strip().lower() for col in df_raw.columns]
                 
-                # 1. Tratamento do Cadastro Geral
+                # Ajusta o ID removendo o ".0" flutuante
+                if 'id' in df_raw.columns:
+                    df_raw['id'] = df_raw['id'].apply(formatar_id_limpo)
+                
+                # 1. Tratamento e Isolamento do Cadastro Geral
                 campos_cadastro = ['id', 'nome', 'cpf', 'cargo', 'admissao', 'demissao']
+                # Mapeia sinônimos caso a coluna possua acentuação na planilha
+                df_raw = df_raw.rename(columns={'admissão': 'admissao', 'demissão': 'demissao'})
+                
                 campos_existentes = [c for c in campos_cadastro if c in df_raw.columns]
-                
                 df_cadastro_final = df_raw[campos_existentes].drop_duplicates(subset=['id']).copy()
-                df_cadastro_final['id'] = df_cadastro_final['id'].astype(str).str.strip()
                 
-                # --- TRAVA 1: FILTRO CLT (Exclui automaticamente linhas que tentem usar o ID 1 da planilha) ---
+                # Executa filtros rígidos de proteção
                 df_cadastro_final = df_cadastro_final[df_cadastro_final['id'].apply(validar_id_clt)]
+                df_cadastro_final['admissao'] = df_cadastro_final['admissao'].apply(converter_data_excel)
+                df_cadastro_final['demissao'] = df_cadastro_final['demissao'].apply(converter_data_excel)
                 
                 if 'cpf' in df_cadastro_final.columns:
-                    df_cadastro_final['cpf'] = df_cadastro_final['cpf'].astype(str)
+                    df_cadastro_final['cpf'] = df_cadastro_final['cpf'].astype(str).str.replace(r'\.0$', '', regex=True)
                 
                 if 'chave_pix' in df_raw.columns:
                     df_cadastro_final['chave_pix'] = df_raw['chave_pix']
                 else:
                     df_cadastro_final['chave_pix'] = None
                 
+                # Garante o posicionamento correto e imutável das colunas
                 ordem_obrigatoria = ['id', 'nome', 'cpf', 'cargo', 'admissao', 'demissao', 'chave_pix']
                 df_cadastro_final = df_cadastro_final.reindex(columns=ordem_obrigatoria)
                 
-                # --- TRAVA 2: ANTI-DUPLICIDADE ---
+                # Trava Anti-Duplicidade contra chaves primárias existentes
                 if not df_colab.empty:
                     ids_existentes = df_colab['id'].astype(str).tolist()
                     df_cadastro_final = df_cadastro_final[~df_cadastro_final['id'].isin(ids_existentes)]
                 
-                # Salva os novos registros válidos no Supabase
+                # Persiste os novos cadastros estáveis
                 if not df_cadastro_final.empty:
                     df_cadastro_final.to_sql('cadastro_geral_colaborador', engine, if_exists='append', index=False)
                 
-                # 2. Processamento Dinâmico dos Prêmios/Salários (A partir de 12/24)
+                # 2. Processamento Dinâmico dos Prêmios/Salários
                 linhas_historico = []
                 colunas_salario = [col for col in df_raw.columns if col.startswith('salario_mes')]
                 
                 for _, row in df_raw.iterrows():
-                    id_func = str(row.get('id')).strip()
-                    if pd.isna(row.get('id')) or not validar_id_clt(id_func):
+                    id_func = formatar_id_limpo(row.get('id'))
+                    if not id_func or not validar_id_clt(id_func):
                         continue
                         
                     for col_sal in colunas_salario:
                         sal_base = row[col_sal]
-                        if pd.notna(sal_base) and sal_base > 0:
-                            competencia = col_sal.replace('salario_mes', '').strip()
-                            sal_hora = float(sal_base) / 220.0
-                            
-                            linhas_historico.append({
-                                'id_funcionario': id_func,
-                                'competencia_mes_ano': competencia,
-                                'salario_base': float(sal_base),
-                                'salario_hora': round(sal_hora, 4)
-                            })
+                        if pd.notna(sal_base) and str(sal_base).strip() != "":
+                            try:
+                                sal_float = float(str(sal_base).replace(',', '.'))
+                                if sal_float > 0:
+                                    competencia = col_sal.replace('salario_mes', '').strip()
+                                    sal_hora = sal_float / 220.0
+                                    
+                                    linhas_historico.append({
+                                        'id_funcionario': id_func,
+                                        'competencia_mes_ano': competencia,
+                                        'salario_base': sal_float,
+                                        'salario_hora': round(sal_hora, 4)
+                                    })
+                            except ValueError:
+                                continue
                 
                 if linhas_historico:
                     df_premios_final = pd.DataFrame(linhas_historico)
                     df_premios_final.to_sql('premios_funcionarios', engine, if_exists='append', index=False)
                 
-                st.success("🎉 Processamento realizado com sucesso! Dados unificados, ordenados por admissão e validados sob as normas CLT/MTE.")
+                st.success("🎉 Ingestão concluída! Dados limpos, datas convertidas e IDs amarrados por admissão.")
                 st.rerun()
 
-# --- ABA 3: GESTÃO DE CADASTROS MANUAIS (COM VALIDAÇÃO DE TELA) ---
+# --- ABA 3: GESTÃO DE CADASTROS MANUAIS ---
 elif menu == "🛠️ Gestão de Cadastros":
     st.title("🛠️ Administração Manual de Funcionários")
     
@@ -193,13 +225,12 @@ elif menu == "🛠️ Gestão de Cadastros":
             fpix = st.text_input("Chave PIX (Último campo)")
             
             if st.form_submit_button("💾 Persistir Dados"):
-                fid_limpo = fid.strip() if fid else ""
+                fid_limpo = formatar_id_limpo(fid)
                 
-                # --- BLOQUEIO DE SEGURANÇA EM TELA ---
                 if not validar_id_clt(fid_limpo):
-                    st.error("❌ Violação Legislativa MTE: O ID '1' é a chave mestra e não pode ser atribuído a colaboradores. O registro de funcionários reais deve iniciar a partir do número 2.")
+                    st.error("❌ Violação MTE: O ID '1' é a chave mestra de auditoria e está bloqueado.")
                 elif not df_colab.empty and fid_limpo in df_colab['id'].astype(str).tolist():
-                    st.error(f"❌ Erro de Duplicidade: O colaborador com o registro de matrícula '{fid_limpo}' já está cadastrado no sistema.")
+                    st.error(f"❌ Erro: O ID de matrícula '{fid_limpo}' já está em uso por outro funcionário.")
                 elif fid_limpo and fnome:
                     with engine.begin() as conn:
                         conn.execute(
@@ -216,7 +247,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     st.session_state.modo_cadastro = 'listagem'
                     st.rerun()
                 else:
-                    st.error("Campos ID e Nome são estritamente obrigatórios.")
+                    st.error("Campos ID e Nome são obrigatórios.")
 
     if not df_colab.empty:
         if termo:
@@ -226,5 +257,4 @@ elif menu == "🛠️ Gestão de Cadastros":
                 df_colab['cargo'].astype(str).str.contains(termo, case=False) |
                 df_colab['id'].astype(str).str.contains(termo, case=False)
             ]
-        # Exibe os dados mantendo a amarração completa da linha e ordenação do banco
         st.dataframe(df_colab, use_container_width=True, hide_index=True)
