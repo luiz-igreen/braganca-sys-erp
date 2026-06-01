@@ -113,6 +113,24 @@ def limpar_cpf(cpf_bruto):
         return ""
     return ''.join(filter(str.isdigit, str(cpf_bruto)))
 
+def converter_data_resiliente(val):
+    if pd.isna(val):
+        return None
+    if isinstance(val, (datetime.date, datetime.datetime)):
+        if hasattr(val, 'date'):
+            return val.date()
+        return val
+    val_str = str(val).strip()
+    if val_str.replace('.0','').isdigit():
+        try:
+            return pd.to_datetime(float(val_str), unit='D', origin='1899-12-30').date()
+        except Exception:
+            pass
+    try:
+        return pd.to_datetime(val_str).date()
+    except Exception:
+        return None
+
 def obter_colaboradores_banco():
     try:
         return pd.read_sql("SELECT id, nome, cpf, cargo, admissao, demissao, chave_pix FROM cadastro_geral_colaborador ORDER BY admissao ASC", engine)
@@ -148,13 +166,13 @@ if menu == "👥 Visão Geral":
         st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================================
-# 2. MENU: IMPORTAÇÃO INTELIGENTE (ALTA PERFORMANCE E PROTEÇÃO ANTI-HANG)
+# 2. MENU: IMPORTAÇÃO INTELIGENTE (SISTEMA DE AUDITORIA DE LINHAS DETALHADA)
 # =========================================================================
 elif menu == "📥 Importação Inteligente":
     st.markdown("<h2>📥 Importação e Ingestão de Dados</h2>", unsafe_allow_html=True)
     st.markdown("Carregue a planilha exportada. O motor executará varreduras tolerantes a falhas estruturais ou linhas malformadas.")
     
-    # --- SISTEMA DE FEEDBACK SEGURO (Persiste de forma limpa pós-rerun) ---
+    # --- SISTEMA DE FEEDBACK SEGURO ---
     if 'flash_sucesso' in st.session_state:
         st.success(st.session_state['flash_sucesso'])
         del st.session_state['flash_sucesso']
@@ -170,7 +188,7 @@ elif menu == "📥 Importação Inteligente":
     if arquivo_carregado:
         st.markdown("<div class='panel-glass'>", unsafe_allow_html=True)
         if st.button("Executar Ingestão Certificada", type="primary"):
-            with st.spinner("Analisando e processando registros em alta velocidade..."):
+            with st.spinner("Analisando, limpando e cruzando dados com o Supabase..."):
                 
                 conteudo_bytes = arquivo_carregado.read()
                 nome_arquivo = arquivo_carregado.name.lower()
@@ -190,7 +208,7 @@ elif menu == "📥 Importação Inteligente":
                     except Exception:
                         pass
                 
-                # Camada 3: Motor CSV Seguro (Testado antes do HTML para evitar loops infinitos de CPU)
+                # Camada 3: Motor CSV Seguro
                 if df_bruto is None or df_bruto.empty:
                     for caractere_separador in [';', ',', '\t']:
                         for codificacao_texto in ['utf-8', 'latin1', 'iso-8859-1']:
@@ -209,7 +227,7 @@ elif menu == "📥 Importação Inteligente":
                         if df_bruto is not None and not df_bruto.empty:
                             break
                 
-                # Camada 4: HTML Estruturado (Apenas como último recurso e se contiver tags reais para evitar hangs)
+                # Camada 4: HTML Estruturado
                 if df_bruto is None or df_bruto.empty:
                     try:
                         if b'<table' in conteudo_bytes.lower() or b'<html' in conteudo_bytes.lower():
@@ -219,41 +237,46 @@ elif menu == "📥 Importação Inteligente":
                     except Exception:
                         pass
                 
-                # Processamento e Ingestão de Dados Otimizada
+                # Processamento e Ingestão de Dados
                 if df_bruto is None or df_bruto.empty:
                     st.session_state['flash_erro'] = "❌ Erro Crítico: Não foi possível decodificar a estrutura do arquivo enviado."
                     st.rerun()
                 else:
-                    # Normalização dos cabeçalhos
-                    df_bruto.columns = [str(col).strip().lower().replace('admissão', 'admissao').replace('demissão', 'demissao') for col in df_bruto.columns]
+                    # SANITIZAÇÃO DE CABEÇALHOS: Remove BOM (\ufeff), espaços e padroniza termos
+                    df_bruto.columns = [
+                        str(col).replace('\ufeff', '').strip().lower()
+                        .replace('admissão', 'admissao')
+                        .replace('demissão', 'demissao') 
+                        for col in df_bruto.columns
+                    ]
                     
-                    # CARGA EM LOTE: Busca todos os IDs existentes de uma só vez (Performance Máxima)
+                    # CARGA EM LOTE INICIAL
                     with engine.connect() as conn:
                         ids_existentes = set(str(r[0]).strip() for r in conn.execute(text("SELECT id FROM cadastro_geral_colaborador")).fetchall())
                     
+                    # Contadores Auditores
                     novos_cadastros = 0
+                    ja_existentes = 0
+                    linhas_invalidas = 0
+                    
                     with engine.begin() as conn:
                         for _, row in df_bruto.iterrows():
-                            id_func = formatar_id_limpo(row.get('id'))
+                            val_id = row.get('id')
+                            id_func = formatar_id_limpo(val_id)
+                            
+                            # Se a linha não tiver ID ou for o ID protegido '1'
                             if not id_func or not validar_id_clt(id_func):
+                                linhas_invalidas += 1
                                 continue
                             
-                            # Validação instantânea em memória local (Sem bater no banco linha por linha)
+                            # Validação se já existe no Supabase
                             if id_func in ids_existentes:
+                                ja_existentes += 1
                                 continue
                                 
-                            # Conversor resiliente de carimbos de data
-                            adm_val = row.get('admissao')
-                            if pd.notna(adm_val) and str(adm_val).replace('.0','').isdigit():
-                                dt_adm = pd.to_datetime(float(adm_val), unit='D', origin='1899-12-30').date()
-                            else:
-                                dt_adm = pd.to_datetime(adm_val).date() if pd.notna(adm_val) else None
-                                
-                            dem_val = row.get('demissao')
-                            if pd.notna(dem_val) and str(dem_val).replace('.0','').isdigit():
-                                dt_dem = pd.to_datetime(float(dem_val), unit='D', origin='1899-12-30').date()
-                            else:
-                                dt_dem = pd.to_datetime(dem_val).date() if pd.notna(dem_val) else None
+                            # Tratamento resiliente de datas
+                            dt_adm = converter_data_resiliente(row.get('admissao'))
+                            dt_dem = converter_data_resiliente(row.get('demissao'))
                             
                             conn.execute(
                                 text("""
@@ -269,11 +292,13 @@ elif menu == "📥 Importação Inteligente":
                             )
                             novos_cadastros += 1
                     
-                    # Define feedback preciso na sessão antes do recarregamento
+                    # --- REGRAS DE FEEDBACK HONESTO ---
                     if novos_cadastros > 0:
-                        st.session_state['flash_sucesso'] = f"🎉 Sucesso! {novos_cadastros} novos colaboradores foram integrados de forma definitiva ao Supabase."
+                        st.session_state['flash_sucesso'] = f"🎉 Processamento concluído! {novos_cadastros} novos colaboradores foram integrados com sucesso. (Ignorados por já existirem: {ja_existentes} | Linhas descartadas por ID inválido: {linhas_invalidas})"
+                    elif linhas_invalidas > 0 and ja_existentes == 0:
+                        st.session_state['flash_erro'] = f"❌ Erro de Mapeamento: Nenhuma linha válida foi processada. O sistema descartou {linhas_invalidas} linhas porque a coluna 'id' veio em branco ou com formato corrompido. Verifique os títulos das colunas na planilha."
                     else:
-                        st.session_state['flash_aviso'] = "⚠️ Alerta: Processamento concluído. Nenhum novo colaborador foi inserido porque todos já constam no banco."
+                        st.session_state['flash_aviso'] = f"⚠️ Ingestão Realizada: Nenhum registro novo foi adicionado porque todos os {ja_existentes} colaboradores encontrados no arquivo já constam na base do Supabase."
                     
                     st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
@@ -443,4 +468,4 @@ elif menu == "🛠️ Gestão de Cadastros":
                         conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_deletar})
                     st.success(f"💥 Matrícula {id_deletar} removida permanentemente do banco de dados.")
                     st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)    
+        st.markdown("</div>", unsafe_allow_html=True)
