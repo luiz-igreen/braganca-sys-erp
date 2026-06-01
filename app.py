@@ -6,7 +6,7 @@ from datetime import datetime
 # --- CONFIGURAÇÃO INICIAL ---
 st.set_page_config(page_title="BRAGANÇA SYS", page_icon="🏗️", layout="wide")
 
-# Database ID: 1n-LpTzN9IiBF5TgcBqMW9vgQE_VYtrsKbiy73RP5kYI
+# Database ID tratado internamente via engine segura
 engine = create_engine(st.secrets["DATABASE_URL"])
 
 # --- ESTILIZAÇÃO VISUAL (DARK GLASSMORPHISM) ---
@@ -75,6 +75,13 @@ if 'status_acao' not in st.session_state:
     st.session_state['status_acao'] = None
 if 'sub_menu_cadastro' not in st.session_state:
     st.session_state['sub_menu_cadastro'] = "🔍 Consultar & Gerenciar"
+if 'redirect_to_consulta' not in st.session_state:
+    st.session_state['redirect_to_consulta'] = False
+
+# Interceptador de Redirecionamento Seguro (Executa ANTES da renderização dos widgets)
+if st.session_state['redirect_to_consulta']:
+    st.session_state['sub_menu_cadastro'] = "🔍 Consultar & Gerenciar"
+    st.session_state['redirect_to_consulta'] = False
 
 # --- NAVEGAÇÃO CENTRAL ---
 menu = st.sidebar.radio("Navegação", ["👥 Visão Geral", "📥 Importação Inteligente", "🛠️ Gestão de Cadastros"])
@@ -231,7 +238,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                     if st.session_state['status_acao'] == 'solicitou_alterar':
                         st.info("📝 **Modo de Edição Ativo (Sem Containers Restritivos)**")
                         
-                        # Grade misturada para quebrar varredura sequencial do Chrome
                         col_e1, col_e2 = st.columns(2)
                         with col_e1:
                             edit_nome = st.text_input("Nome Completo", value=str(colab.nome), autocomplete="one-time-code", key="k_enome")
@@ -282,10 +288,9 @@ elif menu == "🛠️ Gestão de Cadastros":
             st.subheader("Inserir Novo Colaborador")
         with col_can:
             if st.button("⬅️ Cancelar e Voltar", use_container_width=True, key="k_btn_canc_voltar"):
-                st.session_state['sub_menu_cadastro'] = "🔍 Consultar & Gerenciar"
+                st.session_state['redirect_to_consulta'] = True
                 st.rerun()
         
-        # Arquitetura em Grade Paralela Sem Tags <form> para anular a inteligência artificial do Chrome
         st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
         col_nc1, col_nc2 = st.columns(2)
         
@@ -322,7 +327,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                             "demissao": str(n_demissao) if n_demissao.strip() else None
                         })
                     st.success(f"Colaborador {n_nome} inserido com total integridade!")
-                    st.session_state['sub_menu_cadastro'] = "🔍 Consultar & Gerenciar"
+                    st.session_state['redirect_to_consulta'] = True
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro de Integridade: Verifique se o ID digitado já não pertence a outro cadastro. Detalhes: {e}")    
