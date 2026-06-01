@@ -230,7 +230,7 @@ elif menu == "📥 Importação Inteligente":
                     except Exception:
                         pass
                 
-                # MOTOR DE DETECÇÃO ANTI-MOJIBAKE
+                # MOTOR DE DETECÇÃO ANTI-MOJIBAKE REFORÇADO (Dicionário de termos expandido)
                 if df_bruto is None or df_bruto.empty:
                     codificacoes_prioritarias = ['utf-8-sig', 'utf-8', 'cp1252', 'latin1']
                     separadores_prioritarios = [',', ';', '\t']
@@ -246,8 +246,10 @@ elif menu == "📥 Importação Inteligente":
                                     on_bad_lines='skip'
                                 )
                                 if not df_tentativa.empty and len(df_tentativa.columns) > 1:
+                                    # Valida o cabeçalho usando um dicionário amplo de colunas corporativas brasileiras
                                     cols_teste = "".join(str(c) for c in df_tentativa.columns).lower()
-                                    if 'id' in cols_teste or 'nome' in cols_teste or 'cargo' in cols_teste:
+                                    termos_validos = ['id', 'matr', 'cod', 'nº', 'num', 'nome', 'colab', 'func', 'cargo', 'funç', 'cpf', 'pix', 'chave', 'adm']
+                                    if any(term in cols_teste for term in termos_validos):
                                         df_bruto = df_tentativa
                                         descoberto = True
                                         break
@@ -257,7 +259,7 @@ elif menu == "📥 Importação Inteligente":
                             break
                 
                 if df_bruto is None or df_bruto.empty:
-                    st.session_state['flash_erro'] = "❌ Erro Crítico: Não foi possível estruturar o arquivo enviado devido à codificação inválida."
+                    st.session_state['flash_erro'] = "❌ Erro Crítico: Não foi possível estruturar o arquivo enviado devido à codificação inválida ou ausência de colunas reconhecíveis."
                     st.rerun()
                 else:
                     cols = df_bruto.columns
@@ -346,7 +348,6 @@ elif menu == "📥 Importação Inteligente":
             with st.spinner("Limpando infraestrutura física do banco de dados..."):
                 try:
                     with engine.begin() as conn:
-                        # Apaga os dados das tabelas dependentes e principal
                         conn.execute(text("TRUNCATE TABLE premios_funcionarios RESTART IDENTITY;"))
                         conn.execute(text("TRUNCATE TABLE cadastro_geral_colaborador CASCADE;"))
                     st.session_state['flash_sucesso'] = "💥 O banco de dados foi completamente resetado e esvaziado com sucesso! Pronto para nova carga."
