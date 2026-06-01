@@ -28,6 +28,16 @@ st.markdown("""
         border: 1px solid rgba(51, 65, 85, 0.7); 
         margin-bottom: 24px; 
     }
+    /* Zona de perigo ou reset crítico */
+    .panel-danger { 
+        background: rgba(220, 38, 38, 0.1); 
+        backdrop-filter: blur(16px); 
+        -webkit-backdrop-filter: blur(16px); 
+        padding: 25px; 
+        border-radius: 16px; 
+        border: 1px solid rgba(220, 38, 38, 0.4); 
+        margin-top: 30px; 
+    }
     .card-metric { 
         background: rgba(15, 23, 42, 0.6); 
         padding: 20px; 
@@ -61,6 +71,15 @@ st.markdown("""
     }
     .stButton>button:hover { background-color: #1d4ed8 !important; }
     
+    /* Botão destrutivo específico */
+    div.stButton > button[data-testid="baseButton-secondary"] {
+        background-color: #dc2626 !important;
+        color: white !important;
+    }
+    div.stButton > button[data-testid="baseButton-secondary"]:hover {
+        background-color: #b91c1c !important;
+    }
+
     div[data-testid="stForm"] .stButton>button[type="submit"] {
         width: 100%;
     }
@@ -154,7 +173,7 @@ df_colab = obter_colaboradores_banco()
 # 1. MENU: VISÃO GERAL
 # =========================================================================
 if menu == "👥 Visão Geral":
-    st.markdown("<h2 style='margin-bottom: 20px;'>📊 Panel de Controle Corporativo</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='margin-bottom: 20px;'>📊 Painel de Controle Corporativo</h2>", unsafe_allow_html=True)
     
     if df_colab.empty:
         st.info("💡 Nenhum colaborador encontrado no Supabase. Vá até a aba 'Importação Inteligente' para realizar a carga inicial.")
@@ -172,11 +191,11 @@ if menu == "👥 Visão Geral":
         st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================================
-# 2. MENU: IMPORTAÇÃO INTELIGENTE (SISTEMA DE ACENTUAÇÃO PROTEGIDO)
+# 2. MENU: IMPORTAÇÃO INTELIGENTE (COM SOBREESCRITA INTEGRADA + RESET TOTAL)
 # =========================================================================
 elif menu == "📥 Importação Inteligente":
     st.markdown("<h2>📥 Importação e Ingestão de Dados</h2>", unsafe_allow_html=True)
-    st.markdown("Carregue a planilha exportada. O motor executará sincronizações resilientes via UPSERT protegendo a integridade dos caracteres.")
+    st.markdown("Carregue a planilha exportada. O motor executará sincronizações resilientes via UPSERT (Insere novos e atualiza existentes por cima).")
     
     if 'flash_sucesso' in st.session_state:
         st.success(st.session_state['flash_sucesso'])
@@ -211,7 +230,7 @@ elif menu == "📥 Importação Inteligente":
                     except Exception:
                         pass
                 
-                # MOTOR DE DETECÇÃO ANTI-MOJIBAKE (Inversão estratégica de prioridade de encoding)
+                # MOTOR DE DETECÇÃO ANTI-MOJIBAKE
                 if df_bruto is None or df_bruto.empty:
                     codificacoes_prioritarias = ['utf-8-sig', 'utf-8', 'cp1252', 'latin1']
                     separadores_prioritarios = [',', ';', '\t']
@@ -227,7 +246,6 @@ elif menu == "📥 Importação Inteligente":
                                     on_bad_lines='skip'
                                 )
                                 if not df_tentativa.empty and len(df_tentativa.columns) > 1:
-                                    # Valida se capturou cabeçalhos de forma legível
                                     cols_teste = "".join(str(c) for c in df_tentativa.columns).lower()
                                     if 'id' in cols_teste or 'nome' in cols_teste or 'cargo' in cols_teste:
                                         df_bruto = df_tentativa
@@ -284,7 +302,7 @@ elif menu == "📥 Importação Inteligente":
                                 dt_dem = converter_data_resiliente(row[col_dem]) if col_dem is not None else None
                                 pix_func = sanitizar_texto(row[col_pix]) if col_pix is not None else None
                                 
-                                # OPERAÇÃO UPSERT CONTRA DUPLICIDADE
+                                # OPERAÇÃO UPSERT CONTRA DUPLICIDADE (SOBRESCREVE SE JÁ EXISTIR)
                                 conn.execute(
                                     text("""
                                         INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, chave_pix)
@@ -303,8 +321,8 @@ elif menu == "📥 Importação Inteligente":
                                     }
                                 )
                         
-                        if nuevos_cadastros > 0 or atualizados_cadastros > 0:
-                            st.session_state['flash_sucesso'] = f"🎉 Ingestão concluída com sucesso! {novos_cadastros} novos registros e {atualizados_cadastros} registros atualizados com acentuação corrigida."
+                        if novos_cadastros > 0 or atualizados_cadastros > 0:
+                            st.session_state['flash_sucesso'] = f"🎉 Ingestão concluída com sucesso! {novos_cadastros} novos registros e {atualizados_cadastros} registros atualizados/sobrescritos com acentuação corrigida."
                         else:
                             st.session_state['flash_aviso'] = f"⚠️ Nenhuma linha útil pôde ser processada."
                     
@@ -313,6 +331,29 @@ elif menu == "📥 Importação Inteligente":
                     
                     st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
+
+    # --- ZONA DE RESET TOTAL DO BANCO DE DADOS (OPÇÃO DE LIMPEZA ABSOLUTA) ---
+    st.markdown("""<div class="panel-danger">""", unsafe_allow_html=True)
+    st.subheader("⚠️ Zona de Reset Crítico do Sistema")
+    st.markdown("Utilize esta ferramenta exclusivamente se desejar **APAGAR TODOS** os colaboradores e premiações atualmente salvos no Supabase para iniciar uma carga completamente limpa.")
+    
+    confirmou_reset = st.checkbox("Estou ciente e confirmo que desejo esvaziar todo o banco de dados definitivamente.", key="chk_reset_total")
+    
+    if st.button("Zerar Todas as Tabelas do Banco", type="secondary"):
+        if not confirmou_reset:
+            st.error("❌ Operação Bloqueada: Você precisa marcar a caixa de seleção acima para autorizar esta ação destrutiva.")
+        else:
+            with st.spinner("Limpando infraestrutura física do banco de dados..."):
+                try:
+                    with engine.begin() as conn:
+                        # Apaga os dados das tabelas dependentes e principal
+                        conn.execute(text("TRUNCATE TABLE premios_funcionarios RESTART IDENTITY;"))
+                        conn.execute(text("TRUNCATE TABLE cadastro_geral_colaborador CASCADE;"))
+                    st.session_state['flash_sucesso'] = "💥 O banco de dados foi completamente resetado e esvaziado com sucesso! Pronto para nova carga."
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Falha operacional ao resetar tabelas: {str(e)}")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================================
 # 3. MENU: GESTÃO DE CADASTROS (MOTORES CRUD DINÂMICOS)
@@ -478,7 +519,7 @@ elif menu == "🛠️ Gestão de Cadastros":
             st.warning(f"Atenção: Você selecionou a matrícula '{id_deletar}'. Esta ação não poderá ser desfeita.")
             trava_seguranca = st.checkbox("Confirmo que desejo apagar este colaborador.")
             
-            if st.button("Remover Definitivamente", type="primary"):
+            if st.button("Remover Definitivamente", type="secondary", key="btn_del_individual"):
                 if not trava_seguranca:
                     st.error("❌ Operação Rejeitada: Marque a caixa de confirmação.")
                 else:
