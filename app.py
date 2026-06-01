@@ -9,6 +9,12 @@ import sqlalchemy.exc
 import datetime
 import io
 
+# --- INICIALIZAÇÃO DE VARIÁVEIS DE SESSÃO PARA CONTROLE DE FLUXO ---
+if 'id_alterar' not in st.session_state:
+    st.session_state['id_alterar'] = None
+if 'id_excluir' not in st.session_state:
+    st.session_state['id_excluir'] = None
+
 # --- CONFIGURAÇÃO DE DIRETRIZES VISUAIS (DARK PREMIUM GLASSMORPHISM) ---
 st.markdown("""
 <style>
@@ -28,7 +34,6 @@ st.markdown("""
         border: 1px solid rgba(51, 65, 85, 0.7); 
         margin-bottom: 24px; 
     }
-    /* Zona de perigo ou reset crítico */
     .panel-danger { 
         background: rgba(220, 38, 38, 0.1); 
         backdrop-filter: blur(16px); 
@@ -59,30 +64,35 @@ st.markdown("""
     .ficha-item { font-size: 0.95rem; color: #e2e8f0; margin-bottom: 8px; }
     .ficha-label { font-weight: 600; color: #94a3b8; }
 
-    /* Customização de Inputs e Botões */
+    /* Customização Global de Botões */
     .stButton>button { 
         border-radius: 8px; 
         font-weight: 600; 
-        background-color: #2563eb !important; 
-        color: white !important;
-        border: none !important;
         padding: 10px 20px !important;
-        transition: background-color 0.15s ease;
-    }
-    .stButton>button:hover { background-color: #1d4ed8 !important; }
-    
-    /* Botão destrutivo específico */
-    div.stButton > button[data-testid="baseButton-secondary"] {
-        background-color: #dc2626 !important;
-        color: white !important;
-    }
-    div.stButton > button[data-testid="baseButton-secondary"]:hover {
-        background-color: #b91c1c !important;
-    }
-
-    div[data-testid="stForm"] .stButton>button[type="submit"] {
+        transition: all 0.2s ease;
         width: 100%;
     }
+    /* Botões Primários (Avançar/Salvar/Carregar) */
+    button[data-testid="baseButton-primary"] {
+        background-color: #2563eb !important;
+        color: white !important;
+        border: 1px solid #2563eb !important;
+    }
+    button[data-testid="baseButton-primary"]:hover {
+        background-color: #1d4ed8 !important;
+        border-color: #1d4ed8 !important;
+    }
+    /* Botões Secundários (Cancelar/Voltar) */
+    button[data-testid="baseButton-secondary"] {
+        background-color: #475569 !important;
+        color: white !important;
+        border: 1px solid #475569 !important;
+    }
+    button[data-testid="baseButton-secondary"]:hover {
+        background-color: #334155 !important;
+        border-color: #334155 !important;
+    }
+
     input, select, textarea { font-size: 16px !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -191,11 +201,11 @@ if menu == "👥 Visão Geral":
         st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================================
-# 2. MENU: IMPORTAÇÃO INTELIGENTE (COM SOBREESCRITA INTEGRADA + RESET TOTAL)
+# 2. MENU: IMPORTAÇÃO INTELIGENTE
 # =========================================================================
 elif menu == "📥 Importação Inteligente":
     st.markdown("<h2>📥 Importação e Ingestão de Dados</h2>", unsafe_allow_html=True)
-    st.markdown("Carregue a planilha exportada. O motor executará sincronizações resilientes via UPSERT (Insere novos e atualiza existentes por cima).")
+    st.markdown("Carregue a planilha exportada. O motor executará sincronizações resilientes via UPSERT.")
     
     if 'flash_sucesso' in st.session_state:
         st.success(st.session_state['flash_sucesso'])
@@ -207,12 +217,12 @@ elif menu == "📥 Importação Inteligente":
         st.error(st.session_state['flash_erro'])
         del st.session_state['flash_erro']
         
-    arquivo_carregado = st.file_uploader("Selecione o arquivo de migração (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"])
+    arquivo_carregado = st.file_uploader("Selecione o arquivo de migração (.xlsx, .csv)", type=["xlsx", "csv"])
     
     if arquivo_carregado:
         st.markdown("<div class='panel-glass'>", unsafe_allow_html=True)
         if st.button("Executar Ingestão Certificada", type="primary"):
-            with st.spinner("Sincronizando dados e decodificando caracteres especiais..."):
+            with st.spinner("Sincronizando dados e validando integridade estrutural..."):
                 
                 conteudo_bytes = arquivo_carregado.read()
                 nome_arquivo = arquivo_carregado.name.lower()
@@ -221,32 +231,19 @@ elif menu == "📥 Importação Inteligente":
                 if nome_arquivo.endswith('.xlsx'):
                     try:
                         df_bruto = pd.read_excel(io.BytesIO(conteudo_bytes), sheet_name=0, engine='openpyxl')
-                    except Exception:
-                        pass
-                
-                if (df_bruto is None or df_bruto.empty) and nome_arquivo.endswith('.xls'):
-                    try:
-                        df_bruto = pd.read_excel(io.BytesIO(conteudo_bytes), sheet_name=0, engine='xlrd')
-                    except Exception:
-                        pass
-                
-                # MOTOR DE DETECÇÃO ANTI-MOJIBAKE REFORÇADO (Dicionário de termos expandido)
-                if df_bruto is None or df_bruto.empty:
+                    except Exception as e:
+                        st.session_state['flash_erro'] = f"❌ Erro ao ler arquivo XLSX: {str(e)}"
+                        st.rerun()
+                else:
                     codificacoes_prioritarias = ['utf-8-sig', 'utf-8', 'cp1252', 'latin1']
-                    separadores_prioritarios = [',', ';', '\t']
+                    separadores_prioritarios = [';', ',', '\t']
                     
                     descoberto = False
                     for enc in codificacoes_prioritarias:
                         for sep in separadores_prioritarios:
                             try:
-                                df_tentativa = pd.read_csv(
-                                    io.BytesIO(conteudo_bytes), 
-                                    sep=sep, 
-                                    encoding=enc,
-                                    on_bad_lines='skip'
-                                )
+                                df_tentativa = pd.read_csv(io.BytesIO(conteudo_bytes), sep=sep, encoding=enc, on_bad_lines='skip')
                                 if not df_tentativa.empty and len(df_tentativa.columns) > 1:
-                                    # Valida o cabeçalho usando um dicionário amplo de colunas corporativas brasileiras
                                     cols_teste = "".join(str(c) for c in df_tentativa.columns).lower()
                                     termos_validos = ['id', 'matr', 'cod', 'nº', 'num', 'nome', 'colab', 'func', 'cargo', 'funç', 'cpf', 'pix', 'chave', 'adm']
                                     if any(term in cols_teste for term in termos_validos):
@@ -259,7 +256,7 @@ elif menu == "📥 Importação Inteligente":
                             break
                 
                 if df_bruto is None or df_bruto.empty:
-                    st.session_state['flash_erro'] = "❌ Erro Crítico: Não foi possível estruturar o arquivo enviado devido à codificação inválida ou ausência de colunas reconhecíveis."
+                    st.session_state['flash_erro'] = "❌ Erro Crítico: Formato incompatível ou ausência de colunas reconhecíveis."
                     st.rerun()
                 else:
                     cols = df_bruto.columns
@@ -275,9 +272,7 @@ elif menu == "📥 Importação Inteligente":
                     with engine.connect() as conn:
                         ids_existentes = set(str(r[0]).strip() for r in conn.execute(text("SELECT id FROM cadastro_geral_colaborador")).fetchall())
                     
-                    novos_cadastros = 0
-                    atualizados_cadastros = 0
-                    linhas_invalidas = 0
+                    novos_cadastros, atualizados_cadastros, linhas_invalidas = 0, 0, 0
                     ids_processados_nesta_execucao = set()
                     
                     try:
@@ -297,25 +292,20 @@ elif menu == "📥 Importação Inteligente":
                                 
                                 ids_processados_nesta_execucao.add(id_func)
                                 
-                                nome_func = sanitizar_texto(row[col_nome]) if col_nome is not None else "Colaborador Sem Nome"
+                                nome_func = sanitizar_texto(row[col_nome]) if col_nome is not None else "Sem Nome"
                                 cpf_func = limpar_cpf(row[col_cpf]) if col_cpf is not None else ""
                                 cargo_func = sanitizar_texto(row[col_cargo]) if col_cargo is not None else ""
                                 dt_adm = converter_data_resiliente(row[col_adm]) if col_adm is not None else None
                                 dt_dem = converter_data_resiliente(row[col_dem]) if col_dem is not None else None
                                 pix_func = sanitizar_texto(row[col_pix]) if col_pix is not None else None
                                 
-                                # OPERAÇÃO UPSERT CONTRA DUPLICIDADE (SOBRESCREVE SE JÁ EXISTIR)
                                 conn.execute(
                                     text("""
                                         INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, chave_pix)
                                         VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :pix)
                                         ON CONFLICT (id) DO UPDATE SET
-                                            nome = EXCLUDED.nome,
-                                            cpf = EXCLUDED.cpf,
-                                            cargo = EXCLUDED.cargo,
-                                            admissao = EXCLUDED.admissao,
-                                            demissao = EXCLUDED.demissao,
-                                            chave_pix = EXCLUDED.chave_pix
+                                            nome = EXCLUDED.nome, cpf = EXCLUDED.cpf, cargo = EXCLUDED.cargo,
+                                            admissao = EXCLUDED.admissao, demissao = EXCLUDED.demissao, chave_pix = EXCLUDED.chave_pix
                                     """),
                                     {
                                         "id": id_func, "nome": nome_func, "cpf": cpf_func, "cargo": cargo_func,
@@ -324,36 +314,31 @@ elif menu == "📥 Importação Inteligente":
                                 )
                         
                         if novos_cadastros > 0 or atualizados_cadastros > 0:
-                            st.session_state['flash_sucesso'] = f"🎉 Ingestão concluída com sucesso! {novos_cadastros} novos registros e {atualizados_cadastros} registros atualizados/sobrescritos com acentuação corrigida."
+                            st.session_state['flash_sucesso'] = f"🎉 Ingestão concluída com sucesso! {novos_cadastros} novos registros e {atualizados_cadastros} atualizados."
                         else:
-                            st.session_state['flash_aviso'] = f"⚠️ Nenhuma linha útil pôde ser processada."
-                    
+                            st.session_state['flash_aviso'] = f"⚠️ O processamento não identificou novas linhas úteis."
                     except sqlalchemy.exc.IntegrityError:
-                        st.session_state['flash_erro'] = "❌ Erro de Integridade: Conflito intransponível detectado na tabela."
-                    
+                        st.session_state['flash_erro'] = "❌ Erro de Integridade Estrutural no banco."
                     st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # --- ZONA DE RESET TOTAL DO BANCO DE DADOS (OPÇÃO DE LIMPEZA ABSOLUTA) ---
+    # --- ZONA DE RESET TOTAL DO BANCO DE DADOS ---
     st.markdown("""<div class="panel-danger">""", unsafe_allow_html=True)
     st.subheader("⚠️ Zona de Reset Crítico do Sistema")
-    st.markdown("Utilize esta ferramenta exclusivamente se desejar **APAGAR TODOS** os colaboradores e premiações atualmente salvos no Supabase para iniciar uma carga completamente limpa.")
-    
-    confirmou_reset = st.checkbox("Estou ciente e confirmo que desejo esvaziar todo o banco de dados definitivamente.", key="chk_reset_total")
-    
+    confirmou_reset = st.checkbox("Confirmo que desejo esvaziar todo o banco de dados definitivamente.", key="chk_reset_total")
     if st.button("Zerar Todas as Tabelas do Banco", type="secondary"):
         if not confirmou_reset:
-            st.error("❌ Operação Bloqueada: Você precisa marcar a caixa de seleção acima para autorizar esta ação destrutiva.")
+            st.error("❌ Operação Bloqueada: Você precisa marcar a caixa de seleção acima para autorizar esta ação.")
         else:
-            with st.spinner("Limpando infraestrutura física do banco de dados..."):
+            with st.spinner("Limpando infraestrutura física..."):
                 try:
                     with engine.begin() as conn:
                         conn.execute(text("TRUNCATE TABLE premios_funcionarios RESTART IDENTITY;"))
                         conn.execute(text("TRUNCATE TABLE cadastro_geral_colaborador CASCADE;"))
-                    st.session_state['flash_sucesso'] = "💥 O banco de dados foi completamente resetado e esvaziado com sucesso! Pronto para nova carga."
+                    st.session_state['flash_sucesso'] = "💥 Banco de dados limpo com sucesso!"
                     st.rerun()
                 except Exception as e:
-                    st.error(f"❌ Falha operacional ao resetar tabelas: {str(e)}")
+                    st.error(f"❌ Falha ao resetar tabelas: {str(e)}")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================================
@@ -363,17 +348,17 @@ elif menu == "🛠️ Gestão de Cadastros":
     st.markdown("<h2>🛠️ Painel Operacional de Cadastros (CRUD)</h2>", unsafe_allow_html=True)
     
     aba_consultar, aba_novo, aba_alterar, aba_excluir = st.tabs([
-        "🔍 Consultar Colaborador", 
+        "🔍 Consultar", 
         "➕ Novo Registro", 
         "✏️ Alterar Cadastro", 
         "❌ Excluir do Banco"
     ])
     
-    # --- CONSULTAR ---
+    # --- ABA: CONSULTAR ---
     with aba_consultar:
         st.markdown("<div class='panel-glass'>", unsafe_allow_html=True)
-        st.subheader("🔍 Localizar Ficha Individual de Registro")
-        termo_busca = st.text_input("Campo de Busca Inteligente (Qualquer termo):", key="busca_consulta").strip()
+        st.subheader("🔍 Localizar Ficha de Registro")
+        termo_busca = st.text_input("Busca por ID, Nome ou CPF:", key="busca_consulta").strip()
         
         if termo_busca:
             query_busca = text("""
@@ -395,35 +380,41 @@ elif menu == "🛠️ Gestão de Cadastros":
                         <div class="ficha-item"><span class="ficha-label">Cargo Atual:</span> {r.cargo if r.cargo else 'Não Mapeado'}</div>
                         <div class="ficha-item"><span class="ficha-label">Data de Admissão:</span> {r.admissao.strftime('%d/%m/%Y') if r.admissao else '-'}</div>
                         <div class="ficha-item"><span class="ficha-label">Data de Demissão:</span> {r.demissao.strftime('%d/%m/%Y') if r.demissao else 'Ativo'}</div>
-                        <div class="ficha-item"><span class="ficha-label">Canal / Chave PIX:</span> {r.chave_pix if r.chave_pix else 'Não Cadastrada'}</div>
+                        <div class="ficha-item"><span class="ficha-label">Canal PIX:</span> {r.chave_pix if r.chave_pix else 'Não Cadastrada'}</div>
                     </div>
                     """, unsafe_allow_html=True)
             else:
-                st.warning("⚠️ Nenhum registro localizado com os dados informados.")
+                st.warning("⚠️ Nenhum registro localizado.")
         st.markdown("</div>", unsafe_allow_html=True)
         
-    # --- NOVO ---
+    # --- ABA: NOVO REGISTRO ---
     with aba_novo:
         st.markdown("<div class='panel-glass'>", unsafe_allow_html=True)
-        st.subheader("➕ Inserção Direta de Colaborador")
+        st.subheader("➕ Inserir Novo Colaborador")
         with st.form("form_novo_registro", clear_on_submit=True):
             c1, c2 = st.columns(2)
             n_id = c1.text_input("ID / Número de Matrícula:")
             n_nome = c2.text_input("Nome Completo:")
-            n_cpf = c1.text_input("CPF (Pontuação opcional):")
+            n_cpf = c1.text_input("CPF (Somente números):")
             n_cargo = c2.text_input("Cargo Ocupado:")
             n_adm = c1.date_input("Data de Admissão:", value=datetime.date.today())
-            n_dem = c2.date_input("Data de Demissão (Se aplicável):", value=None, min_value=datetime.date(2000, 1, 1))
-            n_pix = st.text_input("Chave PIX de Destino:")
+            n_dem = c2.date_input("Data de Demissão (Opcional):", value=None, min_value=datetime.date(2000, 1, 1))
+            n_pix = st.text_input("Chave PIX:")
             
-            if st.form_submit_button("Gravar Registro Definitivo"):
+            # Botões de Ação com Cancelar
+            col_save, col_cancel = st.columns(2)
+            btn_salvar = col_save.form_submit_button("Gravar Registro", type="primary")
+            btn_cancelar = col_cancel.form_submit_button("Cancelar Operação", type="secondary")
+            
+            if btn_cancelar:
+                st.rerun() # Limpa o formulário instantaneamente
+
+            if btn_salvar:
                 id_limpo = formatar_id_limpo(n_id)
-                cpf_limpo = limpar_cpf(n_cpf)
-                
                 if not id_limpo or not n_nome:
-                    st.error("❌ Os campos ID e Nome são estritamente obrigatórios.")
+                    st.error("❌ Os campos ID e Nome são obrigatórios.")
                 elif not validar_id_clt(id_limpo):
-                    st.error("❌ Erro de Segurança: Formato de ID inválido.")
+                    st.error("❌ Erro: Formato de ID inválido.")
                 else:
                     try:
                         with engine.begin() as conn:
@@ -432,101 +423,122 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, chave_pix)
                                     VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :pix)
                                     ON CONFLICT (id) DO UPDATE SET
-                                        nome = EXCLUDED.nome,
-                                        cpf = EXCLUDED.cpf,
-                                        cargo = EXCLUDED.cargo,
-                                        admissao = EXCLUDED.admissao,
-                                        demissao = EXCLUDED.demissao,
-                                        chave_pix = EXCLUDED.chave_pix
+                                        nome = EXCLUDED.nome, cpf = EXCLUDED.cpf, cargo = EXCLUDED.cargo,
+                                        admissao = EXCLUDED.admissao, demissao = EXCLUDED.demissao, chave_pix = EXCLUDED.chave_pix
                                 """),
-                                {
-                                    "id": id_limpo, "nome": n_nome.strip(), "cpf": cpf_limpo,
-                                    "cargo": n_cargo.strip(), "admissao": n_adm,
-                                    "demissao": n_dem, "pix": n_pix.strip()
-                                }
+                                {"id": id_limpo, "nome": n_nome.strip(), "cpf": limpar_cpf(n_cpf), "cargo": n_cargo.strip(), "admissao": n_adm, "demissao": n_dem, "pix": n_pix.strip()}
                             )
-                        st.success("🎉 Colaborador gravado e sincronizado com sucesso!")
-                        st.rerun()
+                        st.success("🎉 Colaborador gravado com sucesso!")
                     except Exception as e:
-                        st.error(f"❌ Erro operacional ao gravar dados: {str(e)}")
+                        st.error(f"❌ Erro ao gravar: {str(e)}")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # --- ALTERAR ---
+    # --- ABA: ALTERAR REGISTRO ---
     with aba_alterar:
         st.markdown("<div class='panel-glass'>", unsafe_allow_html=True)
-        st.subheader("✏️ Edição de Registro Existente")
+        st.subheader("✏️ Alterar Dados do Colaborador")
+        
         if df_colab.empty:
-            st.warning("Base de dados vazia para alteração.")
+            st.warning("O banco de dados está vazio.")
         else:
-            lista_funcs = [f"{r['id']} - {r['nome']}" for _, r in df_colab.iterrows()]
-            selecionado = st.selectbox("Selecione o funcionário que deseja modificar:", lista_funcs, key="sb_alterar")
-            id_alterar = selecionado.split(" - ")[0]
-            
-            dados_atuais = df_colab[df_colab['id'] == id_alterar].iloc[0]
-            
-            with st.form("form_alterar_registro"):
-                st.info(f"Modificando a Matrícula: {id_alterar}")
-                a_nome = st.text_input("Nome Completo:", value=str(dados_atuais['nome']))
-                a_cpf = st.text_input("CPF:", value=str(dados_atuais['cpf'] if dados_atuais['cpf'] else ''))
-                a_cargo = st.text_input("Cargo Ocupado:", value=str(dados_atuais['cargo'] if dados_atuais['cargo'] else ''))
+            # ETAPA 1: Busca e Carregamento
+            if st.session_state['id_alterar'] is None:
+                lista_funcs = [f"{r['id']} - {r['nome']}" for _, r in df_colab.iterrows()]
+                selecionado = st.selectbox("1. Digite para buscar o funcionário:", lista_funcs, key="sb_busca_alt")
                 
-                val_adm = dados_atuais['admissao']
-                if isinstance(val_adm, str):
-                    val_adm = datetime.datetime.strptime(val_adm, '%Y-%m-%d').date()
-                elif pd.isna(val_adm):
-                    val_adm = datetime.date.today()
+                if st.button("Carregar Ficha para Edição", type="primary"):
+                    st.session_state['id_alterar'] = selecionado.split(" - ")[0]
+                    st.rerun()
+            
+            # ETAPA 2: Edição dos Dados Carregados
+            else:
+                id_alt = st.session_state['id_alterar']
+                dados_atuais = df_colab[df_colab['id'] == id_alt].iloc[0]
+                
+                st.info(f"Modificando a ficha da Matrícula: **{id_alt}**")
+                
+                with st.form("form_alterar_registro"):
+                    a_nome = st.text_input("Nome Completo:", value=str(dados_atuais['nome']))
+                    a_cpf = st.text_input("CPF:", value=str(dados_atuais['cpf'] if dados_atuais['cpf'] else ''))
+                    a_cargo = st.text_input("Cargo Ocupado:", value=str(dados_atuais['cargo'] if dados_atuais['cargo'] else ''))
                     
-                val_dem = dados_atuais['demissao']
-                if isinstance(val_dem, str):
-                    val_dem = datetime.datetime.strptime(val_dem, '%Y-%m-%d').date()
-                elif pd.isna(val_dem):
-                    val_dem = None
-                
-                a_adm = st.date_input("Data de Admissão:", value=val_adm)
-                a_dem = st.date_input("Data de Demissão:", value=val_dem)
-                a_pix = st.text_input("Chave PIX:", value=str(dados_atuais['chave_pix'] if dados_atuais['chave_pix'] else ''))
-                
-                if st.form_submit_button("Atualizar Dados Cadastrais"):
-                    if not a_nome.strip():
-                        st.error("O campo de Nome não pode ser deixado em branco.")
-                    else:
-                        with engine.begin() as conn:
-                            conn.execute(
-                                text("""
-                                    UPDATE cadastro_geral_colaborador 
-                                    SET nome = :nome, cpf = :cpf, cargo = :cargo, admissao = :admissao, demissao = :demissao, chave_pix = :pix
-                                    WHERE id = :id
-                                """),
-                                {
-                                    "nome": a_nome.strip(), "cpf": limpar_cpf(a_cpf), "cargo": a_cargo.strip(),
-                                    "admissao": a_adm, "demissao": a_dem, "pix": a_pix.strip(), "id": id_alterar
-                                }
-                            )
-                        st.success("🎉 Alterações sincronizadas com sucesso!")
+                    val_adm = dados_atuais['admissao']
+                    val_adm = datetime.datetime.strptime(val_adm, '%Y-%m-%d').date() if isinstance(val_adm, str) else (val_adm if pd.notna(val_adm) else datetime.date.today())
+                    
+                    val_dem = dados_atuais['demissao']
+                    val_dem = datetime.datetime.strptime(val_dem, '%Y-%m-%d').date() if isinstance(val_dem, str) else (val_dem if pd.notna(val_dem) else None)
+                    
+                    a_adm = st.date_input("Data de Admissão:", value=val_adm)
+                    a_dem = st.date_input("Data de Demissão:", value=val_dem)
+                    a_pix = st.text_input("Chave PIX:", value=str(dados_atuais['chave_pix'] if dados_atuais['chave_pix'] else ''))
+                    
+                    # Botões Lado a Lado
+                    col_save, col_cancel = st.columns(2)
+                    btn_atualizar = col_save.form_submit_button("Salvar Alterações", type="primary")
+                    btn_cancelar = col_cancel.form_submit_button("Cancelar e Voltar", type="secondary")
+                    
+                    if btn_cancelar:
+                        st.session_state['id_alterar'] = None
                         st.rerun()
+                        
+                    if btn_atualizar:
+                        if not a_nome.strip():
+                            st.error("O Nome não pode ficar em branco.")
+                        else:
+                            with engine.begin() as conn:
+                                conn.execute(
+                                    text("""UPDATE cadastro_geral_colaborador SET nome = :nome, cpf = :cpf, cargo = :cargo, admissao = :admissao, demissao = :demissao, chave_pix = :pix WHERE id = :id"""),
+                                    {"nome": a_nome.strip(), "cpf": limpar_cpf(a_cpf), "cargo": a_cargo.strip(), "admissao": a_adm, "demissao": a_dem, "pix": a_pix.strip(), "id": id_alt}
+                                )
+                            st.success("🎉 Alterações salvas com sucesso!")
+                            st.session_state['id_alterar'] = None # Volta pro estado inicial limpo
+                            # Refresh manual ou instruir usuário
+                            st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # --- EXCLUIR ---
+    # --- ABA: EXCLUIR REGISTRO ---
     with aba_excluir:
         st.markdown("<div class='panel-glass'>", unsafe_allow_html=True)
-        st.subheader("❌ Remoção Crítica de Funcionário")
+        st.subheader("❌ Remover Colaborador")
+        
         if df_colab.empty:
-            st.warning("Nenhum registro ativo disponível para remoção.")
+            st.warning("O banco de dados está vazio.")
         else:
-            lista_funcs_del = [f"{r['id']} - {r['nome']}" for _, r in df_colab.iterrows()]
-            selecionado_del = st.selectbox("Selecione o registro a ser removido:", lista_funcs_del, key="sb_excluir")
-            id_deletar = selecionado_del.split(" - ")[0]
-            
-            st.warning(f"Atenção: Você selecionou a matrícula '{id_deletar}'. Esta ação não poderá ser desfeita.")
-            trava_seguranca = st.checkbox("Confirmo que desejo apagar este colaborador.")
-            
-            if st.button("Remover Definitivamente", type="secondary", key="btn_del_individual"):
-                if not trava_seguranca:
-                    st.error("❌ Operação Rejeitada: Marque a caixa de confirmação.")
-                else:
-                    with engine.begin() as conn:
-                        conn.execute(text("DELETE FROM premios_funcionarios WHERE id_funcionario = :id"), {"id": id_deletar})
-                        conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_deletar})
-                    st.success(f"💥 Matrícula {id_deletar} removida com sucesso.")
+            # ETAPA 1: Busca e Carregamento para Exclusão
+            if st.session_state['id_excluir'] is None:
+                lista_funcs_del = [f"{r['id']} - {r['nome']}" for _, r in df_colab.iterrows()]
+                selecionado_del = st.selectbox("1. Digite para buscar o funcionário:", lista_funcs_del, key="sb_busca_del")
+                
+                if st.button("Analisar Exclusão", type="primary"):
+                    st.session_state['id_excluir'] = selecionado_del.split(" - ")[0]
                     st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)    
+                    
+            # ETAPA 2: Confirmação e Cancelamento
+            else:
+                id_del = st.session_state['id_excluir']
+                nome_del = df_colab[df_colab['id'] == id_del].iloc[0]['nome']
+                
+                st.error(f"⚠️ Atenção: Você está prestes a apagar **{nome_del}** (Matrícula: {id_del}) do sistema.")
+                
+                with st.form("form_exclusao"):
+                    trava_seguranca = st.checkbox("Sim, confirmo que desejo apagar os dados deste colaborador.")
+                    
+                    col_del, col_cancel = st.columns(2)
+                    btn_del = col_del.form_submit_button("Remover Definitivamente", type="primary")
+                    btn_cancelar = col_cancel.form_submit_button("Cancelar e Voltar", type="secondary")
+                    
+                    if btn_cancelar:
+                        st.session_state['id_excluir'] = None
+                        st.rerun()
+                        
+                    if btn_del:
+                        if not trava_seguranca:
+                            st.error("❌ Operação Rejeitada: Marque a caixa de confirmação para prosseguir.")
+                        else:
+                            with engine.begin() as conn:
+                                conn.execute(text("DELETE FROM premios_funcionarios WHERE id_funcionario = :id"), {"id": id_del})
+                                conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_del})
+                            st.success(f"💥 Colaborador removido com sucesso.")
+                            st.session_state['id_excluir'] = None # Volta pro estado inicial limpo
+                            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
