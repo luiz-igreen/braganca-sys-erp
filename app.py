@@ -57,7 +57,6 @@ st.markdown("""
     }
     .stButton>button:hover { background-color: #1d4ed8 !important; }
     
-    /* Botão de Exclusão com Alerta Visual Vermelho */
     div[data-testid="stForm"] .stButton>button[type="submit"] {
         width: 100%;
     }
@@ -96,7 +95,6 @@ inicializar_banco_de_dados()
 
 # --- REGRAS DE NEGÓCIO E AUXILIARES ---
 def validar_id_clt(id_texto):
-    """Bloqueia o ID 1 para proteção estrutural e de auditoria corporativa."""
     id_limpo = str(id_texto).split('.')[0].strip()
     if id_limpo in ['1', '01', '001', '0001', '']:
         return False
@@ -108,7 +106,6 @@ def formatar_id_limpo(id_original):
     return str(id_original).split('.')[0].strip()
 
 def limpar_cpf(cpf_bruto):
-    """Remove caracteres especiais preservando estritamente a string numérica."""
     if not cpf_bruto:
         return ""
     return ''.join(filter(str.isdigit, str(cpf_bruto)))
@@ -135,7 +132,6 @@ if menu == "👥 Visão Geral":
     if df_colab.empty:
         st.info("💡 Nenhum colaborador encontrado no Supabase. Vá até a aba 'Importação Inteligente' para realizar a carga inicial.")
     else:
-        # Métricas em tempo real direto da base relacional
         total_funcionarios = len(df_colab)
         st.markdown(f'<div class="card-metric"><div class="metric-title">Total de Colaboradores Cadastrados no Banco</div><div class="metric-value">{total_funcionarios}</div></div>', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
@@ -143,29 +139,34 @@ if menu == "👥 Visão Geral":
         st.markdown("<div class='panel-glass'>", unsafe_allow_html=True)
         st.subheader("📋 Listagem Completa de Registros Ativos")
         
-        # Formatação amigável das colunas antes de renderizar em tela
         df_exibicao = df_colab.copy()
         df_exibicao.columns = ['ID / Matrícula', 'Nome Completo', 'CPF', 'Cargo', 'Data de Admissão', 'Data de Demissão', 'Chave PIX']
         st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================================
-# 2. MENU: IMPORTAÇÃO INTELIGENTE (VETOR EXCLUSIVO DE CARGA INICIAL)
+# 2. MENU: IMPORTAÇÃO INTELIGENTE (SUPORTE MULTIFORMATO: .XLSX, .XLS, .CSV)
 # =========================================================================
 elif menu == "📥 Importação Inteligente":
     st.markdown("<h2>📥 Importação e Ingestão de Dados</h2>", unsafe_allow_html=True)
-    st.markdown("Carregue a planilha para realizar a carga automatizada e segura no Supabase. Os dados serão consolidados definitivamente nas tabelas relacionais.")
+    st.markdown("Carregue a planilha para realizar a carga automatizada e segura no Supabase. O motor agora aceita formatos legados (.xls).")
     
-    arquivo_carregado = st.file_uploader("Selecione o arquivo Excel de migração (.xlsx, .csv)", type=["xlsx", "csv"])
+    # Atualizado para incluir explicitamente o tipo 'xls'
+    arquivo_carregado = st.file_uploader("Selecione o arquivo de migração (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"])
     
     if arquivo_carregado:
         st.markdown("<div class='panel-glass'>", unsafe_allow_html=True)
         if st.button("Executar Ingestão Certificada", type="primary"):
             with st.spinner("Injetando dados relacionais..."):
+                
+                # Roteamento inteligente dependendo da extensão do arquivo importado
                 if arquivo_carregado.name.endswith('.csv'):
                     df_bruto = pd.read_csv(arquivo_carregado, sep=None, engine='python')
+                elif arquivo_carregado.name.endswith('.xls'):
+                    # Motor xlrd ativado especificamente para o formato Excel antigo
+                    df_bruto = pd.read_excel(arquivo_carregado, sheet_name=0, engine='xlrd')
                 else:
-                    df_bruto = pd.read_excel(arquivo_carregado, sheet_name=0)
+                    df_bruto = pd.read_excel(arquivo_carregado, sheet_name=0, engine='openpyxl')
                 
                 df_bruto.columns = [col.strip().lower().replace('admissão', 'admissao').replace('demissão', 'demissao') for col in df_bruto.columns]
                 
@@ -176,12 +177,10 @@ elif menu == "📥 Importação Inteligente":
                         if not id_func or not validar_id_clt(id_func):
                             continue
                         
-                        # Verifica duplicidade em tempo de execução
                         existe = conn.execute(text("SELECT 1 FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_func}).fetchone()
                         if existe:
                             continue
                             
-                        # Tratamento de datas seriais ou strings
                         adm_val = row.get('admissao')
                         if pd.notna(adm_val) and str(adm_val).replace('.0','').isdigit():
                             dt_adm = pd.to_datetime(float(adm_val), unit='D', origin='1899-12-30').date()
@@ -212,12 +211,11 @@ elif menu == "📥 Importação Inteligente":
         st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================================
-# 3. MENU: GESTÃO DE CADASTROS (MOTORES CRUD DINÂMICOS: NOVO, CONSULTAR, ALTERAR, EXCLUIR)
+# 3. MENU: GESTÃO DE CADASTROS (MOTORES CRUD DINÂMICOS)
 # =========================================================================
 elif menu == "🛠️ Gestão de Cadastros":
     st.markdown("<h2>🛠️ Painel Operacional de Cadastros (CRUD)</h2>", unsafe_allow_html=True)
     
-    # Criação dos sub-menus em abas horizontais estilizadas
     aba_consultar, aba_novo, aba_alterar, aba_excluir = st.tabs([
         "🔍 Consultar Colaborador", 
         "➕ Novo Registro", 
@@ -225,18 +223,13 @@ elif menu == "🛠️ Gestão de Cadastros":
         "❌ Excluir do Banco"
     ])
     
-    # ---------------------------------------------------------------------
-    # ACÃO: CONSULTAR COLABORADOR
-    # ---------------------------------------------------------------------
+    # --- CONSULTAR ---
     with aba_consultar:
         st.markdown("<div class='panel-glass'>", unsafe_allow_html=True)
         st.subheader("🔍 Localizar Ficha Individual de Registro")
-        st.write("Digite o ID, Nome ou CPF do funcionário para puxar a linha completa de dados.")
-        
         termo_busca = st.text_input("Campo de Busca Inteligente (Qualquer termo):", key="busca_consulta").strip()
         
         if termo_busca:
-            # Query com busca aproximada (LIKE) em múltiplos indexadores cadastrais
             query_busca = text("""
                 SELECT id, nome, cpf, cargo, admissao, demissao, chave_pix 
                 FROM cadastro_geral_colaborador 
@@ -248,7 +241,6 @@ elif menu == "🛠️ Gestão de Cadastros":
             if resultados:
                 st.write(f"🎯 {len(resultados)} correspondência(s) encontrada(s):")
                 for r in resultados:
-                    # Renderização isolada e minuciosa de cada registro em uma linha/card exclusivo
                     st.markdown(f"""
                     <div class="ficha-colaborador">
                         <div class="ficha-titulo">👤 {r.nome}</div>
@@ -264,13 +256,10 @@ elif menu == "🛠️ Gestão de Cadastros":
                 st.warning("⚠️ Nenhum registro localizado com os dados informados.")
         st.markdown("</div>", unsafe_allow_html=True)
         
-    # ---------------------------------------------------------------------
-    # AÇÃO: NOVO REGISTRO
-    # ---------------------------------------------------------------------
+    # --- NOVO ---
     with aba_novo:
         st.markdown("<div class='panel-glass'>", unsafe_allow_html=True)
         st.subheader("➕ Inserção Direta de Colaborador")
-        
         with st.form("form_novo_registro", clear_on_submit=True):
             c1, c2 = st.columns(2)
             n_id = c1.text_input("ID / Número de Matrícula:")
@@ -288,9 +277,9 @@ elif menu == "🛠️ Gestão de Cadastros":
                 if not id_limpo or not n_nome:
                     st.error("❌ Os campos ID e Nome são estritamente obrigatórios.")
                 elif not validar_id_clt(id_limpo):
-                    st.error("❌ Erro de Segurança MTE: O ID '1' é protegido por auditoria e não pode ser criado.")
+                    st.error("❌ Erro de Segurança: O ID '1' é protegido por auditoria.")
                 elif not df_colab.empty and id_limpo in df_colab['id'].astype(str).tolist():
-                    st.error(f"❌ Conflito de Chave: O ID '{id_limpo}' já está em uso na empresa.")
+                    st.error(f"❌ Conflito de Chave: O ID '{id_limpo}' já está cadastrado.")
                 else:
                     with engine.begin() as conn:
                         conn.execute(
@@ -308,13 +297,10 @@ elif menu == "🛠️ Gestão de Cadastros":
                     st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # ---------------------------------------------------------------------
-    # AÇÃO: ALTERAR CADASTRO
-    # ---------------------------------------------------------------------
+    # --- ALTERAR ---
     with aba_alterar:
         st.markdown("<div class='panel-glass'>", unsafe_allow_html=True)
         st.subheader("✏️ Edição de Registro Existente")
-        
         if df_colab.empty:
             st.warning("Base de dados vazia para alteração.")
         else:
@@ -322,7 +308,6 @@ elif menu == "🛠️ Gestão de Cadastros":
             selecionado = st.selectbox("Selecione o funcionário que deseja modificar:", lista_funcs, key="sb_alterar")
             id_alterar = selecionado.split(" - ")[0]
             
-            # Puxa o estado atual direto da linha selecionada
             dados_atuais = df_colab[df_colab['id'] == id_alterar].iloc[0]
             
             with st.form("form_alterar_registro"):
@@ -331,7 +316,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                 a_cpf = st.text_input("CPF:", value=str(dados_atuais['cpf'] if dados_atuais['cpf'] else ''))
                 a_cargo = st.text_input("Cargo Ocupado:", value=str(dados_atuais['cargo'] if dados_atuais['cargo'] else ''))
                 
-                # Conversão segura de datas para o widget date_input
                 val_adm = dados_atuais['admissao']
                 if isinstance(val_adm, str):
                     val_adm = datetime.datetime.strptime(val_adm, '%Y-%m-%d').date()
@@ -368,14 +352,10 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # ---------------------------------------------------------------------
-    # AÇÃO: EXCLUIR DO BANCO
-    # ---------------------------------------------------------------------
+    # --- EXCLUIR ---
     with aba_excluir:
         st.markdown("<div class='panel-glass'>", unsafe_allow_html=True)
         st.subheader("❌ Remoção Crítica de Funcionário")
-        st.write("A exclusão retirará fisicamente e em definitivo o colaborador do banco de dados relacional.")
-        
         if df_colab.empty:
             st.warning("Nenhum registro ativo disponível para remoção.")
         else:
@@ -384,18 +364,15 @@ elif menu == "🛠️ Gestão de Cadastros":
             id_deletar = selecionado_del.split(" - ")[0]
             
             st.warning(f"Atenção: Você selecionou a matrícula '{id_deletar}'. Esta ação não poderá ser desfeita.")
-            
-            # Caixa de trava obrigatória para confirmação consciente do usuário
             trava_seguranca = st.checkbox("Confirmo que desejo apagar este colaborador e todo o seu histórico relarial.")
             
             if st.button("Remover Definitivamente do Supabase", type="primary"):
                 if not trava_seguranca:
-                    st.error("❌ Operação Rejeitada: Você precisa marcar a caixa de confirmação de segurança antes de prosseguir.")
+                    st.error("❌ Operação Rejeitada: Você precisa marcar a caixa de confirmação de segurança.")
                 else:
                     with engine.begin() as conn:
-                        # Limpa o histórico de prêmios atrelado e o cadastro mestre
                         conn.execute(text("DELETE FROM premios_funcionarios WHERE id_funcionario = :id"), {"id": id_deletar})
                         conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_deletar})
                     st.success(f"💥 Matrícula {id_deletar} removida permanentemente do banco de dados.")
                     st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)    
