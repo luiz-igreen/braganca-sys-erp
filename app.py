@@ -23,16 +23,37 @@ st.markdown("""
     .stButton>button { width: 100%; border-radius: 8px; font-weight: 600; }
     .field-label { color: #94a3b8; font-size: 0.9rem; font-weight: bold; }
     .field-value { color: #f8fafc; font-size: 1.1rem; margin-bottom: 12px; background: rgba(15, 23, 42, 0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); }
+    
+    /* Customização para transformar o radio button em abas premium clicáveis */
+    div[data-testid="stRadio"] > div {
+        flex-direction: row;
+        gap: 10px;
+    }
+    div[data-testid="stRadio"] label {
+        background: rgba(30, 41, 59, 0.6);
+        padding: 8px 16px;
+        border-radius: 8px;
+        border: 1px solid rgba(51, 65, 85, 0.5);
+        color: #94a3b8;
+        cursor: pointer;
+    }
+    div[data-testid="stRadio"] label[data-testid="stWidgetSelected"] {
+        background: #2563eb !important;
+        color: #ffffff !important;
+        border-color: #3b82f6 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- CONTROLE DE ESTADOS DO FLUXO ---
+# --- CONTROLE DE ESTADOS DO FLUXO SPA ---
 if 'busca_selecionada_id' not in st.session_state:
     st.session_state['busca_selecionada_id'] = None
 if 'status_acao' not in st.session_state:
-    st.session_state['status_acao'] = None # None, 'solicitou_alterar', 'solicitou_excluir'
+    st.session_state['status_acao'] = None
+if 'sub_menu_cadastro' not in st.session_state:
+    st.session_state['sub_menu_cadastro'] = "🔍 Consultar & Gerenciar"
 
-# --- NAVEGAÇÃO SPA ---
+# --- NAVEGAÇÃO CENTRAL ---
 menu = st.sidebar.radio("Navegação", ["👥 Visão Geral", "📥 Importação Inteligente", "🛠️ Gestão de Cadastros"])
 
 # --- 1. VISÃO GERAL ---
@@ -81,13 +102,22 @@ elif menu == "📥 Importação Inteligente":
 
 # --- 3. GESTÃO DE CADASTROS ---
 elif menu == "🛠️ Gestão de Cadastros":
-    aba1, aba2 = st.tabs(["🔍 Consultar & Gerenciar", "➕ Novo Cadastro"])
+    st.title("🛠️ Gestão de Cadastros")
+    
+    # Abas dinâmicas controladas via código para permitir redirecionamento no Cancelar
+    sub_menu = st.radio(
+        label="Menu de Operações",
+        options=["🔍 Consultar & Gerenciar", "➕ Novo Cadastro"],
+        key="sub_menu_cadastro",
+        label_visibility="collapsed"
+    )
+    
+    st.markdown("---")
 
-    # --- ABA 1: CONSULTAR, ALTERAR E EXCLUIR CONECTADOS ---
-    with aba1:
+    # --- ABA: CONSULTAR, ALTERAR E EXCLUIR ---
+    if sub_menu == "🔍 Consultar & Gerenciar":
         st.subheader("Consultar Ficha do Colaborador")
         
-        # autocomplete="off" impede o navegador de sugerir lixo de histórico aqui
         termo = st.text_input("Digite o ID exato ou parte do Nome:", key="input_busca_central", autocomplete="off")
         btn_buscar = st.button("Buscar Registro")
         
@@ -218,14 +248,21 @@ elif menu == "🛠️ Gestão de Cadastros":
             except Exception as e:
                 st.error(f"Falha de comunicação operacional: {e}")
 
-    # --- ABA 2: NOVO CADASTRO COMPLETO ---
-    with aba2:
-        st.subheader("Inserir Novo Colaborador")
-        if st.button("Limpar Formulário", key="btn_limpar_novo"): 
-            st.rerun()
+    # --- ABA: NOVO CADASTRO (COM BOTÃO CANCELAR INTEGRADO) ---
+    elif sub_menu == "➕ Novo Cadastro":
+        # Layout de cabeçalho com título e botão de cancelamento imediato ao lado
+        col_tit, col_can = st.columns([3, 1])
+        with col_tit:
+            st.subheader("Inserir Novo Colaborador")
+        with col_can:
+            # Botão de Cancelamento para retornar ao estado padrão imediatamente
+            if st.button("⬅️ Cancelar e Voltar", use_container_width=True):
+                st.session_state['sub_menu_cadastro'] = "🔍 Consultar & Gerenciar"
+                st.rerun()
+                
+        st.markdown('</div>', unsafe_allow_html=True)
         
         with st.form("form_novo_cadastro", clear_on_submit=True):
-            # Adicionado autocomplete="off" em cada um para blindagem completa do formulário de inserção
             n_id = st.text_input("Código ID / Matrícula (Ex: 1025)", autocomplete="off")
             n_nome = st.text_input("Nome Completo", autocomplete="off")
             n_cpf = st.text_input("CPF (Apenas números)", autocomplete="off")
@@ -233,7 +270,15 @@ elif menu == "🛠️ Gestão de Cadastros":
             n_admissao = st.text_input("Data de Admissão (Formatada AAAA-MM-DD)", autocomplete="off")
             n_demissao = st.text_input("Data de Demissão (Opcional - AAAA-MM-DD)", autocomplete="off")
             
-            if st.form_submit_button("Salvar Registro no Sistema"):
+            st.markdown("<br>", unsafe_allow_html=True)
+            col_sb1, col_sb2 = st.columns([2, 2])
+            
+            with col_sb1:
+                submetido = st.form_submit_button("💾 Salvar Registro no Sistema")
+            with col_sb2:
+                st.markdown("<p style='color:#94a3b8; font-size:0.85rem; margin-top:10px;'>Para sair sem salvar, clique no botão superior 'Cancelar e Voltar'.</p>", unsafe_allow_html=True)
+            
+            if submetido:
                 if not n_id.strip() or not n_nome.strip():
                     st.error("⚠️ Os campos 'ID' e 'Nome Completo' são obrigatórios para a criação do cadastro.")
                 else:
@@ -251,5 +296,8 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 "demissao": str(n_demissao) if n_demissao.strip() else None
                             })
                         st.success(f"Colaborador {n_nome} inserido com total integridade!")
+                        # Redireciona de volta após salvar com sucesso
+                        st.session_state['sub_menu_cadastro'] = "🔍 Consultar & Gerenciar"
+                        st.rerun()
                     except Exception as e:
-                        st.error(f"Erro de Integridade: Verifique se o ID digitado já não pertence a outro cadastro. Detalhes: {e}")
+                        st.error(f"Erro de Integridade: Verifique se o ID digitado já não pertence a outro cadastro. Detalhes: {e}")    
