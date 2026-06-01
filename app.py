@@ -114,6 +114,11 @@ def limpar_cpf(cpf_bruto):
         return ""
     return ''.join(filter(str.isdigit, str(cpf_bruto)))
 
+def sanitizar_texto(texto):
+    if pd.isna(texto) or not str(texto).strip():
+        return ""
+    return str(texto).strip()
+
 def converter_data_resiliente(val):
     if pd.isna(val):
         return None
@@ -149,7 +154,7 @@ df_colab = obter_colaboradores_banco()
 # 1. MENU: VISÃO GERAL
 # =========================================================================
 if menu == "👥 Visão Geral":
-    st.markdown("<h2 style='margin-bottom: 20px;'>📊 Painel de Controle Corporativo</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='margin-bottom: 20px;'>📊 Panel de Controle Corporativo</h2>", unsafe_allow_html=True)
     
     if df_colab.empty:
         st.info("💡 Nenhum colaborador encontrado no Supabase. Vá até a aba 'Importação Inteligente' para realizar a carga inicial.")
@@ -167,11 +172,11 @@ if menu == "👥 Visão Geral":
         st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================================
-# 2. MENU: IMPORTAÇÃO INTELIGENTE (SISTEMA UPSERT BLINDADO CONTRA DUPLICADOS)
+# 2. MENU: IMPORTAÇÃO INTELIGENTE (SISTEMA DE ACENTUAÇÃO PROTEGIDO)
 # =========================================================================
 elif menu == "📥 Importação Inteligente":
     st.markdown("<h2>📥 Importação e Ingestão de Dados</h2>", unsafe_allow_html=True)
-    st.markdown("Carregue a planilha exportada. O motor executará sincronizações resilientes via UPSERT (Insere novos e atualiza existentes).")
+    st.markdown("Carregue a planilha exportada. O motor executará sincronizações resilientes via UPSERT protegendo a integridade dos caracteres.")
     
     if 'flash_sucesso' in st.session_state:
         st.success(st.session_state['flash_sucesso'])
@@ -188,7 +193,7 @@ elif menu == "📥 Importação Inteligente":
     if arquivo_carregado:
         st.markdown("<div class='panel-glass'>", unsafe_allow_html=True)
         if st.button("Executar Ingestão Certificada", type="primary"):
-            with st.spinner("Sincronizando dados com o Supabase sem risco de duplicidade..."):
+            with st.spinner("Sincronizando dados e decodificando caracteres especiais..."):
                 
                 conteudo_bytes = arquivo_carregado.read()
                 nome_arquivo = arquivo_carregado.name.lower()
@@ -206,26 +211,35 @@ elif menu == "📥 Importação Inteligente":
                     except Exception:
                         pass
                 
+                # MOTOR DE DETECÇÃO ANTI-MOJIBAKE (Inversão estratégica de prioridade de encoding)
                 if df_bruto is None or df_bruto.empty:
-                    for caractere_separador in [';', ',', '\t']:
-                        for codificacao_texto in ['utf-8', 'latin1', 'iso-8859-1']:
+                    codificacoes_prioritarias = ['utf-8-sig', 'utf-8', 'cp1252', 'latin1']
+                    separadores_prioritarios = [',', ';', '\t']
+                    
+                    descoberto = False
+                    for enc in codificacoes_prioritarias:
+                        for sep in separadores_prioritarios:
                             try:
                                 df_tentativa = pd.read_csv(
                                     io.BytesIO(conteudo_bytes), 
-                                    sep=caractere_separador, 
-                                    encoding=codificacao_texto,
+                                    sep=sep, 
+                                    encoding=enc,
                                     on_bad_lines='skip'
                                 )
                                 if not df_tentativa.empty and len(df_tentativa.columns) > 1:
-                                    df_bruto = df_tentativa
-                                    break
+                                    # Valida se capturou cabeçalhos de forma legível
+                                    cols_teste = "".join(str(c) for c in df_tentativa.columns).lower()
+                                    if 'id' in cols_teste or 'nome' in cols_teste or 'cargo' in cols_teste:
+                                        df_bruto = df_tentativa
+                                        descoberto = True
+                                        break
                             except Exception:
                                 continue
-                        if df_bruto is not None and not df_bruto.empty:
+                        if descoberto:
                             break
                 
                 if df_bruto is None or df_bruto.empty:
-                    st.session_state['flash_erro'] = "❌ Erro Crítico: Não foi possível estruturar o arquivo enviado."
+                    st.session_state['flash_erro'] = "❌ Erro Crítico: Não foi possível estruturar o arquivo enviado devido à codificação inválida."
                     st.rerun()
                 else:
                     cols = df_bruto.columns
@@ -256,7 +270,6 @@ elif menu == "📥 Importação Inteligente":
                                     linhas_invalidas += 1
                                     continue
                                 
-                                # Define métricas reais de novos vs atualizados
                                 if id_func in ids_existentes or id_func in ids_processados_nesta_execucao:
                                     atualizados_cadastros += 1
                                 else:
@@ -264,14 +277,14 @@ elif menu == "📥 Importação Inteligente":
                                 
                                 ids_processados_nesta_execucao.add(id_func)
                                 
-                                nome_func = str(row[col_nome]).strip() if col_nome is not None and pd.notna(row[col_nome]) else "Colaborador Sem Nome"
+                                nome_func = sanitizar_texto(row[col_nome]) if col_nome is not None else "Colaborador Sem Nome"
                                 cpf_func = limpar_cpf(row[col_cpf]) if col_cpf is not None else ""
-                                cargo_func = str(row[col_cargo]).strip() if col_cargo is not None and pd.notna(row[col_cargo]) else ""
+                                cargo_func = sanitizar_texto(row[col_cargo]) if col_cargo is not None else ""
                                 dt_adm = converter_data_resiliente(row[col_adm]) if col_adm is not None else None
                                 dt_dem = converter_data_resiliente(row[col_dem]) if col_dem is not None else None
-                                pix_func = str(row[col_pix]).strip() if col_pix is not None and pd.notna(row[col_pix]) else None
+                                pix_func = sanitizar_texto(row[col_pix]) if col_pix is not None else None
                                 
-                                # OPERAÇÃO UPSERT: Se houver conflito de ID, atualiza os dados
+                                # OPERAÇÃO UPSERT CONTRA DUPLICIDADE
                                 conn.execute(
                                     text("""
                                         INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, chave_pix)
@@ -290,13 +303,13 @@ elif menu == "📥 Importação Inteligente":
                                     }
                                 )
                         
-                        if novos_cadastros > 0 or atualizados_cadastros > 0:
-                            st.session_state['flash_sucesso'] = f"🎉 Ingestão executada com total integridade! {novos_cadastros} novos registros criados e {atualizados_cadastros} registros atualizados/sincronizados com sucesso. (Linhas descartadas/cabeçalhos: {linhas_invalidas})"
+                        if nuevos_cadastros > 0 or atualizados_cadastros > 0:
+                            st.session_state['flash_sucesso'] = f"🎉 Ingestão concluída com sucesso! {novos_cadastros} novos registros e {atualizados_cadastros} registros atualizados com acentuação corrigida."
                         else:
-                            st.session_state['flash_aviso'] = f"⚠️ Nenhum dado útil pôde ser processado das {linhas_invalidas} linhas analisadas."
+                            st.session_state['flash_aviso'] = f"⚠️ Nenhuma linha útil pôde ser processada."
                     
-                    except sqlalchemy.exc.IntegrityError as ie:
-                        st.session_state['flash_erro'] = "❌ Erro de Integridade Estrutural: Conflito intransponível detectado nos dados estruturais da planilha."
+                    except sqlalchemy.exc.IntegrityError:
+                        st.session_state['flash_erro'] = "❌ Erro de Integridade: Conflito intransponível detectado na tabela."
                     
                     st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
@@ -336,7 +349,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     <div class="ficha-colaborador">
                         <div class="ficha-titulo">👤 {r.nome}</div>
                         <div class="ficha-item"><span class="ficha-label">Matrícula / ID:</span> {r.id}</div>
-                        <div class="ficha-item"><span class="ficha-label">CPF (Apenas Números):</span> {r.cpf if r.cpf else 'Não Informado'}</div>
+                        <div class="ficha-item"><span class="ficha-label">CPF:</span> {r.cpf if r.cpf else 'Não Informado'}</div>
                         <div class="ficha-item"><span class="ficha-label">Cargo Atual:</span> {r.cargo if r.cargo else 'Não Mapeado'}</div>
                         <div class="ficha-item"><span class="ficha-label">Data de Admissão:</span> {r.admissao.strftime('%d/%m/%Y') if r.admissao else '-'}</div>
                         <div class="ficha-item"><span class="ficha-label">Data de Demissão:</span> {r.demissao.strftime('%d/%m/%Y') if r.demissao else 'Ativo'}</div>
@@ -368,7 +381,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                 if not id_limpo or not n_nome:
                     st.error("❌ Os campos ID e Nome são estritamente obrigatórios.")
                 elif not validar_id_clt(id_limpo):
-                    st.error("❌ Erro de Segurança: Este formato de ID é protegido ou inválido para fins do sistema.")
+                    st.error("❌ Erro de Segurança: Formato de ID inválido.")
                 else:
                     try:
                         with engine.begin() as conn:
@@ -390,7 +403,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     "demissao": n_dem, "pix": n_pix.strip()
                                 }
                             )
-                        st.success("🎉 Colaborador gravado e sincronizado com sucesso no Supabase!")
+                        st.success("🎉 Colaborador gravado e sincronizado com sucesso!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Erro operacional ao gravar dados: {str(e)}")
@@ -447,7 +460,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     "admissao": a_adm, "demissao": a_dem, "pix": a_pix.strip(), "id": id_alterar
                                 }
                             )
-                        st.success("🎉 Alterações sincronizadas com o Supabase com sucesso!")
+                        st.success("🎉 Alterações sincronizadas com sucesso!")
                         st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -463,15 +476,15 @@ elif menu == "🛠️ Gestão de Cadastros":
             id_deletar = selecionado_del.split(" - ")[0]
             
             st.warning(f"Atenção: Você selecionou a matrícula '{id_deletar}'. Esta ação não poderá ser desfeita.")
-            trava_seguranca = st.checkbox("Confirmo que desejo apagar este colaborador e todo o seu histórico relarial.")
+            trava_seguranca = st.checkbox("Confirmo que desejo apagar este colaborador.")
             
-            if st.button("Remover Definitivamente do Supabase", type="primary"):
+            if st.button("Remover Definitivamente", type="primary"):
                 if not trava_seguranca:
-                    st.error("❌ Operação Rejeitada: Você precisa marcar a caixa de confirmação de segurança.")
+                    st.error("❌ Operação Rejeitada: Marque a caixa de confirmação.")
                 else:
                     with engine.begin() as conn:
                         conn.execute(text("DELETE FROM premios_funcionarios WHERE id_funcionario = :id"), {"id": id_deletar})
                         conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_deletar})
-                    st.success(f"💥 Matrícula {id_deletar} removida permanentemente do banco de dados.")
+                    st.success(f"💥 Matrícula {id_deletar} removida com sucesso.")
                     st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)    
