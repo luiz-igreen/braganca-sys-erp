@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, text
 import datetime
+import io
 
 # --- CONFIGURAÇÃO DE DIRETRIZES VISUAIS (DARK PREMIUM GLASSMORPHISM) ---
 st.set_page_config(page_title="BRAGANÇA SYS - Gestão Corporativa", page_icon="🏗️", layout="wide")
@@ -145,69 +146,84 @@ if menu == "👥 Visão Geral":
         st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================================
-# 2. MENU: IMPORTAÇÃO INTELIGENTE (SUPORTE MULTIFORMATO: .XLSX, .XLS, .CSV)
+# 2. MENU: IMPORTAÇÃO INTELIGENTE (MOTOR ADAPTATIVO AVANÇADO)
 # =========================================================================
 elif menu == "📥 Importação Inteligente":
     st.markdown("<h2>📥 Importação e Ingestão de Dados</h2>", unsafe_allow_html=True)
-    st.markdown("Carregue a planilha para realizar a carga automatizada e segura no Supabase. O motor agora aceita formatos legados (.xls).")
+    st.markdown("Carregue a sua planilha. O motor processará arquivos modernos ou antigos (.xls), tratando automaticamente desvios de formato.")
     
-    # Atualizado para incluir explicitamente o tipo 'xls'
     arquivo_carregado = st.file_uploader("Selecione o arquivo de migração (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"])
     
     if arquivo_carregado:
         st.markdown("<div class='panel-glass'>", unsafe_allow_html=True)
         if st.button("Executar Ingestão Certificada", type="primary"):
-            with st.spinner("Injetando dados relacionais..."):
+            with st.spinner("Analisando estrutura física e injetando registros..."):
                 
-                # Roteamento inteligente dependendo da extensão do arquivo importado
-                if arquivo_carregado.name.endswith('.csv'):
-                    df_bruto = pd.read_csv(arquivo_carregado, sep=None, engine='python')
-                elif arquivo_carregado.name.endswith('.xls'):
-                    # Motor xlrd ativado especificamente para o formato Excel antigo
-                    df_bruto = pd.read_excel(arquivo_carregado, sheet_name=0, engine='xlrd')
+                # Leitura resiliente baseada no conteúdo interno real e não apenas na extensão
+                conteudo_bytes = arquivo_carregado.read()
+                df_bruto = None
+                
+                try:
+                    # Estratégia A: Tentar decodificar como Excel moderno (.xlsx)
+                    df_bruto = pd.read_excel(io.BytesIO(conteudo_bytes), sheet_name=0, engine='openpyxl')
+                except Exception:
+                    try:
+                        # Estratégia B: Tentar decodificar como Excel antigo real (.xls)
+                        df_bruto = pd.read_excel(io.BytesIO(conteudo_bytes), sheet_name=0, engine='xlrd')
+                    except Exception:
+                        # Estratégia C: Se falhar, o arquivo é texto/CSV mascarado com extensão de planilha.
+                        try:
+                            df_bruto = pd.read_csv(io.BytesIO(conteudo_bytes), sep=None, engine='python', encoding='utf-8')
+                        except Exception:
+                            df_bruto = pd.read_csv(io.BytesIO(conteudo_bytes), sep=None, engine='python', encoding='latin1')
+                
+                if df_bruto is None or df_bruto.empty:
+                    st.error("❌ Não foi possível decodificar a estrutura ou o arquivo está inteiramente vazio.")
                 else:
-                    df_bruto = pd.read_excel(arquivo_carregado, sheet_name=0, engine='openpyxl')
-                
-                df_bruto.columns = [col.strip().lower().replace('admissão', 'admissao').replace('demissão', 'demissao') for col in df_bruto.columns]
-                
-                novos_cadastros = 0
-                with engine.begin() as conn:
-                    for _, row in df_bruto.iterrows():
-                        id_func = formatar_id_limpo(row.get('id'))
-                        if not id_func or not validar_id_clt(id_func):
-                            continue
-                        
-                        existe = conn.execute(text("SELECT 1 FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_func}).fetchone()
-                        if existe:
-                            continue
+                    # Normalização rigorosa das colunas
+                    df_bruto.columns = [str(col).strip().lower().replace('admissão', 'admissao').replace('demissão', 'demissao') for col in df_bruto.columns]
+                    
+                    novos_cadastros = 0
+                    with engine.begin() as conn:
+                        for _, row in df_bruto.iterrows():
+                            id_func = formatar_id_limpo(row.get('id'))
+                            if not id_func or not validar_id_clt(id_func):
+                                continue
                             
-                        adm_val = row.get('admissao')
-                        if pd.notna(adm_val) and str(adm_val).replace('.0','').isdigit():
-                            dt_adm = pd.to_datetime(float(adm_val), unit='D', origin='1899-12-30').date()
-                        else:
-                            dt_adm = pd.to_datetime(adm_val).date() if pd.notna(adm_val) else None
+                            # Evita duplicações na base relacional
+                            existe = conn.execute(text("SELECT 1 FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_func}).fetchone()
+                            if existe:
+                                continue
+                                
+                            # Conversor resiliente de datas (MTE/Excel Serial ou String nativa)
+                            adm_val = row.get('admissao')
+                            if pd.notna(adm_val) and str(adm_val).replace('.0','').isdigit():
+                                dt_adm = pd.to_datetime(float(adm_val), unit='D', origin='1899-12-30').date()
+                            else:
+                                dt_adm = pd.to_datetime(adm_val).date() if pd.notna(adm_val) else None
+                                
+                            dem_val = row.get('demissao')
+                            if pd.notna(dem_val) and str(dem_val).replace('.0','').isdigit():
+                                dt_dem = pd.to_datetime(float(dem_val), unit='D', origin='1899-12-30').date()
+                            else:
+                                dt_dem = pd.to_datetime(dem_val).date() if pd.notna(dem_val) else None
                             
-                        dem_val = row.get('demissao')
-                        if pd.notna(dem_val) and str(dem_val).replace('.0','').isdigit():
-                            dt_dem = pd.to_datetime(float(dem_val), unit='D', origin='1899-12-30').date()
-                        else:
-                            dt_dem = pd.to_datetime(dem_val).date() if pd.notna(dem_val) else None
-                        
-                        conn.execute(
-                            text("""
-                                INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, chave_pix)
-                                VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :pix)
-                            """),
-                            {
-                                "id": id_func, "nome": str(row.get('nome', '')).strip(),
-                                "cpf": limpar_cpf(row.get('cpf')), "cargo": str(row.get('cargo', '')).strip(),
-                                "admissao": dt_adm, "demissao": dt_dem, 
-                                "pix": str(row.get('chave_pix', row.get('pix', ''))).strip() if pd.notna(row.get('chave_pix', row.get('pix'))) else None
-                            }
-                        )
-                        novos_cadastros += 1
-                st.success(f"🎉 Ingestão concluída! {novos_cadastros} colaboradores integrados ao Supabase.")
-                st.rerun()
+                            conn.execute(
+                                text("""
+                                    INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, chave_pix)
+                                    VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :pix)
+                                """),
+                                {
+                                    "id": id_func, "nome": str(row.get('nome', '')).strip(),
+                                    "cpf": limpar_cpf(row.get('cpf')), "cargo": str(row.get('cargo', '')).strip(),
+                                    "admissao": dt_adm, "demissao": dt_dem, 
+                                    "pix": str(row.get('chave_pix', row.get('pix', ''))).strip() if pd.notna(row.get('chave_pix', row.get('pix'))) else None
+                                }
+                            )
+                            novos_cadastros += 1
+                            
+                    st.success(f"🎉 Ingestão bem-sucedida! {novos_cadastros} colaboradores integrados de forma limpa ao Supabase.")
+                    st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================================
@@ -277,7 +293,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                 if not id_limpo or not n_nome:
                     st.error("❌ Os campos ID e Nome são estritamente obrigatórios.")
                 elif not validar_id_clt(id_limpo):
-                    st.error("❌ Erro de Segurança: O ID '1' é protegido por auditoria.")
+                    st.error("❌ Erro de Segurança: O ID '1' é protegido para fins do sistema.")
                 elif not df_colab.empty and id_limpo in df_colab['id'].astype(str).tolist():
                     st.error(f"❌ Conflito de Chave: O ID '{id_limpo}' já está cadastrado.")
                 else:
