@@ -24,6 +24,15 @@ st.markdown("""
     .field-label { color: #94a3b8; font-size: 0.9rem; font-weight: bold; }
     .field-value { color: #f8fafc; font-size: 1.1rem; margin-bottom: 12px; background: rgba(15, 23, 42, 0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); }
     
+    /* Rótulo customizado para neutralizar a heurística do Chrome */
+    .fake-label {
+        color: #f8fafc;
+        font-size: 0.85rem;
+        font-weight: 500;
+        margin-bottom: -15px;
+        display: block;
+    }
+
     /* Abas customizadas premium via radio */
     div[data-testid="stRadio"] > div {
         flex-direction: row;
@@ -43,6 +52,20 @@ st.markdown("""
         border-color: #3b82f6 !important;
     }
 </style>
+""", unsafe_allow_html=True)
+
+# --- SCRIPT ANTIAUTOFILL DE FORÇA BRUTA (EXECUTA DIRETAMENTE NO NAVEGADOR) ---
+st.markdown("""
+<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" onload="(function(){
+    setInterval(function(){
+        document.querySelectorAll('input').forEach(function(el){
+            if(el.getAttribute('autocomplete') !== 'one-time-code'){
+                el.setAttribute('autocomplete', 'one-time-code');
+                el.setAttribute('autofill', 'off');
+            }
+        });
+    }, 200);
+})()" style="display:none;">
 """, unsafe_allow_html=True)
 
 # --- CONTROLE DE ESTADOS DO FLUXO SPA ---
@@ -104,7 +127,6 @@ elif menu == "📥 Importação Inteligente":
 elif menu == "🛠️ Gestão de Cadastros":
     st.title("🛠️ Gestão de Cadastros")
     
-    # Abas dinâmicas via Session State
     sub_menu = st.radio(
         label="Menu de Operações",
         options=["🔍 Consultar & Gerenciar", "➕ Novo Cadastro"],
@@ -118,7 +140,7 @@ elif menu == "🛠️ Gestão de Cadastros":
     if sub_menu == "🔍 Consultar & Gerenciar":
         st.subheader("Consultar Ficha do Colaborador")
         
-        termo = st.text_input("Digite o ID exato ou parte do Nome:", key="input_busca_central", autocomplete="new-password")
+        termo = st.text_input("Digite o ID exato ou parte do Nome:", key="k_term_busca", autocomplete="one-time-code")
         btn_buscar = st.button("Buscar Registro")
         
         if btn_buscar and termo:
@@ -207,39 +229,44 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.rerun()
 
                     if st.session_state['status_acao'] == 'solicitou_alterar':
-                        st.info("📝 **Modo de Edição Active.** Modifique os dados desejados nos campos abaixo:")
+                        st.info("📝 **Modo de Edição Ativo (Sem Containers Restritivos)**")
                         
-                        with st.form("form_edicao_direta"):
-                            edit_nome = st.text_input("Nome Completo", value=str(colab.nome), autocomplete="new-password")
-                            edit_cpf = st.text_input("CPF", value=str(colab.cpf) if colab.cpf else "", placeholder="00000000000", autocomplete="new-password")
-                            edit_cargo = st.text_input("Cargo", value=str(colab.cargo) if colab.cargo else "", autocomplete="new-password")
-                            edit_adm = st.text_input("Data Admissão (AAAA-MM-DD)", value=str(colab.admissao) if colab.admissao else "", autocomplete="new-password")
-                            edit_dem = st.text_input("Data Demissão (AAAA-MM-DD)", value=str(colab.demissao) if colab.demissao else "", autocomplete="new-password")
-                            
-                            btn_salvar_alt = st.form_submit_button("Confirmar e Salvar Alterações")
-                            
-                            if btn_salvar_alt:
-                                if not edit_nome.strip():
-                                    st.error("O nome do colaborador não pode ficar vazio.")
-                                else:
-                                    with engine.begin() as conn:
-                                        conn.execute(text("""
-                                            UPDATE cadastro_geral_colaborador 
-                                            SET nome = :n, cpf = :c, cargo = :ca, admissao = :ad, demissao = :de 
-                                            WHERE CAST(id AS TEXT) = :id
-                                        """), {
-                                            "n": edit_nome, 
-                                            "c": edit_cpf if edit_cpf.strip() else None,
-                                            "ca": edit_cargo if edit_cargo.strip() else None,
-                                            "ad": edit_adm if edit_adm.strip() else None,
-                                            "de": edit_dem if edit_dem.strip() else None,
-                                            "id": colab_id
-                                        })
-                                    st.success("Alterações gravadas perfeitamente no banco!")
-                                    st.session_state['status_acao'] = None
-                                    st.rerun()
+                        # Grade misturada para quebrar varredura sequencial do Chrome
+                        col_e1, col_e2 = st.columns(2)
+                        with col_e1:
+                            edit_nome = st.text_input("Nome Completo", value=str(colab.nome), autocomplete="one-time-code", key="k_enome")
+                            st.markdown('<label class="fake-label">Número do Documento Identificador</label>', unsafe_allow_html=True)
+                            edit_cpf = st.text_input(" ", value=str(colab.cpf) if colab.cpf else "", placeholder="Apenas dígitos numéricos", autocomplete="one-time-code", key="k_ecpf")
+                            edit_adm = st.text_input("Data Admissão (AAAA-MM-DD)", value=str(colab.admissao) if colab.admissao else "", autocomplete="one-time-code", key="k_eadm")
+                        with col_e2:
+                            edit_cargo = st.text_input("Cargo", value=str(colab.cargo) if colab.cargo else "", autocomplete="one-time-code", key="k_ecargo")
+                            edit_dem = st.text_input("Data Demissão (AAAA-MM-DD)", value=str(colab.demissao) if colab.demissao else "", autocomplete="one-time-code", key="k_edem")
                         
-                        if st.button("Abandonar Edição"):
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        btn_salvar_alt = st.button("Confirmar e Salvar Alterações", key="k_ebtn_salvar")
+                        
+                        if btn_salvar_alt:
+                            if not edit_nome.strip():
+                                st.error("O nome do colaborador não pode ficar vazio.")
+                            else:
+                                with engine.begin() as conn:
+                                    conn.execute(text("""
+                                        UPDATE cadastro_geral_colaborador 
+                                        SET nome = :n, cpf = :c, cargo = :ca, admissao = :ad, demissao = :de 
+                                        WHERE CAST(id AS TEXT) = :id
+                                    """), {
+                                        "n": edit_nome, 
+                                        "c": edit_cpf if edit_cpf.strip() else None,
+                                        "ca": edit_cargo if edit_cargo.strip() else None,
+                                        "ad": edit_adm if edit_adm.strip() else None,
+                                        "de": edit_dem if edit_dem.strip() else None,
+                                        "id": colab_id
+                                    })
+                                st.success("Alterações gravadas perfeitamente no banco!")
+                                st.session_state['status_acao'] = None
+                                st.rerun()
+                        
+                        if st.button("Abandonar Edição", key="k_ebtn_abandonar"):
                             st.session_state['status_acao'] = None
                             st.rerun()
                             
@@ -254,48 +281,48 @@ elif menu == "🛠️ Gestão de Cadastros":
         with col_tit:
             st.subheader("Inserir Novo Colaborador")
         with col_can:
-            if st.button("⬅️ Cancelar e Voltar", use_container_width=True):
+            if st.button("⬅️ Cancelar e Voltar", use_container_width=True, key="k_btn_canc_voltar"):
                 st.session_state['sub_menu_cadastro'] = "🔍 Consultar & Gerenciar"
                 st.rerun()
-                
-        with st.form("form_novo_cadastro", clear_on_submit=True):
-            n_id = st.text_input("Código ID / Matrícula (Ex: 1025)", autocomplete="new-password")
-            n_nome = st.text_input("Nome Completo", autocomplete="new-password")
+        
+        # Arquitetura em Grade Paralela Sem Tags <form> para anular a inteligência artificial do Chrome
+        st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
+        col_nc1, col_nc2 = st.columns(2)
+        
+        with col_nc1:
+            n_id = st.text_input("Código ID / Matrícula (Ex: 1025)", autocomplete="one-time-code", key="k_nc_id")
+            st.markdown('<label class="fake-label">Número do Documento Identificador</label>', unsafe_allow_html=True)
+            n_cpf = st.text_input(" ", placeholder="Digite apenas os 11 números", autocomplete="one-time-code", key="k_nc_cpf")
+            n_admissao = st.text_input("Data de Admissão (Formatada AAAA-MM-DD)", autocomplete="one-time-code", key="k_nc_adm")
             
-            # Blindagem absoluta contra vazamento e sugestão de cartões de crédito locais
-            n_cpf = st.text_input("CPF (Apenas números)", placeholder="Ex: 00011122233", autocomplete="new-password")
-            
-            n_cargo = st.text_input("Cargo Ocupado", autocomplete="new-password")
-            n_admissao = st.text_input("Data de Admissão (Formatada AAAA-MM-DD)", autocomplete="new-password")
-            n_demissao = st.text_input("Data de Demissão (Opcional - AAAA-MM-DD)", autocomplete="new-password")
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            col_sb1, col_sb2 = st.columns([2, 2])
-            
-            with col_sb1:
-                submetido = st.form_submit_button("💾 Salvar Registro no Sistema")
-            with col_sb2:
-                st.markdown("<p style='color:#94a3b8; font-size:0.85rem; margin-top:10px;'>Para sair sem salvar, clique no botão superior 'Cancelar e Voltar'.</p>", unsafe_allow_html=True)
-            
-            if submetido:
-                if not n_id.strip() or not n_nome.strip():
-                    st.error("⚠️ Os campos 'ID' e 'Nome Completo' são obrigatórios para a criação do cadastro.")
-                else:
-                    try:
-                        with engine.begin() as conn: 
-                            conn.execute(text("""
-                                INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao) 
-                                VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao)
-                            """), {
-                                "id": str(n_id), 
-                                "nome": str(n_nome),
-                                "cpf": str(n_cpf) if n_cpf.strip() else None,
-                                "cargo": str(n_cargo) if n_cargo.strip() else None,
-                                "admissao": str(n_admissao) if n_admissao.strip() else None,
-                                "demissao": str(n_demissao) if n_demissao.strip() else None
-                            })
-                        st.success(f"Colaborador {n_nome} inserido com total integridade!")
-                        st.session_state['sub_menu_cadastro'] = "🔍 Consultar & Gerenciar"
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro de Integridade: Verifique se o ID digitado já não pertence a outro cadastro. Detalhes: {e}")    
+        with col_nc2:
+            n_nome = st.text_input("Nome Completo", autocomplete="one-time-code", key="k_nc_nome")
+            n_cargo = st.text_input("Cargo Ocupado", autocomplete="one-time-code", key="k_nc_cargo")
+            n_demissao = st.text_input("Data de Demissão (Opcional - AAAA-MM-DD)", autocomplete="one-time-code", key="k_nc_dem")
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        submetido = st.button("💾 Salvar Registro no Sistema", key="k_nc_btn_salvar")
+        
+        if submetido:
+            if not n_id.strip() or not n_nome.strip():
+                st.error("⚠️ Os campos 'ID' e 'Nome Completo' são obrigatórios para a criação do cadastro.")
+            else:
+                try:
+                    with engine.begin() as conn: 
+                        conn.execute(text("""
+                            INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao) 
+                            VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao)
+                        """), {
+                            "id": str(n_id), 
+                            "nome": str(n_nome),
+                            "cpf": str(n_cpf) if n_cpf.strip() else None,
+                            "cargo": str(n_cargo) if n_cargo.strip() else None,
+                            "admissao": str(n_admissao) if n_admissao.strip() else None,
+                            "demissao": str(n_demissao) if n_demissao.strip() else None
+                        })
+                    st.success(f"Colaborador {n_nome} inserido com total integridade!")
+                    st.session_state['sub_menu_cadastro'] = "🔍 Consultar & Gerenciar"
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro de Integridade: Verifique se o ID digitado já não pertence a outro cadastro. Detalhes: {e}")    
