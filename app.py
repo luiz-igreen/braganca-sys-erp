@@ -1,12 +1,14 @@
 import streamlit as st
+
+# --- CRÍTICO: CONFIGURAÇÃO DE PAGINAÇÃO DEVE SER O PRIMEIRO COMANDO ---
+st.set_page_config(page_title="BRAGANÇA SYS - Gestão Corporativa", page_icon="🏗️", layout="wide")
+
 import pandas as pd
 from sqlalchemy import create_engine, text
 import datetime
 import io
 
 # --- CONFIGURAÇÃO DE DIRETRIZES VISUAIS (DARK PREMIUM GLASSMORPHISM) ---
-st.set_page_config(page_title="BRAGANÇA SYS - Gestão Corporativa", page_icon="🏗️", layout="wide")
-
 st.markdown("""
 <style>
     /* Fundo Navy Blue / Dark Gray Premium */
@@ -159,19 +161,15 @@ elif menu == "📥 Importação Inteligente":
         if st.button("Executar Ingestão Certificada", type="primary"):
             with st.spinner("Analisando estrutura física e injetando registros..."):
                 
-                # Leitura resiliente baseada no conteúdo interno real e não apenas na extensão
                 conteudo_bytes = arquivo_carregado.read()
                 df_bruto = None
                 
                 try:
-                    # Estratégia A: Tentar decodificar como Excel moderno (.xlsx)
                     df_bruto = pd.read_excel(io.BytesIO(conteudo_bytes), sheet_name=0, engine='openpyxl')
                 except Exception:
                     try:
-                        # Estratégia B: Tentar decodificar como Excel antigo real (.xls)
                         df_bruto = pd.read_excel(io.BytesIO(conteudo_bytes), sheet_name=0, engine='xlrd')
                     except Exception:
-                        # Estratégia C: Se falhar, o arquivo é texto/CSV mascarado com extensão de planilha.
                         try:
                             df_bruto = pd.read_csv(io.BytesIO(conteudo_bytes), sep=None, engine='python', encoding='utf-8')
                         except Exception:
@@ -180,7 +178,6 @@ elif menu == "📥 Importação Inteligente":
                 if df_bruto is None or df_bruto.empty:
                     st.error("❌ Não foi possível decodificar a estrutura ou o arquivo está inteiramente vazio.")
                 else:
-                    # Normalização rigorosa das colunas
                     df_bruto.columns = [str(col).strip().lower().replace('admissão', 'admissao').replace('demissão', 'demissao') for col in df_bruto.columns]
                     
                     novos_cadastros = 0
@@ -190,12 +187,10 @@ elif menu == "📥 Importação Inteligente":
                             if not id_func or not validar_id_clt(id_func):
                                 continue
                             
-                            # Evita duplicações na base relacional
                             existe = conn.execute(text("SELECT 1 FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_func}).fetchone()
                             if existe:
                                 continue
                                 
-                            # Conversor resiliente de datas (MTE/Excel Serial ou String nativa)
                             adm_val = row.get('admissao')
                             if pd.notna(adm_val) and str(adm_val).replace('.0','').isdigit():
                                 dt_adm = pd.to_datetime(float(adm_val), unit='D', origin='1899-12-30').date()
@@ -322,7 +317,7 @@ elif menu == "🛠️ Gestão de Cadastros":
         else:
             lista_funcs = [f"{r['id']} - {r['nome']}" for _, r in df_colab.iterrows()]
             selecionado = st.selectbox("Selecione o funcionário que deseja modificar:", lista_funcs, key="sb_alterar")
-            id_alterar = selecionado.split(" - ")[0]
+            id_alterar =掀cionado.split(" - ")[0]
             
             dados_atuais = df_colab[df_colab['id'] == id_alterar].iloc[0]
             
