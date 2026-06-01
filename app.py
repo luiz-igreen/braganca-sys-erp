@@ -1,15 +1,22 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, text
-from datetime import datetime
 
-# --- CONFIGURAÇÃO INICIAL ---
+# --- CONFIGURAÇÃO INICIAL DA APLICAÇÃO ---
 st.set_page_config(page_title="BRAGANÇA SYS", page_icon="🏗️", layout="wide")
 
-# Conexão segura com a base de dados
+# Conexão segura com o Banco de Dados
 engine = create_engine(st.secrets["DATABASE_URL"])
 
-# --- ESTILIZAÇÃO VISUAL (DARK GLASSMORPHISM) ---
+# --- MOTOR DE MIGRAÇÃO AUTOMÁTICA (PREVINE ERRO DE COLUNA INEXISTENTE) ---
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS salario_mes_12_24 TEXT;"))
+        conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS salario_hora TEXT;"))
+except Exception as e:
+    pass  # Ignora se não houver permissão de alteração direta ou se as colunas já estiverem consolidadas
+
+# --- ESTILIZAÇÃO VISUAL AVANÇADA (DARK PREMIUM GLASSMORPHISM) ---
 st.markdown("""
 <style>
     .stApp { background-color: #0f172a; color: #f8fafc; }
@@ -19,12 +26,13 @@ st.markdown("""
         padding: 25px; 
         border-radius: 16px; 
         margin-bottom: 20px;
+        backdrop-filter: blur(10px);
     }
     .stButton>button { width: 100%; border-radius: 8px; font-weight: 600; }
     .field-label { color: #94a3b8; font-size: 0.9rem; font-weight: bold; }
     .field-value { color: #f8fafc; font-size: 1.1rem; margin-bottom: 12px; background: rgba(15, 23, 42, 0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); }
     
-    /* Rótulo customizado para neutralizar a heurística do Chrome */
+    /* Proteção Visual do Rótulo Customizado */
     .fake-label {
         color: #f8fafc;
         font-size: 0.85rem;
@@ -33,7 +41,7 @@ st.markdown("""
         display: block;
     }
 
-    /* Abas customizadas premium via radio */
+    /* Customização das Abas de Operação */
     div[data-testid="stRadio"] > div {
         flex-direction: row;
         gap: 10px;
@@ -54,36 +62,36 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- SCRIPT ANTIAUTOFILL DE FORÇA BRUTA (EXECUTA DIRETAMENTE NO NAVEGADOR) ---
+# --- INJETOR DE BLOQUEIO DE AUTOFILL (BLINDAGEM CONTRA HEURÍSTICA DE CARTÕES) ---
 st.markdown("""
 <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" onload="(function(){
     setInterval(function(){
         document.querySelectorAll('input').forEach(function(el){
-            if(el.getAttribute('autocomplete') !== 'one-time-code'){
-                el.setAttribute('autocomplete', 'one-time-code');
-                el.setAttribute('autofill', 'off');
-            }
+            el.setAttribute('autocomplete', 'new-password');
+            el.setAttribute('autofill', 'off');
+            el.setAttribute('name', 'input_' + Math.random().toString(36).substring(7));
         });
-    }, 200);
+    }, 150);
 })()" style="display:none;">
 """, unsafe_allow_html=True)
 
-# --- CONTROLE DE ESTADOS DO FLUXO SPA ---
+# --- GERENCIADOR DE SESSÃO E ROTEAMENTO SPA ---
 if 'busca_selecionada_id' not in st.session_state:
     st.session_state['busca_selecionada_id'] = None
 if 'status_acao' not in st.session_state:
     st.session_state['status_acao'] = None
-if 'sub_menu_cadastro' not in st.session_state:
-    st.session_state['sub_menu_cadastro'] = "🔍 Consultar & Gerenciar"
+if 'sub_menu_index' not in st.session_state:
+    st.session_state['sub_menu_index'] = 0
 if 'redirect_to_consulta' not in st.session_state:
     st.session_state['redirect_to_consulta'] = False
 
-# Interceptador de Redirecionamento Seguro
+# Interceptador Inteligente de Redirecionamento 
 if st.session_state['redirect_to_consulta']:
-    st.session_state['sub_menu_cadastro'] = "🔍 Consultar & Gerenciar"
+    st.session_state['sub_menu_index'] = 0
     st.session_state['redirect_to_consulta'] = False
+    st.rerun()
 
-# --- NAVEGAÇÃO CENTRAL ---
+# --- BARRA LATERAL DE NAVEGAÇÃO CENTRAL ---
 menu = st.sidebar.radio("Navegação", ["👥 Visão Geral", "📥 Importação Inteligente", "🛠️ Gestão de Cadastros"])
 
 # --- 1. VISÃO GERAL ---
@@ -134,28 +142,32 @@ elif menu == "📥 Importação Inteligente":
                         "sal_mes": str(row[6]) if len(row) > 6 else None,
                         "sal_hora": str(row[7]) if len(row) > 7 else None
                     })
-            st.success("Ingestão de dados (incluindo tabelas salariais) executada com sucesso!")
+            st.success("Ingestão de dados executada com sucesso!")
         except Exception as e:
-            st.error(f"Erro Crítico na estrutura ou mapeamento das colunas do arquivo: {e}")
+            st.error(f"Erro Crítico no mapeamento das colunas: {e}")
 
 # --- 3. GESTÃO DE CADASTROS ---
 elif menu == "🛠️ Gestão de Cadastros":
     st.title("🛠️ Gestão de Cadastros")
     
+    # Roteamento seguro usando index para evitar StreamlitAPIException
+    opcoes_sub = ["🔍 Consultar & Gerenciar", "➕ Novo Cadastro"]
     sub_menu = st.radio(
         label="Menu de Operações",
-        options=["🔍 Consultar & Gerenciar", "➕ Novo Cadastro"],
-        key="sub_menu_cadastro",
+        options=opcoes_sub,
+        index=st.session_state['sub_menu_index'],
         label_visibility="collapsed"
     )
     
+    # Sincroniza o estado caso o utilizador mude manualmente na UI
+    st.session_state['sub_menu_index'] = opcoes_sub.index(sub_menu)
     st.markdown("---")
 
     # --- ABA: CONSULTAR, ALTERAR E EXCLUIR ---
     if sub_menu == "🔍 Consultar & Gerenciar":
         st.subheader("Consultar Ficha do Colaborador")
         
-        termo = st.text_input("Digite o ID exato ou parte do Nome:", key="k_term_busca", autocomplete="one-time-code")
+        termo = st.text_input("Digite o ID exato ou parte do Nome:", key="k_term_busca")
         btn_buscar = st.button("Buscar Registro")
         
         if btn_buscar and termo:
@@ -179,7 +191,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.session_state['busca_selecionada_id'] = str(resultados[0].id)
                     else:
                         st.info("Múltiplos registros encontrados. Selecione o colaborador desejado abaixo:")
-                        opcoes_lista = {f"{r.id} - {r.nome}": str(r.id) for r in resultados}
+                        opcoes_lista = {f"ID: {r.id} | Nome: {r.nome}": str(r.id) for r in resultados}
                         escolha = st.selectbox("Selecione:", list(opcoes_lista.keys()))
                         if st.button("Confirmar Seleção"):
                             st.session_state['busca_selecionada_id'] = opcoes_lista[escolha]
@@ -234,7 +246,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.rerun()
 
                     if st.session_state['status_acao'] == 'solicitou_excluir':
-                        st.warning(f"⚠️ **PERGUNTA:** Deseja realmente excluir permanentemente o colaborador **{colab.nome}** (ID: {colab.id})?")
+                        st.warning(f"⚠️ **Deseja realmente excluir o colaborador {colab.nome} (ID: {colab.id})?**")
                         col_conf1, col_conf2 = st.columns(2)
                         if col_conf1.button("🔥 Sim, Quero Excluir", key="btn_conf_del"):
                             with engine.begin() as conn:
@@ -248,25 +260,23 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.rerun()
 
                     if st.session_state['status_acao'] == 'solicitou_alterar':
-                        st.info("📝 **Modo de Edição Ativo (Sem Containers Restritivos)**")
+                        st.info("📝 Modo de Edição Ativo")
                         
                         col_e1, col_e2 = st.columns(2)
                         with col_e1:
-                            edit_nome = st.text_input("Nome Completo", value=str(colab.nome), autocomplete="one-time-code", key="k_enome")
-                            st.markdown('<label class="fake-label">Número do Documento Identificador</label>', unsafe_allow_html=True)
-                            edit_cpf = st.text_input(" ", value=str(colab.cpf) if colab.cpf else "", placeholder="Apenas dígitos numéricos", autocomplete="one-time-code", key="k_ecpf")
-                            edit_adm = st.text_input("Data Admissão (AAAA-MM-DD)", value=str(colab.admissao) if colab.admissao else "", autocomplete="one-time-code", key="k_eadm")
-                            edit_sal_mes = st.text_input("Salário-Mês (12/24)", value=str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "", autocomplete="one-time-code", key="k_esal_mes")
+                            edit_nome = st.text_input("Nome Completo", value=str(colab.nome), key="k_enome")
+                            st.markdown('<label class="fake-label">Inscrição Cadastral Individual</label>', unsafe_allow_html=True)
+                            edit_cpf = st.text_input(" ", value=str(colab.cpf) if colab.cpf else "", placeholder="Apenas dígitos", key="k_ecpf")
+                            edit_adm = st.text_input("Data Admissão (AAAA-MM-DD)", value=str(colab.admissao) if colab.admissao else "", key="k_eadm")
+                            edit_sal_mes = st.text_input("Salário-Mês (12/24)", value=str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "", key="k_esal_mes")
                         with col_e2:
-                            edit_cargo = st.text_input("Cargo", value=str(colab.cargo) if colab.cargo else "", autocomplete="one-time-code", key="k_ecargo")
-                            edit_dem = st.text_input("Data Demissão (AAAA-MM-DD)", value=str(colab.demissao) if colab.demissao else "", autocomplete="one-time-code", key="k_edem")
-                            st.markdown("<br><br>", unsafe_allow_html=True) # Alinhamento visual com a fake label da coluna 1
-                            edit_sal_hora = st.text_input("Salário-Hora (Dez/24 em diante)", value=str(colab.salario_hora) if colab.salario_hora else "", autocomplete="one-time-code", key="k_esal_hora")
+                            edit_cargo = st.text_input("Cargo", value=str(colab.cargo) if colab.cargo else "", key="k_ecargo")
+                            edit_dem = st.text_input("Data Demissão (AAAA-MM-DD)", value=str(colab.demissao) if colab.demissao else "", key="k_edem")
+                            st.markdown("<br><br>", unsafe_allow_html=True)
+                            edit_sal_hora = st.text_input("Salário-Hora (Dez/24 em diante)", value=str(colab.salario_hora) if colab.salario_hora else "", key="k_esal_hora")
                         
                         st.markdown("<br>", unsafe_allow_html=True)
-                        btn_salvar_alt = st.button("Confirmar e Salvar Alterações", key="k_ebtn_salvar")
-                        
-                        if btn_salvar_alt:
+                        if st.button("Confirmar e Salvar Alterações", key="k_ebtn_salvar"):
                             if not edit_nome.strip():
                                 st.error("O nome do colaborador não pode ficar vazio.")
                             else:
@@ -286,18 +296,15 @@ elif menu == "🛠️ Gestão de Cadastros":
                                         "sh": edit_sal_hora if edit_sal_hora.strip() else None,
                                         "id": colab_id
                                     })
-                                st.success("Alterações salariais e cadastrais gravadas com sucesso!")
+                                st.success("Alterações gravadas com sucesso!")
                                 st.session_state['status_acao'] = None
                                 st.rerun()
                         
                         if st.button("Abandonar Edição", key="k_ebtn_abandonar"):
                             st.session_state['status_acao'] = None
                             st.rerun()
-                            
-                else:
-                    st.error("Erro interno ao recuperar os dados atualizados deste ID.")
             except Exception as e:
-                st.error(f"Falha de comunicação operacional: {e}")
+                st.error(f"Falha operacional: {e}")
 
     # --- ABA: NOVO CADASTRO ---
     elif sub_menu == "➕ Novo Cadastro":
@@ -313,43 +320,14 @@ elif menu == "🛠️ Gestão de Cadastros":
         col_nc1, col_nc2 = st.columns(2)
         
         with col_nc1:
-            n_id = st.text_input("Código ID / Matrícula (Ex: 1025)", autocomplete="one-time-code", key="k_nc_id")
-            st.markdown('<label class="fake-label">Número do Documento Identificador</label>', unsafe_allow_html=True)
-            n_cpf = st.text_input(" ", placeholder="Digite apenas os 11 números", autocomplete="one-time-code", key="k_nc_cpf")
-            n_admissao = st.text_input("Data de Admissão (Formatada AAAA-MM-DD)", autocomplete="one-time-code", key="k_nc_adm")
-            n_sal_mes = st.text_input("Salário-Mês (12/24)", autocomplete="one-time-code", key="k_nc_sal_mes")
+            n_id = st.text_input("Código ID / Matrícula (Ex: 1025)", key="k_nc_id")
+            st.markdown('<label class="fake-label">Inscrição Cadastral Individual</label>', unsafe_allow_html=True)
+            n_cpf = st.text_input(" ", placeholder="Digite apenas os 11 números", key="k_nc_cpf")
+            n_admissao = st.text_input("Data de Admissão (Formatada AAAA-MM-DD)", key="k_nc_adm")
+            n_sal_mes = st.text_input("Salário-Mês (12/24)", key="k_nc_sal_mes")
             
         with col_nc2:
-            n_nome = st.text_input("Nome Completo", autocomplete="one-time-code", key="k_nc_nome")
-            n_cargo = st.text_input("Cargo Ocupado", autocomplete="one-time-code", key="k_nc_cargo")
-            n_demissao = st.text_input("Data de Demissão (Opcional - AAAA-MM-DD)", autocomplete="one-time-code", key="k_nc_dem")
-            n_sal_hora = st.text_input("Salário-Hora (Dez/24 em diante)", autocomplete="one-time-code", key="k_nc_sal_hora")
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        submetido = st.button("💾 Salvar Registro no Sistema", key="k_nc_btn_salvar")
-        
-        if submetido:
-            if not n_id.strip() or not n_nome.strip():
-                st.error("⚠️ Os campos 'ID' e 'Nome Completo' são obrigatórios para a criação do cadastro.")
-            else:
-                try:
-                    with engine.begin() as conn: 
-                        conn.execute(text("""
-                            INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, salario_mes_12_24, salario_hora) 
-                            VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :sm, :sh)
-                        """), {
-                            "id": str(n_id), 
-                            "nome": str(n_nome),
-                            "cpf": str(n_cpf) if n_cpf.strip() else None,
-                            "cargo": str(n_cargo) if n_cargo.strip() else None,
-                            "admissao": str(n_admissao) if n_admissao.strip() else None,
-                            "demissao": str(n_demissao) if n_demissao.strip() else None,
-                            "sm": str(n_sal_mes) if n_sal_mes.strip() else None,
-                            "sh": str(n_sal_hora) if n_sal_hora.strip() else None
-                        })
-                    st.success(f"Colaborador {n_nome} inserido com total integridade cadastral e financeira!")
-                    st.session_state['redirect_to_consulta'] = True
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro de Integridade: Verifique se o ID digitado já não pertence a outro cadastro. Detalhes: {e}")
+            n_nome = st.text_input("Nome Completo", key="k_nc_nome")
+            n_cargo = st.text_input("Cargo Ocupado", key="k_nc_cargo")
+            n_demissao = st.text_input("Data de Demissão (Opcional - AAAA-MM-DD)", key="k_nc_dem")
+            n_sal_hora = st.text    
