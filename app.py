@@ -65,15 +65,23 @@ elif menu == "🛠️ Gestão de Cadastros":
 
     with aba2: # NOVO
         st.subheader("Novo Cadastro")
-        # Botão de cancelamento padronizado acima do form
         if st.button("Cancelar Operação", key="cancel_novo"): st.rerun()
         
         with st.form("form_novo", clear_on_submit=True):
             i_id = st.text_input("ID")
             i_nome = st.text_input("Nome")
+            
             if st.form_submit_button("Salvar Registro"):
-                with engine.begin() as conn: conn.execute(text("INSERT INTO cadastro_geral_colaborador (id, nome) VALUES (:id, :nome)"), {"id": i_id, "nome": i_nome})
-                st.success("Salvo com sucesso!")
+                # Validação de Dados
+                if not i_id or not i_nome:
+                    st.error("⚠️ Erro: Os campos ID e Nome são obrigatórios.")
+                else:
+                    try:
+                        with engine.begin() as conn: 
+                            conn.execute(text("INSERT INTO cadastro_geral_colaborador (id, nome) VALUES (:id, :nome)"), {"id": i_id, "nome": i_nome})
+                        st.success("Salvo com sucesso!")
+                    except Exception as e:
+                        st.error(f"Erro ao salvar no banco: {e}")
 
     with aba3: # ALTERAR
         st.subheader("Alterar Cadastro")
@@ -85,7 +93,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                 st.rerun()
         else:
             id_alt = st.session_state['id_edicao']
-            # Botão de cancelamento padronizado
             if st.button("Cancelar Edição", key="cancel_alt"): 
                 st.session_state['id_edicao'] = None
                 st.rerun()
@@ -94,9 +101,15 @@ elif menu == "🛠️ Gestão de Cadastros":
             with st.form("form_alt"):
                 n_nome = st.text_input("Nome", value=dados.nome)
                 if st.form_submit_button("Salvar Alterações"):
-                    with engine.begin() as conn: conn.execute(text("UPDATE cadastro_geral_colaborador SET nome = :n WHERE id = :id"), {"n": n_nome, "id": id_alt})
-                    st.session_state['id_edicao'] = None
-                    st.rerun()
+                    # Validação de Dados
+                    if not n_nome:
+                        st.error("⚠️ Erro: O campo Nome não pode estar vazio.")
+                    else:
+                        with engine.begin() as conn: 
+                            conn.execute(text("UPDATE cadastro_geral_colaborador SET nome = :n WHERE id = :id"), {"n": n_nome, "id": id_alt})
+                        st.session_state['id_edicao'] = None
+                        st.success("Alterado com sucesso!")
+                        st.rerun()
 
     with aba4: # EXCLUIR
         st.subheader("Excluir Cadastro")
@@ -107,4 +120,4 @@ elif menu == "🛠️ Gestão de Cadastros":
             with engine.begin() as conn: conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": sel_del.split(" - ")[0]})
             st.rerun()
         if cols[1].button("Cancelar"):
-            st.rerun()    
+            st.rerun()
