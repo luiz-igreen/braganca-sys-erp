@@ -98,8 +98,9 @@ inicializar_banco_de_dados()
 
 # --- REGRAS DE NEGÓCIO E AUXILIARES ---
 def validar_id_clt(id_texto):
-    id_limpo = str(id_texto).split('.')[0].strip()
-    if id_limpo in ['1', '01', '001', '0001', '']:
+    id_limpo = str(id_texto).split('.')[0].strip().lower()
+    # Ignora lixo eletrônico, títulos repetidos ou IDs padrão do sistema
+    if id_limpo in ['1', '01', '001', '0001', '', 'nan', 'null', 'id', 'matricula', 'matrícula', 'código', 'codigo', 'num', 'número']:
         return False
     return True
 
@@ -166,7 +167,7 @@ if menu == "👥 Visão Geral":
         st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================================
-# 2. MENU: IMPORTAÇÃO INTELIGENTE (SISTEMA DE AUDITORIA DE LINHAS DETALHADA)
+# 2. MENU: IMPORTAÇÃO INTELIGENTE (SISTEMA DE MAPEAMENTO DINÂMICO E POSICIONAL)
 # =========================================================================
 elif menu == "📥 Importação Inteligente":
     st.markdown("<h2>📥 Importação e Ingestão de Dados</h2>", unsafe_allow_html=True)
@@ -188,27 +189,27 @@ elif menu == "📥 Importação Inteligente":
     if arquivo_carregado:
         st.markdown("<div class='panel-glass'>", unsafe_allow_html=True)
         if st.button("Executar Ingestão Certificada", type="primary"):
-            with st.spinner("Analisando, limpando e cruzando dados com o Supabase..."):
+            with st.spinner("Mapeando colunas e cruzando dados com o Supabase..."):
                 
                 conteudo_bytes = arquivo_carregado.read()
                 nome_arquivo = arquivo_carregado.name.lower()
                 df_bruto = None
                 
-                # Camada 1: Se for .xlsx nativo
+                # Camada 1: Excel Moderno
                 if nome_arquivo.endswith('.xlsx'):
                     try:
                         df_bruto = pd.read_excel(io.BytesIO(conteudo_bytes), sheet_name=0, engine='openpyxl')
                     except Exception:
                         pass
                 
-                # Camada 2: Se for .xls legada
+                # Camada 2: Excel Antigo
                 if (df_bruto is None or df_bruto.empty) and nome_arquivo.endswith('.xls'):
                     try:
                         df_bruto = pd.read_excel(io.BytesIO(conteudo_bytes), sheet_name=0, engine='xlrd')
                     except Exception:
                         pass
                 
-                # Camada 3: Motor CSV Seguro
+                # Camada 3: CSV Dinâmico
                 if df_bruto is None or df_bruto.empty:
                     for caractere_separador in [';', ',', '\t']:
                         for codificacao_texto in ['utf-8', 'latin1', 'iso-8859-1']:
@@ -227,56 +228,66 @@ elif menu == "📥 Importação Inteligente":
                         if df_bruto is not None and not df_bruto.empty:
                             break
                 
-                # Camada 4: HTML Estruturado
+                # Processamento com Mapeamento Tolerante
                 if df_bruto is None or df_bruto.empty:
-                    try:
-                        if b'<table' in conteudo_bytes.lower() or b'<html' in conteudo_bytes.lower():
-                            tabelas_html = pd.read_html(io.BytesIO(conteudo_bytes))
-                            if tabelas_html:
-                                df_bruto = tabelas_html[0]
-                    except Exception:
-                        pass
-                
-                # Processamento e Ingestão de Dados
-                if df_bruto is None or df_bruto.empty:
-                    st.session_state['flash_erro'] = "❌ Erro Crítico: Não foi possível decodificar a estrutura do arquivo enviado."
+                    st.session_state['flash_erro'] = "❌ Erro Crítico: Não foi possível estruturar o arquivo enviado."
                     st.rerun()
                 else:
-                    # SANITIZAÇÃO DE CABEÇALHOS: Remove BOM (\ufeff), espaços e padroniza termos
-                    df_bruto.columns = [
-                        str(col).replace('\ufeff', '').strip().lower()
-                        .replace('admissão', 'admissao')
-                        .replace('demissão', 'demissao') 
-                        for col in df_bruto.columns
-                    ]
+                    # --- ALGORITMO DE MAPEAMENTO POR SINÔNIMOS OU FALLBACK POSICIONAL ---
+                    cols = df_bruto.columns
                     
-                    # CARGA EM LOTE INICIAL
+                    # Procura coluna de ID por sinônimo, senão adota a 1ª coluna (Índice 0)
+                    col_id = next((c for c in cols if any(x in str(c).lower() for x in ['id', 'matr', 'cod', 'nº', 'num'])), cols[0] if len(cols) > 0 else None)
+                    
+                    # Procura coluna de Nome por sinônimo, senão adota a 2ª coluna (Índice 1)
+                    col_nome = next((c for c in cols if any(x in str(c).lower() for x in ['nome', 'colab', 'func', 'empreg'])), cols[1] if len(cols) > 1 else None)
+                    
+                    # Procura coluna de CPF, senão adota a 3ª coluna (Índice 2)
+                    col_cpf = next((c for c in cols if 'cpf' in str(c).lower()), cols[2] if len(cols) > 2 else None)
+                    
+                    # Procura coluna de Cargo, senão adota a 4ª coluna (Índice 3)
+                    col_cargo = next((c for c in cols if any(x in str(c).lower() for x in ['cargo', 'funç', 'ocupa'])), cols[3] if len(cols) > 3 else None)
+                    
+                    # Procura coluna de Admissão, senão adota a 5ª coluna (Índice 4)
+                    col_adm = next((c for c in cols if any(x in str(c).lower() for x in ['adm', 'ingr', 'data'])), cols[4] if len(cols) > 4 else None)
+                    
+                    # Procura coluna de Demissão, senão adota a 6ª coluna (Índice 5)
+                    col_dem = next((c for c in cols if any(x in str(c).lower() for x in ['dem', 'saida', 'deslig'])), cols[5] if len(cols) > 5 else None)
+                    
+                    # Canal PIX opcional
+                    col_pix = next((c for c in cols if any(x in str(c).lower() for x in ['pix', 'chave'])), None)
+                    
+                    # CARGA INICIAL DE VALIDAÇÃO EM LOTE
                     with engine.connect() as conn:
                         ids_existentes = set(str(r[0]).strip() for r in conn.execute(text("SELECT id FROM cadastro_geral_colaborador")).fetchall())
                     
-                    # Contadores Auditores
                     novos_cadastros = 0
                     ja_existentes = 0
                     linhas_invalidas = 0
                     
                     with engine.begin() as conn:
                         for _, row in df_bruto.iterrows():
-                            val_id = row.get('id')
+                            val_id = row[col_id] if col_id is not None else None
                             id_func = formatar_id_limpo(val_id)
                             
-                            # Se a linha não tiver ID ou for o ID protegido '1'
+                            # Validação rigorosa do ID extraído da coluna mapeada
                             if not id_func or not validar_id_clt(id_func):
                                 linhas_invalidas += 1
                                 continue
                             
-                            # Validação se já existe no Supabase
                             if id_func in ids_existentes:
                                 ja_existentes += 1
                                 continue
-                                
-                            # Tratamento resiliente de datas
-                            dt_adm = converter_data_resiliente(row.get('admissao'))
-                            dt_dem = converter_data_resiliente(row.get('demissao'))
+                            
+                            # Coleta resiliente de metadados
+                            nome_func = str(row[col_nome]).strip() if col_nome is not None and pd.notna(row[col_nome]) else "Colaborador Sem Nome"
+                            cpf_func = limpar_cpf(row[col_cpf]) if col_cpf is not None else ""
+                            cargo_func = str(row[col_cargo]).strip() if col_cargo is not None and pd.notna(row[col_cargo]) else ""
+                            
+                            dt_adm = converter_data_resiliente(row[col_adm]) if col_adm is not None else None
+                            dt_dem = converter_data_resiliente(row[col_dem]) if col_dem is not None else None
+                            
+                            pix_func = str(row[col_pix]).strip() if col_pix is not None and pd.notna(row[col_pix]) else None
                             
                             conn.execute(
                                 text("""
@@ -284,21 +295,19 @@ elif menu == "📥 Importação Inteligente":
                                     VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :pix)
                                 """),
                                 {
-                                    "id": id_func, "nome": str(row.get('nome', '')).strip(),
-                                    "cpf": limpar_cpf(row.get('cpf')), "cargo": str(row.get('cargo', '')).strip(),
-                                    "admissao": dt_adm, "demissao": dt_dem, 
-                                    "pix": str(row.get('chave_pix', row.get('pix', ''))).strip() if pd.notna(row.get('chave_pix', row.get('pix'))) else None
+                                    "id": id_func, "nome": nome_func, "cpf": cpf_func, "cargo": cargo_func,
+                                    "admissao": dt_adm, "demissao": dt_dem, "pix": pix_func
                                 }
                             )
                             novos_cadastros += 1
                     
-                    # --- REGRAS DE FEEDBACK HONESTO ---
+                    # --- CRITÉRIOS DE FEEDBACK DE AUDITORIA ---
                     if novos_cadastros > 0:
-                        st.session_state['flash_sucesso'] = f"🎉 Processamento concluído! {novos_cadastros} novos colaboradores foram integrados com sucesso. (Ignorados por já existirem: {ja_existentes} | Linhas descartadas por ID inválido: {linhas_invalidas})"
-                    elif linhas_invalidas > 0 and ja_existentes == 0:
-                        st.session_state['flash_erro'] = f"❌ Erro de Mapeamento: Nenhuma linha válida foi processada. O sistema descartou {linhas_invalidas} linhas porque a coluna 'id' veio em branco ou com formato corrompido. Verifique os títulos das colunas na planilha."
+                        st.session_state['flash_sucesso'] = f"🎉 Sucesso! {novos_cadastros} novos colaboradores foram integrados ao Supabase. (Já mapeados anteriormente: {ja_existentes} | Linhas vazias ou cabeçalhos filtrados: {linhas_invalidas})"
+                    elif ja_existentes > 0:
+                        st.session_state['flash_aviso'] = f"⚠️ Ingestão Concluída: Nenhum registro novo foi adicionado porque todos os {ja_existentes} colaboradores localizados no arquivo já constam na base do Supabase."
                     else:
-                        st.session_state['flash_aviso'] = f"⚠️ Ingestão Realizada: Nenhum registro novo foi adicionado porque todos os {ja_existentes} colaboradores encontrados no arquivo já constam na base do Supabase."
+                        st.session_state['flash_erro'] = f"❌ Erro de Leitura: Não foi possível extrair dados válidos. O sistema analisou o arquivo e processou {linhas_invalidas} linhas como inválidas ou cabeçalhos de texto. Verifique o conteúdo interno da tabela."
                     
                     st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
@@ -370,7 +379,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                 if not id_limpo or not n_nome:
                     st.error("❌ Os campos ID e Nome são estritamente obrigatórios.")
                 elif not validar_id_clt(id_limpo):
-                    st.error("❌ Erro de Segurança: O ID '1' é protegido para fins do sistema.")
+                    st.error("❌ Erro de Segurança: Este formato de ID é protegido ou inválido para fins do sistema.")
                 elif not df_colab.empty and id_limpo in df_colab['id'].astype(str).tolist():
                     st.error(f"❌ Conflito de Chave: O ID '{id_limpo}' já está cadastrado.")
                 else:
@@ -468,4 +477,4 @@ elif menu == "🛠️ Gestão de Cadastros":
                         conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_deletar})
                     st.success(f"💥 Matrícula {id_deletar} removida permanentemente do banco de dados.")
                     st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)    
