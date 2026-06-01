@@ -31,7 +31,7 @@ if menu == "👥 Visão Geral":
         df = pd.read_sql("SELECT * FROM cadastro_geral_colaborador", engine)
         st.dataframe(df, use_container_width=True)
     except Exception as e:
-        st.error("Erro ao carregar dados: " + str(e))
+        st.error(f"Erro ao carregar dados do banco: {e}")
 
 # --- 2. IMPORTAÇÃO INTELIGENTE ---
 elif menu == "📥 Importação Inteligente":
@@ -57,7 +57,6 @@ elif menu == "📥 Importação Inteligente":
 
 # --- 3. GESTÃO DE CADASTROS ---
 elif menu == "🛠️ Gestão de Cadastros":
-    # As abas só são definidas aqui, dentro desta condicional
     aba1, aba2, aba3, aba4 = st.tabs(["🔍 Consultar", "➕ Novo", "✏️ Alterar", "❌ Excluir"])
 
     with aba1: # CONSULTAR
@@ -65,19 +64,26 @@ elif menu == "🛠️ Gestão de Cadastros":
         termo = st.text_input("Busca (ID ou Nome):", key="busca_consulta")
         if st.button("Buscar"):
             if termo:
-                # Verifica se o termo é um número para busca exata (ID)
-                if termo.isdigit():
-                    sql = "SELECT * FROM cadastro_geral_colaborador WHERE id = :t"
-                    params = {"t": int(termo)}
-                else:
-                    sql = "SELECT * FROM cadastro_geral_colaborador WHERE nome ILIKE :t"
-                    params = {"t": f"%{termo}%"}
-                
-                res = engine.connect().execute(text(sql), params).fetchall()
-                if res:
-                    for r in res: st.write(f"ID: {r.id} | Nome: {r.nome}")
-                else:
-                    st.warning("Nenhum registro encontrado.")
+                try:
+                    with engine.connect() as conn:
+                        # Verifica se é número para buscar o ID exato
+                        if termo.isdigit():
+                            # Forçamos o CAST para texto garantindo que não haja erro de ProgrammingError
+                            sql = "SELECT * FROM cadastro_geral_colaborador WHERE CAST(id AS TEXT) = :t"
+                            params = {"t": str(termo)}
+                        else:
+                            # Busca parcial por nome
+                            sql = "SELECT * FROM cadastro_geral_colaborador WHERE nome ILIKE :t"
+                            params = {"t": f"%{termo}%"}
+                        
+                        res = conn.execute(text(sql), params).fetchall()
+                        
+                        if res:
+                            for r in res: st.write(f"ID: {r.id} | Nome: {r.nome}")
+                        else:
+                            st.warning("Nenhum registro encontrado para esta busca.")
+                except Exception as e:
+                    st.error(f"Erro de processamento no banco de dados: {e}")
 
     with aba2: # NOVO
         st.subheader("Novo Cadastro")
@@ -94,7 +100,8 @@ elif menu == "🛠️ Gestão de Cadastros":
                 else:
                     try:
                         with engine.begin() as conn: 
-                            conn.execute(text("INSERT INTO cadastro_geral_colaborador (id, nome) VALUES (:id, :nome)"), {"id": i_id, "nome": i_nome})
+                            # Convertendo explicitamente para string antes de salvar
+                            conn.execute(text("INSERT INTO cadastro_geral_colaborador (id, nome) VALUES (:id, :nome)"), {"id": str(i_id), "nome": str(i_nome)})
                         st.success("Salvo com sucesso!")
                     except Exception as e:
                         st.error(f"Erro ao salvar: {e}")
@@ -102,37 +109,53 @@ elif menu == "🛠️ Gestão de Cadastros":
     with aba3: # ALTERAR
         st.subheader("Alterar Cadastro")
         if st.session_state['id_edicao'] is None:
-            lista = [f"{r.id} - {r.nome}" for r in engine.connect().execute(text("SELECT id, nome FROM cadastro_geral_colaborador")).fetchall()]
-            sel = st.selectbox("Selecione para alterar:", lista)
-            if st.button("Carregar Ficha"): 
-                st.session_state['id_edicao'] = sel.split(" - ")[0]
-                st.rerun()
+            try:
+                with engine.connect() as conn:
+                    lista = [f"{r.id} - {r.nome}" for r in conn.execute(text("SELECT id, nome FROM cadastro_geral_colaborador")).fetchall()]
+                sel = st.selectbox("Selecione para alterar:", lista)
+                if st.button("Carregar Ficha"): 
+                    st.session_state['id_edicao'] = sel.split(" - ")[0]
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao carregar lista de cadastros: {e}")
         else:
             id_alt = st.session_state['id_edicao']
             if st.button("Cancelar Edição", key="canc_alt"): 
                 st.session_state['id_edicao'] = None
                 st.rerun()
             
-            dados = engine.connect().execute(text("SELECT * FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_alt}).fetchone()
-            with st.form("form_alt"):
-                n_nome = st.text_input("Nome", value=dados.nome)
-                if st.form_submit_button("Salvar Alterações"):
-                    if not n_nome:
-                        st.error("⚠️ Erro: O campo Nome não pode estar vazio.")
-                    else:
-                        with engine.begin() as conn: 
-                            conn.execute(text("UPDATE cadastro_geral_colaborador SET nome = :n WHERE id = :id"), {"n": n_nome, "id": id_alt})
-                        st.session_state['id_edicao'] = None
-                        st.success("Alterado com sucesso!")
-                        st.rerun()
+            try:
+                with engine.connect() as conn:
+                    dados = conn.execute(text("SELECT * FROM cadastro_geral_colaborador WHERE CAST(id AS TEXT) = :id"), {"id": str(id_alt)}).fetchone()
+                
+                with st.form("form_alt"):
+                    n_nome = st.text_input("Nome", value=dados.nome if dados else "")
+                    if st.form_submit_button("Salvar Alterações"):
+                        if not n_nome:
+                            st.error("⚠️ Erro: O campo Nome não pode estar vazio.")
+                        else:
+                            with engine.begin() as conn: 
+                                conn.execute(text("UPDATE cadastro_geral_colaborador SET nome = :n WHERE CAST(id AS TEXT) = :id"), {"n": n_nome, "id": str(id_alt)})
+                            st.session_state['id_edicao'] = None
+                            st.success("Alterado com sucesso!")
+                            st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao alterar registro: {e}")
 
     with aba4: # EXCLUIR
         st.subheader("Excluir Cadastro")
-        lista_del = [f"{r.id} - {r.nome}" for r in engine.connect().execute(text("SELECT id, nome FROM cadastro_geral_colaborador")).fetchall()]
-        sel_del = st.selectbox("Selecione para excluir:", lista_del)
-        cols = st.columns(2)
-        if cols[0].button("Confirmar Exclusão"):
-            with engine.begin() as conn: conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": sel_del.split(" - ")[0]})
-            st.rerun()
-        if cols[1].button("Cancelar"):
-            st.rerun()
+        try:
+            with engine.connect() as conn:
+                lista_del = [f"{r.id} - {r.nome}" for r in conn.execute(text("SELECT id, nome FROM cadastro_geral_colaborador")).fetchall()]
+            sel_del = st.selectbox("Selecione para excluir:", lista_del)
+            cols = st.columns(2)
+            
+            if cols[0].button("Confirmar Exclusão"):
+                with engine.begin() as conn: 
+                    conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE CAST(id AS TEXT) = :id"), {"id": str(sel_del.split(" - ")[0])})
+                st.rerun()
+                
+            if cols[1].button("Cancelar"):
+                st.rerun()
+        except Exception as e:
+            st.error(f"Erro ao carregar lista de exclusão: {e}")
