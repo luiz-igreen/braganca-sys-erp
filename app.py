@@ -148,12 +148,23 @@ if menu == "👥 Visão Geral":
         st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================================
-# 2. MENU: IMPORTAÇÃO INTELIGENTE (MOTOR MULTICAMADAS À PROVA DE FALHAS)
+# 2. MENU: IMPORTAÇÃO INTELIGENTE (SISTEMA DE FLASH MESSAGES ADICIONADO)
 # =========================================================================
 elif menu == "📥 Importação Inteligente":
     st.markdown("<h2>📥 Importação e Ingestão de Dados</h2>", unsafe_allow_html=True)
     st.markdown("Carregue a planilha exportada. O motor executará varreduras tolerantes a falhas estruturais ou linhas malformadas.")
     
+    # --- SISTEMA DE FEEDBACK SEGURO (Persiste mesmo após o st.rerun) ---
+    if 'flash_sucesso' in st.session_state:
+        st.success(st.session_state['flash_sucesso'])
+        del st.session_state['flash_sucesso']
+    if 'flash_aviso' in st.session_state:
+        st.warning(st.session_state['flash_aviso'])
+        del st.session_state['flash_aviso']
+    if 'flash_erro' in st.session_state:
+        st.error(st.session_state['flash_erro'])
+        del st.session_state['flash_erro']
+        
     arquivo_carregado = st.file_uploader("Selecione o arquivo de migração (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"])
     
     if arquivo_carregado:
@@ -164,20 +175,20 @@ elif menu == "📥 Importação Inteligente":
                 conteudo_bytes = arquivo_carregado.read()
                 df_bruto = None
                 
-                # Camada 1: Tenta ler como estrutura nativa Excel .XLSX
+                # Camada 1: Estrutura nativa Excel .XLSX
                 try:
                     df_bruto = pd.read_excel(io.BytesIO(conteudo_bytes), sheet_name=0, engine='openpyxl')
                 except Exception:
                     pass
                 
-                # Camada 2: Tenta ler como estrutura legada Excel .XLS
+                # Camada 2: Estrutura legada Excel .XLS
                 if df_bruto is None or df_bruto.empty:
                     try:
                         df_bruto = pd.read_excel(io.BytesIO(conteudo_bytes), sheet_name=0, engine='xlrd')
                     except Exception:
                         pass
                 
-                # Camada 3: Tenta ler como HTML Estruturado (muito comum em falsos .xls corporativos)
+                # Camada 3: HTML Estruturado (falsos .xls)
                 if df_bruto is None or df_bruto.empty:
                     try:
                         tabelas_html = pd.read_html(io.BytesIO(conteudo_bytes))
@@ -186,7 +197,7 @@ elif menu == "📥 Importação Inteligente":
                     except Exception:
                         pass
                 
-                # Camada 4: Escaneamento Iterativo de Arquivos de Texto/CSV com descarte de linhas desalinhadas
+                # Camada 4: CSV Multi-separadores com descarte de linhas corrompidas
                 if df_bruto is None or df_bruto.empty:
                     for caractere_separador in [';', ',', '\t']:
                         for codificacao_texto in ['utf-8', 'latin1', 'iso-8859-1']:
@@ -195,7 +206,7 @@ elif menu == "📥 Importação Inteligente":
                                     io.BytesIO(conteudo_bytes), 
                                     sep=caractere_separador, 
                                     encoding=codificacao_texto,
-                                    on_bad_lines='skip'  # <- Pula linhas malformadas ao invés de quebrar o app
+                                    on_bad_lines='skip'
                                 )
                                 if not df_tentativa.empty and len(df_tentativa.columns) > 1:
                                     df_bruto = df_tentativa
@@ -205,11 +216,11 @@ elif menu == "📥 Importação Inteligente":
                         if df_bruto is not None and not df_bruto.empty:
                             break
                 
-                # Processamento final pós-captura bem-sucedida
+                # Processamento final pós-captura
                 if df_bruto is None or df_bruto.empty:
-                    st.error("❌ Não foi possível decodificar a estrutura. Verifique o arquivo ou tente salvá-lo como CSV padrão.")
+                    st.session_state['flash_erro'] = "❌ Não foi possível decodificar a estrutura. Verifique o formato do arquivo."
+                    st.rerun()
                 else:
-                    # Normalização rigorosa das colunas encontradas
                     df_bruto.columns = [str(col).strip().lower().replace('admissão', 'admissao').replace('demissão', 'demissao') for col in df_bruto.columns]
                     
                     novos_cadastros = 0
@@ -219,12 +230,12 @@ elif menu == "📥 Importação Inteligente":
                             if not id_func or not validar_id_clt(id_func):
                                 continue
                             
-                            # Evita colisões no banco de dados relacional
+                            # Evita duplicidade no Supabase
                             existe = conn.execute(text("SELECT 1 FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_func}).fetchone()
                             if existe:
                                 continue
                                 
-                            # Interpretador resiliente de carimbos de data
+                            # Conversor resiliente de datas numéricas ou textuais
                             adm_val = row.get('admissao')
                             if pd.notna(adm_val) and str(adm_val).replace('.0','').isdigit():
                                 dt_adm = pd.to_datetime(float(adm_val), unit='D', origin='1899-12-30').date()
@@ -250,8 +261,13 @@ elif menu == "📥 Importação Inteligente":
                                 }
                             )
                             novos_cadastros += 1
-                            
-                    st.success(f"🎉 Ingestão executada! {novos_cadastros} registros limpos integrados de forma definitiva ao Supabase.")
+                    
+                    # Define a mensagem adequada antes de recarregar a SPA
+                    if novos_cadastros > 0:
+                        st.session_state['flash_sucesso'] = f"🎉 Ingestão executada com sucesso! {novos_cadastros} novos colaboradores adicionados ao Supabase."
+                    else:
+                        st.session_state['flash_aviso'] = "⚠️ Processamento concluído: Nenhum novo colaborador foi inserido (todos os registros da planilha já existem no banco de dados)."
+                    
                     st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
