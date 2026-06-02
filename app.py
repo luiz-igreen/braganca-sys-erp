@@ -3,6 +3,7 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 import re
 from datetime import datetime
+from dateutil.relativedelta import relativedelta
 
 # --- CONFIGURAÇÃO INICIAL DA APLICAÇÃO ---
 st.set_page_config(page_title="BRAGANÇA SYS", page_icon="🏗️", layout="wide")
@@ -99,7 +100,7 @@ if st.session_state['redirect_to_consulta']:
     st.rerun()
 
 # --- BARRA LATERAL DE NAVEGAÇÃO CENTRAL ---
-menu = st.sidebar.radio("Navegação", ["👥 Visão Geral", "📥 Importação Inteligente", "🛠️ Gestão de Cadastros"])
+menu = st.sidebar.radio("Navegação", ["👥 Visão Geral", "📥 Importação Inteligente", "🛠️ Gestão de Cadastros", "🔎 Auditoria CCT (IA)"])
 
 # --- 1. VISÃO GERAL ---
 if menu == "👥 Visão Geral":
@@ -384,7 +385,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                     df_evo_salarial = pd.read_sql(text("SELECT data_alteracao, motivo, salario_anterior, novo_salario FROM historico_salarial WHERE id_colaborador = :id ORDER BY data_alteracao DESC, id DESC"), conn, params={"id": str(colab_id)})
                 
                 if colab:
-                    # Cálculo Dinâmico
                     salario_mes_display = str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "Não Informado"
                     salario_hora_display = str(colab.salario_hora) if colab.salario_hora else "Não Informado"
                     val_atual_base = 0.0
@@ -440,29 +440,19 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.info("Nenhum dado bancário ou PIX registrado para este colaborador. Utilize a edição para preencher.")
                     st.markdown('</div>', unsafe_allow_html=True)
 
-                    # --- NOVA SEÇÃO: EVOLUÇÃO E ALTERAÇÕES SALARIAIS ---
                     st.markdown("### 📈 Evolução e Alterações Salariais")
                     st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                     if not df_evo_salarial.empty:
                         df_evo_view = df_evo_salarial.copy()
                         df_evo_view['data_alteracao'] = pd.to_datetime(df_evo_view['data_alteracao']).dt.strftime('%d/%m/%Y')
-                        
                         def format_currency(val):
                             try:
                                 return f"R$ {float(val):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
                             except:
                                 return val
-                                
                         df_evo_view['salario_anterior'] = df_evo_view['salario_anterior'].apply(format_currency)
                         df_evo_view['novo_salario'] = df_evo_view['novo_salario'].apply(format_currency)
-                        
-                        df_evo_view.rename(columns={
-                            'data_alteracao': 'Data da Alteração',
-                            'motivo': 'Motivo',
-                            'salario_anterior': 'Salário Anterior',
-                            'novo_salario': 'Novo Salário'
-                        }, inplace=True)
-                        
+                        df_evo_view.rename(columns={'data_alteracao': 'Data da Alteração', 'motivo': 'Motivo', 'salario_anterior': 'Salário Anterior', 'novo_salario': 'Novo Salário'}, inplace=True)
                         st.dataframe(df_evo_view, use_container_width=True, hide_index=True)
                     else:
                         st.info("Nenhuma alteração salarial registrada no histórico deste colaborador.")
@@ -473,22 +463,13 @@ elif menu == "🛠️ Gestão de Cadastros":
                     if not df_hist.empty:
                         cols_desejadas = ['competencia', 'tipo_lancamento', 'valor_lancamento', 'status_pagamento', 'retroativo_pago', 'data_pagamento']
                         cols_existentes = [c for c in cols_desejadas if c in df_hist.columns]
-                        
                         df_view = df_hist[cols_existentes].copy()
-                        df_view.rename(columns={
-                            'competencia': 'Competência',
-                            'tipo_lancamento': 'Tipo',
-                            'valor_lancamento': 'Valor (R$)',
-                            'status_pagamento': 'Status',
-                            'retroativo_pago': 'Foi Retroativo?',
-                            'data_pagamento': 'Data Pagamento'
-                        }, inplace=True)
+                        df_view.rename(columns={'competencia': 'Competência', 'tipo_lancamento': 'Tipo', 'valor_lancamento': 'Valor (R$)', 'status_pagamento': 'Status', 'retroativo_pago': 'Foi Retroativo?', 'data_pagamento': 'Data Pagamento'}, inplace=True)
                         st.dataframe(df_view, use_container_width=True, hide_index=True)
                     else:
                         st.info("Nenhum histórico financeiro ou de premiações registrado.")
                     st.markdown('</div>', unsafe_allow_html=True)
 
-                    # --- BARRA DE BOTÕES ---
                     if st.session_state['status_acao'] is None:
                         col_b1, col_b2, col_b3, col_b4 = st.columns([1, 1, 1, 1])
                         if col_b1.button("✏️ Alterar Cadastro"):
@@ -505,7 +486,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.session_state['status_acao'] = None
                             st.rerun()
 
-                    # --- PAINEL: EXCLUSÃO ---
                     if st.session_state['status_acao'] == 'solicitou_excluir':
                         st.warning(f"⚠️ **Deseja realmente excluir o colaborador {colab.nome} (ID: {colab.id})?**")
                         col_conf1, col_conf2 = st.columns(2)
@@ -523,15 +503,12 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.session_state['status_acao'] = None
                             st.rerun()
 
-                    # --- PAINEL: ALTERAÇÃO SALARIAL INDIVIDUAL ---
                     if st.session_state['status_acao'] == 'solicitou_alteracao_salarial':
                         st.info("📈 Modo de Alteração Salarial (Auditoria Ativa)")
                         col_as1, col_as2 = st.columns(2)
-                        
                         with col_as1:
                             as_sal_atual = st.text_input("Salário Atual Registrado", value=salario_mes_display, disabled=True)
                             as_data = st.date_input("Data Efetiva da Alteração", value=datetime.today())
-                        
                         with col_as2:
                             motivos_cct = ["MUDANÇA DE FUNÇÃO", "TEMPO DE SERVIÇO", "DISSÍDIO COLETIVO", "REAJUSTE ESPONTÂNEO", "AUMENTO DO SALÁRIO MÍNIMO", "READMISSÃO"]
                             as_motivo = st.selectbox("Motivo da Alteração", motivos_cct)
@@ -539,7 +516,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                             
                         st.markdown("<br>", unsafe_allow_html=True)
                         col_bs1, col_bs2 = st.columns([1, 1])
-                        
                         if col_bs1.button("💾 Gravar Alteração Salarial"):
                             if not as_novo_sal.strip():
                                 st.error("O Novo Salário não pode ficar vazio.")
@@ -548,52 +524,31 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     val_limpo = as_novo_sal.upper().replace('R$', '').replace('.', '').replace(',', '.').strip()
                                     val_float = float(val_limpo)
                                     val_hora = val_float / 220.0
-                                    
                                     val_str_formatado = f"{val_float:.2f}"
                                     val_hora_formatado = f"{val_hora:.2f}"
                                     val_atual_str = f"{val_atual_base:.2f}" if val_atual_base > 0 else (str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "0.00")
                                     
                                     with engine.begin() as conn:
-                                        # 1. Registra no Histórico de Evolução
                                         conn.execute(text("""
                                             INSERT INTO historico_salarial (id_colaborador, data_alteracao, motivo, salario_anterior, novo_salario)
                                             VALUES (:id, :dt, :motivo, :ant, :novo)
-                                        """), {
-                                            "id": str(colab_id),
-                                            "dt": as_data,
-                                            "motivo": as_motivo,
-                                            "ant": val_atual_str,
-                                            "novo": val_str_formatado
-                                        })
+                                        """), {"id": str(colab_id), "dt": as_data, "motivo": as_motivo, "ant": val_atual_str, "novo": val_str_formatado})
                                         
-                                        # 2. Atualiza a Ficha Mestra
                                         conn.execute(text("""
-                                            UPDATE cadastro_geral_colaborador 
-                                            SET salario_mes_12_24 = :sm, salario_hora = :sh
-                                            WHERE id = :id
-                                        """), {
-                                            "sm": val_str_formatado,
-                                            "sh": val_hora_formatado,
-                                            "id": str(colab_id)
-                                        })
+                                            UPDATE cadastro_geral_colaborador SET salario_mes_12_24 = :sm, salario_hora = :sh WHERE id = :id
+                                        """), {"sm": val_str_formatado, "sh": val_hora_formatado, "id": str(colab_id)})
                                         
-                                        # 3. Adiciona no Motor ETL (Histórico Mensal para garantir o contracheque)
                                         comp_str = f"{as_data.month:02d}/{as_data.year}"
                                         conn.execute(text("""
-                                            INSERT INTO historico_premiacoes_e_folha 
-                                            (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) 
+                                            INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) 
                                             VALUES (:id, :comp, 'Salário Mensal', :valor, 'Pago')
-                                        """), {
-                                            "id": str(colab_id),
-                                            "comp": comp_str,
-                                            "valor": val_float
-                                        })
+                                        """), {"id": str(colab_id), "comp": comp_str, "valor": val_float})
                                         
                                     st.success(f"Alteração Salarial gravada com sucesso! Evolução documentada para auditoria.")
                                     st.session_state['status_acao'] = None
                                     st.rerun()
                                 except ValueError:
-                                    st.error("Formato de salário inválido. Use apenas números e pontos (Ex: 2063.92).")
+                                    st.error("Formato de salário inválido. Use apenas números e pontos.")
                                 except Exception as e:
                                     st.error(f"Falha ao processar: {e}")
                                     
@@ -601,10 +556,8 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.session_state['status_acao'] = None
                             st.rerun()
 
-                    # --- PAINEL: EDIÇÃO DE CADASTRO ---
                     if st.session_state['status_acao'] == 'solicitou_alterar':
                         st.info("📝 Modo de Edição Ativo")
-                        
                         col_e1, col_e2 = st.columns(2)
                         with col_e1:
                             edit_nome = st.text_input("Nome Completo", value=str(colab.nome), key="k_enome")
@@ -626,15 +579,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                                         UPDATE cadastro_geral_colaborador 
                                         SET nome = :n, cpf = :c, cargo = :ca, admissao = :ad, demissao = :de, chave_pix = :pix
                                         WHERE id = :id
-                                    """), {
-                                        "n": edit_nome, 
-                                        "c": edit_cpf if edit_cpf.strip() else None,
-                                        "ca": edit_cargo if edit_cargo.strip() else None,
-                                        "ad": edit_adm if edit_adm.strip() else None,
-                                        "de": edit_dem if edit_dem.strip() else None,
-                                        "pix": edit_pix if edit_pix.strip() else None,
-                                        "id": str(colab_id)
-                                    })
+                                    """), {"n": edit_nome, "c": edit_cpf if edit_cpf.strip() else None, "ca": edit_cargo if edit_cargo.strip() else None, "ad": edit_adm if edit_adm.strip() else None, "de": edit_dem if edit_dem.strip() else None, "pix": edit_pix if edit_pix.strip() else None, "id": str(colab_id)})
                                 st.success("Alterações gravadas com sucesso!")
                                 st.session_state['status_acao'] = None
                                 st.rerun()
@@ -656,14 +601,12 @@ elif menu == "🛠️ Gestão de Cadastros":
         
         st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
         col_nc1, col_nc2 = st.columns(2)
-        
         with col_nc1:
             n_id = st.text_input("Código ID / Matrícula (Ex: M0001 ou 1025)", key="k_nc_id")
             st.markdown('<label class="fake-label">Inscrição Cadastral Individual</label>', unsafe_allow_html=True)
             n_cpf = st.text_input(" ", placeholder="Digite apenas os 11 números", key="k_nc_cpf")
             n_admissao = st.text_input("Data de Admissão (Formatada AAAA-MM-DD)", key="k_nc_adm")
             n_sal_mes = st.text_input("Salário-Mês Atual", key="k_nc_sal_mes")
-            
         with col_nc2:
             n_nome = st.text_input("Nome Completo", key="k_nc_nome")
             n_cargo = st.text_input("Cargo Ocupado", key="k_nc_cargo")
@@ -685,19 +628,116 @@ elif menu == "🛠️ Gestão de Cadastros":
                             INSERT INTO cadastro_geral_colaborador 
                             (id, nome, cpf, cargo, admissao, demissao, salario_mes_12_24, salario_hora, chave_pix) 
                             VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :sm, :sh, :pix)
-                        """), {
-                            "id": str(n_id), 
-                            "nome": str(n_nome),
-                            "cpf": str(n_cpf) if n_cpf.strip() else None,
-                            "cargo": str(n_cargo) if n_cargo.strip() else None,
-                            "admissao": str(n_admissao) if n_admissao.strip() else None,
-                            "demissao": str(n_demissao) if n_demissao.strip() else None,
-                            "sm": str(n_sal_mes) if n_sal_mes.strip() else None,
-                            "sh": str(n_sal_hora) if n_sal_hora.strip() else None,
-                            "pix": str(n_pix) if n_pix.strip() else None
-                        })
+                        """), {"id": str(n_id), "nome": str(n_nome), "cpf": str(n_cpf) if n_cpf.strip() else None, "cargo": str(n_cargo) if n_cargo.strip() else None, "admissao": str(n_admissao) if n_admissao.strip() else None, "demissao": str(n_demissao) if n_demissao.strip() else None, "sm": str(n_sal_mes) if n_sal_mes.strip() else None, "sh": str(n_sal_hora) if n_sal_hora.strip() else None, "pix": str(n_pix) if n_pix.strip() else None})
                     st.success(f"Colaborador {n_nome} inserido com sucesso!")
                     st.session_state['redirect_to_consulta'] = True
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Erro de Integridade: Verifique se o ID digitado já pertence a outro cadastro. Detalhes: {e}")    
+                    st.error(f"Erro de Integridade: Verifique se o ID digitado já pertence a outro cadastro. Detalhes: {e}")
+
+# --- 4. AUDITORIA CCT (IA) ---
+elif menu == "🔎 Auditoria CCT (IA)":
+    st.title("🔎 Auditoria Automatizada da Folha")
+    st.markdown("""
+    O Cérebro da Inteligência Artificial fará agora um Raio-X a toda a folha de pagamento cruzando:
+    **Pisos da CCT + Regra de 5% (18/36/54 meses) + Exclusão de Aprendizes/Estagiários**.
+    """)
+    
+    st.info("Pisos Internos Ativos (CCT SINDTICMAL): Grupo E (Pedreiros/etc): R$ 2.063,92 | Grupo I (Servente): R$ 1.548,00 | Grupo A (Mestre): R$ 4.068,99 | Base Nacional Mínima: R$ 1.518,00.")
+    
+    if st.button("🚀 Executar Varredura Completa na Folha", type="primary"):
+        with st.spinner("A cruzar salários atuais com as normas da convenção coletiva..."):
+            try:
+                # 1. Puxa todos os funcionários do banco
+                df_folha = pd.read_sql("SELECT id, nome, cargo, admissao, demissao, salario_mes_12_24 FROM cadastro_geral_colaborador", engine)
+                
+                # 2. Prepara a lógica matemática
+                hoje = pd.Timestamp.today()
+                
+                def converter_salario(val_str):
+                    if not val_str or pd.isna(val_str) or str(val_str).strip() == "Não Informado" or str(val_str).strip() == "": return 0.0
+                    s = str(val_str).upper().replace('R$', '').strip()
+                    if '.' in s and ',' in s: s = s.replace('.', '').replace(',', '.')
+                    elif ',' in s: s = s.replace(',', '.')
+                    try: return float(s)
+                    except: return 0.0
+                
+                def calcular_auditoria(row):
+                    cargo = str(row['cargo']).upper() if pd.notna(row['cargo']) else ""
+                    adm_str = row['admissao']
+                    dem_str = row['demissao']
+                    sal_atual = converter_salario(row['salario_mes_12_24'])
+                    
+                    # Filtro 1: Demitidos não entram na auditoria
+                    if pd.notna(dem_str) and str(dem_str).strip() != "" and str(dem_str).strip().lower() != "ativo / em aberto":
+                        return pd.Series(["Demitido (Ignorado)", "-", "Ok"])
+                    
+                    # Filtro 2: Estagiários e Aprendizes (Bolsa)
+                    if "ESTAGIÁR" in cargo or "ESTAGIAR" in cargo or "APRENDIZ" in cargo:
+                        return pd.Series(["N/A (Jovem Aprendiz/Estagiário)", "-", "Ok (Contrato Especial)"])
+                    
+                    # Filtro 3: Definição do Piso pela Tabela
+                    piso = 1518.00 # Base Nacional Mínima Fallback
+                    if any(x in cargo for x in ["PEDREIRO", "CARPINTEIRO", "PINTOR", "ENCANADOR"]):
+                        piso = 2063.92
+                    elif any(x in cargo for x in ["SERVENTE", "AJUDANTE"]):
+                        piso = 1548.00
+                    elif "MESTRE" in cargo:
+                        piso = 4068.99
+                        
+                    # Filtro 4: Tempo de Casa
+                    try:
+                        adm_dt = pd.to_datetime(adm_str)
+                        meses_casa = (hoje.year - adm_dt.year) * 12 + hoje.month - adm_dt.month
+                    except:
+                        return pd.Series(["Erro Data Admissão", "-", "Pendente (Verificar Data)"])
+                        
+                    # Filtro 5: Regra dos 5% Juros Compostos (Capped at 3x para +55 meses)
+                    ciclos = meses_casa // 18
+                    if ciclos > 3: ciclos = 3
+                    
+                    # Se for Servente, a CCT diz que o piso é travado (Ciclos = 0)
+                    if "SERVENTE" in cargo:
+                        ciclos = 0
+                        
+                    salario_ideal = piso * (1.05 ** ciclos)
+                    
+                    # Formatação
+                    sal_ideal_fmt = f"R$ {salario_ideal:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                    sal_atual_fmt = f"R$ {sal_atual:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                    
+                    # Avaliação Final
+                    if sal_atual == 0.0:
+                        status = "⚠️ Sem Salário Cadastrado"
+                    elif round(sal_atual, 2) < round(salario_ideal, 2):
+                        status = "❌ Defasagem! (Piso/Tempo Inferior)"
+                    elif round(sal_atual, 2) == round(salario_ideal, 2):
+                        status = "✅ Perfeito (Na Tabela Exata)"
+                    else:
+                        status = "⭐ Acima da CCT (Reajuste Espontâneo Ativo)"
+                        
+                    return pd.Series([sal_ideal_fmt, sal_atual_fmt, status])
+
+                # Aplica a auditoria na base toda de uma vez
+                df_folha[['Salário Ideal (CCT)', 'Salário Atual (Banco)', 'Status da Auditoria']] = df_folha.apply(calcular_auditoria, axis=1)
+                
+                # Filtra apenas os ativos para exibir
+                df_resultado = df_folha[~df_folha['Status da Auditoria'].str.contains("Demitido")].copy()
+                
+                # Renomear colunas para exibição bonita
+                df_resultado.rename(columns={'id': 'Matrícula', 'nome': 'Nome', 'cargo': 'Cargo Atual', 'admissao': 'Admissão'}, inplace=True)
+                df_view = df_resultado[['Matrícula', 'Nome', 'Cargo Atual', 'Admissão', 'Salário Atual (Banco)', 'Salário Ideal (CCT)', 'Status da Auditoria']]
+                
+                # Exibir as métricas de auditoria
+                total_analisados = len(df_view)
+                erros = len(df_view[df_view['Status da Auditoria'].str.contains("❌")])
+                
+                col1, col2 = st.columns(2)
+                col1.metric("Funcionários Ativos Analisados", total_analisados)
+                col2.metric("Divergências Encontradas (Abaixo da CCT)", erros, delta_color="inverse")
+                
+                st.markdown("### Relatório Oficial de Divergências")
+                st.dataframe(df_view, use_container_width=True, hide_index=True)
+                
+            except Exception as e:
+                st.error(f"Erro durante a auditoria: {e}")
