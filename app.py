@@ -157,7 +157,6 @@ elif menu == "📥 Importação Inteligente":
         O sistema lerá os meses na planilha, aplicará a **Barreira de 12/2024** + **Janela de Admissão/Demissão** e irá **Recuperar Automaticamente** qualquer colaborador excluído por engano.
         """)
         
-        # --- BOTÃO NUCLEAR (LIMPEZA TOTAL DO BANCO DE HISTÓRICO) ---
         st.markdown('<div style="background-color: rgba(220, 38, 38, 0.2); border: 1px solid #dc2626; padding: 15px; border-radius: 8px; margin-bottom: 20px;">', unsafe_allow_html=True)
         st.markdown("⚠️ **OPÇÃO NUCLEAR:** Este botão vai **ZERAR** completamente a tabela de histórico de salários do banco de dados para podermos começar do zero e sem erros.")
         
@@ -256,11 +255,9 @@ elif menu == "📥 Importação Inteligente":
                                     if not dt_coluna:
                                         continue
                                         
-                                    # --- BARREIRA GLOBAL: SÓ ACEITA DE 12/2024 EM DIANTE ---
                                     if dt_coluna < pd.Timestamp(year=2024, month=12, day=1):
                                         continue
                                         
-                                    # --- JANELA TEMPORAL INDIVIDUAL ---
                                     if dt_adm and dt_coluna < dt_adm:
                                         continue
                                     if dt_dem and dt_coluna > dt_dem:
@@ -371,6 +368,22 @@ elif menu == "🛠️ Gestão de Cadastros":
                     df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
                 
                 if colab:
+                    # --- MÁGICA: CÁLCULO DINÂMICO DO ÚLTIMO SALÁRIO E SALÁRIO/HORA ---
+                    salario_mes_display = str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "Não Informado"
+                    salario_hora_display = str(colab.salario_hora) if colab.salario_hora else "Não Informado"
+                    
+                    if not df_hist.empty:
+                        # Busca apenas os lançamentos que são salário para descobrir o mais recente
+                        df_sal = df_hist[df_hist['tipo_lancamento'].str.contains('Salário', na=False, case=False)]
+                        if not df_sal.empty:
+                            val_m = float(df_sal.iloc[0]['valor_lancamento'])
+                            val_h = val_m / 220.0 # Aplica a regra matemática CLT de 220 horas
+                            
+                            # Formatação impecável para o padrão Real Brasileiro (R$ 1.500,00)
+                            salario_mes_display = f"R$ {val_m:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                            salario_hora_display = f"R$ {val_h:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                    
+                    # --- BLOCO 1: DADOS GERAIS ---
                     st.markdown("### 📋 Ficha Completa do Colaborador")
                     st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                     c1, c2, c3 = st.columns(3)
@@ -379,15 +392,15 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.markdown(f'<p class="field-value">{colab.id}</p>', unsafe_allow_html=True)
                         st.markdown('<p class="field-label">CARGO</p>', unsafe_allow_html=True)
                         st.markdown(f'<p class="field-value">{colab.cargo if colab.cargo else "Não Informado"}</p>', unsafe_allow_html=True)
-                        st.markdown('<p class="field-label">SALÁRIO-MÊS</p>', unsafe_allow_html=True)
-                        st.markdown(f'<p class="field-value">{colab.salario_mes_12_24 if colab.salario_mes_12_24 else "Não Informado"}</p>', unsafe_allow_html=True)
+                        st.markdown('<p class="field-label">SALÁRIO-MÊS ATUAL</p>', unsafe_allow_html=True)
+                        st.markdown(f'<p class="field-value">{salario_mes_display}</p>', unsafe_allow_html=True)
                     with c2:
                         st.markdown('<p class="field-label">NOME COMPLETO</p>', unsafe_allow_html=True)
                         st.markdown(f'<p class="field-value">{colab.nome}</p>', unsafe_allow_html=True)
                         st.markdown('<p class="field-label">DATA DE ADMISSÃO</p>', unsafe_allow_html=True)
                         st.markdown(f'<p class="field-value">{colab.admissao if colab.admissao else "Não Informada"}</p>', unsafe_allow_html=True)
-                        st.markdown('<p class="field-label">SALÁRIO-HORA</p>', unsafe_allow_html=True)
-                        st.markdown(f'<p class="field-value">{colab.salario_hora if colab.salario_hora else "Não Informado"}</p>', unsafe_allow_html=True)
+                        st.markdown('<p class="field-label">SALÁRIO-HORA ATUAL</p>', unsafe_allow_html=True)
+                        st.markdown(f'<p class="field-value">{salario_hora_display}</p>', unsafe_allow_html=True)
                     with c3:
                         st.markdown('<p class="field-label">CPF</p>', unsafe_allow_html=True)
                         st.markdown(f'<p class="field-value">{colab.cpf if colab.cpf else "Não Informado"}</p>', unsafe_allow_html=True)
@@ -472,12 +485,15 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.markdown('<label class="fake-label">Inscrição Cadastral Individual</label>', unsafe_allow_html=True)
                             edit_cpf = st.text_input(" ", value=str(colab.cpf) if colab.cpf else "", placeholder="Apenas dígitos", key="k_ecpf")
                             edit_adm = st.text_input("Data Admissão (AAAA-MM-DD)", value=str(colab.admissao) if colab.admissao else "", key="k_eadm")
-                            edit_sal_mes = st.text_input("Salário-Mês Atual", value=str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "", key="k_esal_mes")
+                            # Usa os valores dinâmicos para facilitar a edição!
+                            val_sm_edit = salario_mes_display if salario_mes_display != "Não Informado" else ""
+                            edit_sal_mes = st.text_input("Salário-Mês Atual", value=val_sm_edit, key="k_esal_mes")
                         with col_e2:
                             edit_cargo = st.text_input("Cargo", value=str(colab.cargo) if colab.cargo else "", key="k_ecargo")
                             edit_dem = st.text_input("Data Demissão (AAAA-MM-DD)", value=str(colab.demissao) if colab.demissao else "", key="k_edem")
                             edit_pix = st.text_input("Chave PIX Principal", value=str(colab.chave_pix) if colab.chave_pix else "", key="k_epix")
-                            edit_sal_hora = st.text_input("Salário-Hora Atual", value=str(colab.salario_hora) if colab.salario_hora else "", key="k_esal_hora")
+                            val_sh_edit = salario_hora_display if salario_hora_display != "Não Informado" else ""
+                            edit_sal_hora = st.text_input("Salário-Hora Atual", value=val_sh_edit, key="k_esal_hora")
                         
                         st.markdown("<br>", unsafe_allow_html=True)
                         if st.button("Confirmar e Salvar Alterações", key="k_ebtn_salvar"):
