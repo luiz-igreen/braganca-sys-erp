@@ -8,7 +8,7 @@ st.set_page_config(page_title="BRAGANÇA SYS", page_icon="🏗️", layout="wide
 # Conexão segura com o Banco de Dados
 engine = create_engine(st.secrets["DATABASE_URL"])
 
-# --- MOTOR DE MIGRAÇÃO AUTOMÁTICA (PREVINE ERRO DE COLUNA INEXISTENTE) ---
+# --- MOTOR DE MIGRAÇÃO AUTOMÁTICA (PREVINE ERRO DE COLUNA E TABELA INEXISTENTE) ---
 try:
     with engine.begin() as conn:
         # Criar as tabelas novas automaticamente se não existirem no banco ativo
@@ -39,11 +39,11 @@ try:
                 registrado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """))
-        # Adicionar colunas caso a tabela antiga não as tenha
+        # Adicionar colunas salariais caso a tabela antiga não as tenha
         conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS salario_mes_12_24 TEXT;"))
         conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS salario_hora TEXT;"))
 except Exception as e:
-    pass  # Ignora se não houver permissão de alteração direta ou se as colunas já estiverem consolidadas
+    pass  # Ignora silenciosamente se o banco já estiver perfeitamente configurado
 
 # --- ESTILIZAÇÃO VISUAL AVANÇADA (DARK PREMIUM GLASSMORPHISM) ---
 st.markdown("""
@@ -291,7 +291,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.markdown('<p class="field-label">AGÊNCIA / CONTA</p>', unsafe_allow_html=True)
                             st.markdown(f'<p class="field-value">{fin_data.get("agencia") or "-"} / {fin_data.get("conta") or "-"}</p>', unsafe_allow_html=True)
                     else:
-                        st.info("Nenhum dado bancário registrado para este colaborador. Utilize o modo de edição em breve para preencher.")
+                        st.info("Nenhum dado bancário registrado para este colaborador. Utilize o modo de edição para preencher.")
                     st.markdown('</div>', unsafe_allow_html=True)
 
                     # --- BLOCO 3: HISTÓRICO DE PRÊMIOS ---
@@ -314,7 +314,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                         df_view.rename(columns=mapa_colunas, inplace=True)
                         st.dataframe(df_view, use_container_width=True)
                     else:
-                        st.info("Nenhum histórico financeiro registrado.")
+                        st.info("Nenhum histórico financeiro ou de premiações registrado.")
                     st.markdown('</div>', unsafe_allow_html=True)
 
                     # --- BOTÕES DE AÇÃO ---
@@ -450,4 +450,4 @@ elif menu == "🛠️ Gestão de Cadastros":
                     st.session_state['redirect_to_consulta'] = True
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Erro de Integridade: Verifique se o ID digitado já pertence a outro cadastro. Detalhes: {e}")    
+                    st.error(f"Erro de Integridade: Verifique se o ID digitado já pertence a outro cadastro. Detalhes: {e}")
