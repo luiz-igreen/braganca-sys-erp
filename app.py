@@ -107,17 +107,32 @@ if st.session_state['redirect_to_consulta']:
     st.session_state['redirect_to_consulta'] = False
     st.rerun()
 
-# --- FUNÇÃO GLOBAL DE LIMPEZA MONETÁRIA ---
+# --- FUNÇÕES DE FORMATAÇÃO E LIMPEZA ---
 def clean_money_to_db(val):
     if not val or str(val).strip() == "" or str(val).strip().lower() == "none": return None
     s = str(val).upper().replace('R$', '').strip()
-    # Se a pessoa digitou 2.354,90 ou 2354,90
     if '.' in s and ',' in s: 
         s = s.replace('.', '').replace(',', '.')
     elif ',' in s: 
         s = s.replace(',', '.')
     try: return str(float(s))
     except: return None
+
+def format_brl_number(val):
+    try:
+        if val is None or str(val).strip() == "" or str(val).lower() == "nan" or str(val).lower() == "none":
+            return ""
+        return f"{float(val):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+    except:
+        return val
+
+def format_currency_brl(val):
+    try:
+        if val is None or str(val).strip() == "" or str(val).lower() == "nan" or str(val).lower() == "none":
+            return ""
+        return f"R$ {float(val):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+    except:
+        return val
 
 # --- BARRA LATERAL DE NAVEGAÇÃO CENTRAL ---
 menu = st.sidebar.radio("Navegação", ["👥 Visão Geral", "📥 Importação Inteligente", "🛠️ Gestão de Cadastros", "🔎 Auditoria CCT (IA)"])
@@ -131,6 +146,10 @@ if menu == "👥 Visão Geral":
             FROM cadastro_geral_colaborador 
             ORDER BY nome ASC
         """, engine)
+        
+        df['salario_mes_12_24'] = df['salario_mes_12_24'].apply(format_currency_brl)
+        df['salario_hora'] = df['salario_hora'].apply(format_currency_brl)
+        
         st.dataframe(df, use_container_width=True, hide_index=True)
     except Exception as e:
         st.error(f"Erro ao carregar dados do painel: {e}")
@@ -484,13 +503,8 @@ elif menu == "🛠️ Gestão de Cadastros":
                     if not df_evo_salarial.empty:
                         df_evo_view = df_evo_salarial.copy()
                         df_evo_view['data_alteracao'] = pd.to_datetime(df_evo_view['data_alteracao']).dt.strftime('%d/%m/%Y')
-                        def format_currency(val):
-                            try:
-                                return f"R$ {float(val):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-                            except:
-                                return val
-                        df_evo_view['salario_anterior'] = df_evo_view['salario_anterior'].apply(format_currency)
-                        df_evo_view['novo_salario'] = df_evo_view['novo_salario'].apply(format_currency)
+                        df_evo_view['salario_anterior'] = df_evo_view['salario_anterior'].apply(format_currency_brl)
+                        df_evo_view['novo_salario'] = df_evo_view['novo_salario'].apply(format_currency_brl)
                         df_evo_view.rename(columns={'data_alteracao': 'Data da Alteração', 'motivo': 'Motivo', 'salario_anterior': 'Salário Anterior', 'novo_salario': 'Novo Salário'}, inplace=True)
                         st.dataframe(df_evo_view, use_container_width=True, hide_index=True)
                     else:
@@ -503,13 +517,16 @@ elif menu == "🛠️ Gestão de Cadastros":
                         cols_desejadas = ['competencia', 'tipo_lancamento', 'valor_lancamento', 'status_pagamento', 'retroativo_pago', 'data_pagamento']
                         cols_existentes = [c for c in cols_desejadas if c in df_hist.columns]
                         df_view = df_hist[cols_existentes].copy()
+                        
+                        # --- APLICAÇÃO DA MÁSCARA NA TABELA DE HISTÓRICO MENSAL ---
+                        df_view['valor_lancamento'] = df_view['valor_lancamento'].apply(format_brl_number)
+                        
                         df_view.rename(columns={'competencia': 'Competência', 'tipo_lancamento': 'Tipo', 'valor_lancamento': 'Valor (R$)', 'status_pagamento': 'Status', 'retroativo_pago': 'Foi Retroativo?', 'data_pagamento': 'Data Pagamento'}, inplace=True)
                         st.dataframe(df_view, use_container_width=True, hide_index=True)
                     else:
                         st.info("Nenhum histórico financeiro ou de premiações registrado.")
                     st.markdown('</div>', unsafe_allow_html=True)
 
-                    # --- NOVA BARRA DE BOTÕES CLARIFICADA ---
                     if st.session_state['status_acao'] is None:
                         col_b1, col_b2, col_b3, col_b4, col_b5, col_b6 = st.columns([1, 1, 1, 1, 1, 1])
                         if col_b1.button("✏️ Editar Ficha"):
@@ -532,7 +549,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.session_state['status_acao'] = None
                             st.rerun()
 
-                    # --- PAINEL: EXCLUIR ---
                     if st.session_state['status_acao'] == 'solicitou_excluir':
                         st.warning(f"⚠️ **Deseja realmente excluir o colaborador {colab.nome} (ID: {colab.id})?**")
                         col_conf1, col_conf2 = st.columns(2)
@@ -550,7 +566,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.session_state['status_acao'] = None
                             st.rerun()
                             
-                    # --- PAINEL: LANÇAMENTO AVULSO DE HISTÓRICO ---
                     if st.session_state['status_acao'] == 'solicitou_lancamento_avulso':
                         st.info("➕ **Inserção Avulsa no Histórico:** Adicione os meses que faltam diretamente no banco de dados.")
                         col_av1, col_av2, col_av3 = st.columns(3)
@@ -583,7 +598,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.session_state['status_acao'] = None
                             st.rerun()
 
-                    # --- PAINEL: CORREÇÃO DE HISTÓRICO MANUAL ---
                     if st.session_state['status_acao'] == 'solicitou_corrigir_historico':
                         st.info("🛠️ **Editor de Histórico:** Corrija valores ou apague meses errados.")
                         
@@ -593,7 +607,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 st.session_state['status_acao'] = None
                                 st.rerun()
                         else:
-                            opcoes_hist = {f"Competência: {row['competencia']} | Tipo: {row['tipo_lancamento']} | Valor Atual: R$ {row['valor_lancamento']}": row['id_lancamento'] for _, row in df_hist.iterrows()}
+                            opcoes_hist = {f"Competência: {row['competencia']} | Tipo: {row['tipo_lancamento']} | Valor Atual: R$ {format_brl_number(row['valor_lancamento'])}": row['id_lancamento'] for _, row in df_hist.iterrows()}
                             st.markdown("<p class='field-label'>1. Selecione a linha do histórico:</p>", unsafe_allow_html=True)
                             sel_lbl = st.selectbox(" ", list(opcoes_hist.keys()), label_visibility="collapsed")
                             id_alvo = opcoes_hist[sel_lbl]
@@ -614,7 +628,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     st.session_state['status_acao'] = None
                                     st.rerun()
                                 else:
-                                    st.error("Digite um valor válido.")
+                                    st.error("Digite um valor numérico válido (ex: 2354,90).")
                                     
                             if col_btn2.button("🗑️ Apagar Mês Inteiro"):
                                 with engine.begin() as conn:
@@ -627,7 +641,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 st.session_state['status_acao'] = None
                                 st.rerun()
 
-                    # --- PAINEL: EVOLUÇÃO SALARIAL OFICIAL ---
                     if st.session_state['status_acao'] == 'solicitou_alteracao_salarial':
                         st.info("📈 Modo de Alteração Salarial (Auditoria Ativa)")
                         col_as1, col_as2 = st.columns(2)
@@ -681,7 +694,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.session_state['status_acao'] = None
                             st.rerun()
 
-                    # --- PAINEL: EDIÇÃO DE CADASTRO GERAL ---
                     if st.session_state['status_acao'] == 'solicitou_alterar':
                         st.info("📝 Modo de Edição Ativo - Utilize para corrigir dados mestres da ficha.")
                         
@@ -690,7 +702,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                         try: dt_dem_val = pd.to_datetime(colab.demissao).date() if colab.demissao else None
                         except: dt_dem_val = None
                         
-                        # Define default index para a selectbox de cargos
                         cargo_atual = str(colab.cargo).upper().strip() if colab.cargo else ""
                         cargo_idx = LISTA_CARGOS.index(cargo_atual) if cargo_atual in LISTA_CARGOS else (len(LISTA_CARGOS)-1)
                         
@@ -922,4 +933,4 @@ elif menu == "🔎 Auditoria CCT (IA)":
                 st.dataframe(df_view, use_container_width=True, hide_index=True)
                 
             except Exception as e:
-                st.error(f"Erro durante a auditoria: {e}")    
+                st.error(f"Erro durante a auditoria: {e}")
