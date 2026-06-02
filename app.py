@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, text
+import re
 
 # --- CONFIGURAÇÃO INICIAL DA APLICAÇÃO ---
 st.set_page_config(page_title="BRAGANÇA SYS", page_icon="🏗️", layout="wide")
@@ -96,44 +97,205 @@ if menu == "👥 Visão Geral":
     except Exception as e:
         st.error(f"Erro ao carregar dados do painel: {e}")
 
-# --- 2. IMPORTAÇÃO INTELIGENTE ---
+# --- 2. IMPORTAÇÃO INTELIGENTE (COM MOTOR ETL E AUTO-RECUPERAÇÃO) ---
 elif menu == "📥 Importação Inteligente":
-    st.title("📥 Importação e Ingestão de Dados")
-    arquivo = st.file_uploader("Selecione o arquivo de migração (.xlsx, .csv)", type=["xlsx", "csv"])
+    st.title("📥 Central de Ingestão de Dados")
     
-    if arquivo and st.button("Executar Ingestão Certificada"):
-        try:
-            if arquivo.name.endswith('.xlsx'):
-                df_bruto = pd.read_excel(arquivo, engine='openpyxl')
-            else:
-                df_bruto = pd.read_csv(arquivo)
-            
-            with engine.begin() as conn:
-                for _, row in df_bruto.iterrows():
-                    conn.execute(text("""
-                        INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, salario_mes_12_24, salario_hora) 
-                        VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :sal_mes, :sal_hora)
-                        ON CONFLICT (id) DO UPDATE SET 
-                            nome = EXCLUDED.nome,
-                            cpf = EXCLUDED.cpf,
-                            cargo = EXCLUDED.cargo,
-                            admissao = EXCLUDED.admissao,
-                            demissao = EXCLUDED.demissao,
-                            salario_mes_12_24 = EXCLUDED.salario_mes_12_24,
-                            salario_hora = EXCLUDED.salario_hora
-                    """), {
-                        "id": str(row[0]), 
-                        "nome": str(row[1]),
-                        "cpf": str(row[2]) if len(row) > 2 else None,
-                        "cargo": str(row[3]) if len(row) > 3 else None,
-                        "admissao": str(row[4]) if len(row) > 4 else None,
-                        "demissao": str(row[5]) if len(row) > 5 else None,
-                        "sal_mes": str(row[6]) if len(row) > 6 else None,
-                        "sal_hora": str(row[7]) if len(row) > 7 else None
-                    })
-            st.success("Ingestão de dados executada com sucesso!")
-        except Exception as e:
-            st.error(f"Erro Crítico no mapeamento das colunas: {e}")
+    aba_imp1, aba_imp2 = st.tabs(["📋 Carga Base (Cadastros)", "💰 Motor ETL (Histórico Salarial)"])
+    
+    # === SUB-ABA 1: CADASTRO GERAL ===
+    with aba_imp1:
+        st.subheader("Importação de Cadastros Novos")
+        arquivo = st.file_uploader("Selecione o arquivo de migração de colaboradores (.xlsx, .csv)", type=["xlsx", "csv"])
+        
+        if arquivo and st.button("Executar Ingestão de Cadastros", key="btn_imp_cad"):
+            try:
+                if arquivo.name.endswith('.xlsx'):
+                    df_bruto = pd.read_excel(arquivo, engine='openpyxl')
+                else:
+                    df_bruto = pd.read_csv(arquivo)
+                
+                with engine.begin() as conn:
+                    for _, row in df_bruto.iterrows():
+                        conn.execute(text("""
+                            INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, salario_mes_12_24, salario_hora) 
+                            VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :sal_mes, :sal_hora)
+                            ON CONFLICT (id) DO UPDATE SET 
+                                nome = EXCLUDED.nome,
+                                cpf = EXCLUDED.cpf,
+                                cargo = EXCLUDED.cargo,
+                                admissao = EXCLUDED.admissao,
+                                demissao = EXCLUDED.demissao,
+                                salario_mes_12_24 = EXCLUDED.salario_mes_12_24,
+                                salario_hora = EXCLUDED.salario_hora
+                        """), {
+                            "id": str(row[0]), 
+                            "nome": str(row[1]),
+                            "cpf": str(row[2]) if len(row) > 2 else None,
+                            "cargo": str(row[3]) if len(row) > 3 else None,
+                            "admissao": str(row[4]) if len(row) > 4 else None,
+                            "demissao": str(row[5]) if len(row) > 5 else None,
+                            "sal_mes": str(row[6]) if len(row) > 6 else None,
+                            "sal_hora": str(row[7]) if len(row) > 7 else None
+                        })
+                st.success("Ingestão de dados de cadastro executada com sucesso!")
+            except Exception as e:
+                st.error(f"Erro Crítico no mapeamento das colunas: {e}")
+
+    # === SUB-ABA 2: O MOTOR DE HISTÓRICO SALARIAL E AUTO-RECUPERAÇÃO ===
+    with aba_imp2:
+        st.subheader("Extração Inteligente de Matriz Salarial")
+        st.markdown("""
+        O sistema lerá os meses na planilha, aplicará a **Janela de Admissão/Demissão** e irá **Recuperar/Criar Automaticamente** qualquer colaborador excluído por engano.
+        """)
+        
+        arquivo_hist = st.file_uploader("Selecione a matriz salarial (.xlsx)", type=["xlsx"], key="file_hist")
+        
+        if arquivo_hist and st.button("🚀 Processar e Injetar Histórico", type="primary"):
+            with st.spinner("Analisando cruzamentos de dados temporais e recuperando cadastros perdidos..."):
+                try:
+                    df_excel = pd.read_excel(arquivo_hist, engine='openpyxl')
+                    
+                    # 1. Puxar dados base para Match e pegar o Maior ID
+                    with engine.connect() as conn:
+                        db_cols = conn.execute(text("SELECT id, nome, admissao, demissao FROM cadastro_geral_colaborador")).fetchall()
+                    
+                    db_dict = {}
+                    lista_ids_numericos = []
+                    
+                    for r in db_cols:
+                        if r.nome:
+                            db_dict[str(r.nome).strip().upper()] = {
+                                'id': str(r.id),
+                                'admissao': str(r.admissao) if r.admissao else None,
+                                'demissao': str(r.demissao) if r.demissao else None
+                            }
+                        if str(r.id).isdigit():
+                            lista_ids_numericos.append(int(r.id))
+                    
+                    # Motor para gerar IDs automáticos para colaboradores perdidos
+                    proximo_id_livre = max(lista_ids_numericos) + 1 if lista_ids_numericos else 1000
+                    
+                    def get_comp_date(col_name):
+                        match = re.search(r'(\d{2})/(\d{2})', str(col_name))
+                        if match:
+                            m = int(match.group(1))
+                            y = 2000 + int(match.group(2))
+                            return pd.Timestamp(year=y, month=m, day=1)
+                        return None
+                        
+                    def parse_str_date(d_str):
+                        try:
+                            dt = pd.to_datetime(d_str)
+                            return pd.Timestamp(year=dt.year, month=dt.month, day=1)
+                        except:
+                            return None
+
+                    inserts_pendentes = []
+                    linhas_processadas = 0
+                    recuperados_ia = 0
+                    
+                    # Encontrar a coluna de nome corretamente
+                    coluna_nome = next((col for col in df_excel.columns if str(col).strip().upper() == 'NOME'), None)
+
+                    if not coluna_nome:
+                        st.error("Erro: A planilha enviada não possui uma coluna com o título 'Nome'.")
+                    else:
+                        # 2. Varrer Planilha
+                        for _, row in df_excel.iterrows():
+                            nome_xls = str(row[coluna_nome]).strip().upper()
+                            if not nome_xls or nome_xls == 'NAN':
+                                continue
+                                
+                            # --- A MÁGICA DA AUTO-RECUPERAÇÃO ---
+                            if nome_xls not in db_dict:
+                                novo_id = str(proximo_id_livre)
+                                proximo_id_livre += 1
+                                
+                                # Grava o colaborador perdido de volta no banco IMEDIATAMENTE
+                                with engine.begin() as conn_recupera:
+                                    conn_recupera.execute(text("""
+                                        INSERT INTO cadastro_geral_colaborador (id, nome) VALUES (:id, :nome)
+                                        ON CONFLICT (id) DO NOTHING
+                                    """), {"id": novo_id, "nome": nome_xls})
+                                
+                                # Adiciona à memória para poder processar o salário logo abaixo
+                                db_dict[nome_xls] = {
+                                    'id': novo_id,
+                                    'admissao': None,
+                                    'demissao': None
+                                }
+                                recuperados_ia += 1
+
+                            colab = db_dict[nome_xls]
+                            dt_adm = parse_str_date(colab['admissao'])
+                            dt_dem = parse_str_date(colab['demissao'])
+                            
+                            for col in df_excel.columns:
+                                col_str = str(col).strip().upper()
+                                # Filtramos apenas as colunas de "Salário MÊS"
+                                if "SALÁRIO MÊS" in col_str or "SALARIO MES" in col_str:
+                                    val = row[col]
+                                    if pd.isna(val) or str(val).strip() == "":
+                                        continue
+                                        
+                                    dt_coluna = get_comp_date(col_str)
+                                    if not dt_coluna:
+                                        continue
+                                        
+                                    # Janela Temporal
+                                    if dt_adm and dt_coluna < dt_adm:
+                                        continue
+                                    if dt_dem and dt_coluna > dt_dem:
+                                        continue
+                                        
+                                    # Limpeza matemática
+                                    try:
+                                        if isinstance(val, str):
+                                            val_limpo = val.upper().replace('R$', '').replace('.', '').replace(',', '.').strip()
+                                            val_float = float(val_limpo)
+                                        else:
+                                            val_float = float(val)
+                                    except:
+                                        continue
+                                        
+                                    if val_float > 0:
+                                        comp_str = f"{dt_coluna.month:02d}/{dt_coluna.year}"
+                                        inserts_pendentes.append({
+                                            "id_colab": colab['id'],
+                                            "comp": comp_str,
+                                            "tipo": "Salário Mensal Fixo",
+                                            "valor": val_float
+                                        })
+                            linhas_processadas += 1
+
+                        # 3. Executar Ingestão Massiva
+                        if inserts_pendentes:
+                            with engine.begin() as conn:
+                                for item in inserts_pendentes:
+                                    existe = conn.execute(text("""
+                                        SELECT 1 FROM historico_premiacoes_e_folha 
+                                        WHERE id_colaborador = :id_colab 
+                                        AND competencia = :comp 
+                                        AND tipo_lancamento = :tipo
+                                    """), item).fetchone()
+                                    
+                                    if not existe:
+                                        conn.execute(text("""
+                                            INSERT INTO historico_premiacoes_e_folha 
+                                            (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) 
+                                            VALUES (:id_colab, :comp, :tipo, :valor, 'Pago')
+                                        """), item)
+                            
+                            st.success(f"✅ Ingestão Concluída! Lidos {linhas_processadas} colaboradores.")
+                            st.info(f"💾 Foram injetados {len(inserts_pendentes)} registros de histórico salarial no banco de dados.")
+                            if recuperados_ia > 0:
+                                st.warning(f"🤖 **Auto-Recuperação IA:** {recuperados_ia} colaborador(es) que não estavam no banco foram detectados e recadastrados automaticamente (os IDs foram gerados em sequência).")
+                        else:
+                            st.warning("Aviso: A planilha foi lida, mas nenhum registro combinou com as regras (ou já estavam todos inseridos).")
+
+                except Exception as e:
+                    st.error(f"Falha Operacional no Motor ETL: {e}")
 
 # --- 3. GESTÃO DE CADASTROS ---
 elif menu == "🛠️ Gestão de Cadastros":
@@ -198,7 +360,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     df_fin = pd.read_sql(text("SELECT * FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), conn, params={"id": str(colab_id)})
                     fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None
                     
-                    # 3. Busca Histórico
+                    # 3. Busca Histórico (ORDENANDO POR ID DESC PARA EVITAR ERRO DE NOME DE COLUNA)
                     df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
                 
                 if colab:
@@ -402,4 +564,4 @@ elif menu == "🛠️ Gestão de Cadastros":
                     st.session_state['redirect_to_consulta'] = True
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Erro de Integridade: Verifique se o ID digitado já pertence a outro cadastro. Detalhes: {e}")    
+                    st.error(f"Erro de Integridade: Verifique se o ID digitado já pertence a outro cadastro. Detalhes: {e}")
