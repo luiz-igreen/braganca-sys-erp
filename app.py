@@ -11,6 +11,35 @@ engine = create_engine(st.secrets["DATABASE_URL"])
 # --- MOTOR DE MIGRAÇÃO AUTOMÁTICA (PREVINE ERRO DE COLUNA INEXISTENTE) ---
 try:
     with engine.begin() as conn:
+        # Criar as tabelas novas automaticamente se não existirem no banco ativo
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS cadastro_financeiro_colaborador (
+                id SERIAL PRIMARY KEY,
+                id_colaborador INTEGER NOT NULL,
+                tipo_chave_pix VARCHAR(50),
+                chave_pix VARCHAR(255),
+                banco VARCHAR(100),
+                agencia VARCHAR(20),
+                conta VARCHAR(20),
+                atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS historico_premiacoes_e_folha (
+                id SERIAL PRIMARY KEY,
+                id_colaborador INTEGER NOT NULL,
+                competencia VARCHAR(7) NOT NULL,
+                tipo_lancamento VARCHAR(50) NOT NULL,
+                valor_lancamento NUMERIC(10, 2) NOT NULL,
+                status_pagamento VARCHAR(30) DEFAULT 'Pendente',
+                data_pagamento DATE,
+                observacoes TEXT,
+                retroativo_pago BOOLEAN DEFAULT FALSE,
+                competencia_origem VARCHAR(7),
+                registrado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """))
+        # Adicionar colunas caso a tabela antiga não as tenha
         conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS salario_mes_12_24 TEXT;"))
         conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS salario_hora TEXT;"))
 except Exception as e:
@@ -421,4 +450,4 @@ elif menu == "🛠️ Gestão de Cadastros":
                     st.session_state['redirect_to_consulta'] = True
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Erro de Integridade: Verifique se o ID digitado já pertence a outro cadastro. Detalhes: {e}")
+                    st.error(f"Erro de Integridade: Verifique se o ID digitado já pertence a outro cadastro. Detalhes: {e}")    
