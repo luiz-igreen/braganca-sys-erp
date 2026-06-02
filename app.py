@@ -555,4 +555,4 @@ elif menu == "🛠️ Gestão de Cadastros":
                     st.session_state['redirect_to_consulta'] = True
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Erro de Integridade: Verifique se o ID digitado já pertence a outro cadastro. Detalhes: {e}")
+                    st.error(f"Erro de Integridade: Verifique se o ID digitado já pertence a outro cadastro. Detalhes: {e}")    
