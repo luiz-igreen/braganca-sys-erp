@@ -351,12 +351,10 @@ elif menu == "🛠️ Gestão de Cadastros":
             
             try:
                 with engine.connect() as conn:
-                    # CORREÇÃO CRÍTICA APLICADA: Pesquisa Exata EXCLUSIVA para ID. 
                     sql_exact = "SELECT * FROM cadastro_geral_colaborador WHERE id = :t"
                     resultados = conn.execute(text(sql_exact), {"t": str(termo).strip()}).fetchall()
                     
                     if not resultados:
-                        # Se não encontrar ID exato, procura APENAS PARTE DO NOME (ILIKE removido do ID para evitar confusões de substring)
                         sql_like = "SELECT * FROM cadastro_geral_colaborador WHERE nome ILIKE :t ORDER BY nome ASC"
                         resultados = conn.execute(text(sql_like), {"t": f"%{termo.strip()}%"}).fetchall()
                     
@@ -632,10 +630,12 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.session_state['status_acao'] = None
                             st.rerun()
 
+                    # --- PAINEL: EDIÇÃO DE CADASTRO COM ALTERAÇÃO DE ID HABILITADA ---
                     if st.session_state['status_acao'] == 'solicitou_alterar':
-                        st.info("📝 Modo de Edição Ativo - Utilize para corrigir dados mestres (Nome, Cargo, CPF, Salário Base).")
+                        st.info("📝 Modo de Edição Ativo - Utilize para corrigir dados mestres da ficha.")
                         col_e1, col_e2 = st.columns(2)
                         with col_e1:
+                            edit_id = st.text_input("ID / Matrícula (Pode ser alterado)", value=str(colab.id), key="k_eid")
                             edit_nome = st.text_input("Nome Completo", value=str(colab.nome), key="k_enome")
                             st.markdown('<label class="fake-label">Inscrição Cadastral Individual</label>', unsafe_allow_html=True)
                             edit_cpf = st.text_input(" ", value=str(colab.cpf) if colab.cpf else "", placeholder="Apenas dígitos", key="k_ecpf")
@@ -649,8 +649,8 @@ elif menu == "🛠️ Gestão de Cadastros":
                         
                         st.markdown("<br>", unsafe_allow_html=True)
                         if st.button("Confirmar e Salvar Alterações", key="k_ebtn_salvar"):
-                            if not edit_nome.strip():
-                                st.error("O nome do colaborador não pode ficar vazio.")
+                            if not edit_id.strip() or not edit_nome.strip():
+                                st.error("O ID/Matrícula e o Nome do colaborador não podem ficar vazios.")
                             else:
                                 def clean_money_to_db(val):
                                     if not val or str(val).strip() == "" or str(val).strip().lower() == "none": return None
@@ -660,21 +660,62 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     try: return str(float(s))
                                     except: return str(val)
 
-                                with engine.begin() as conn:
-                                    conn.execute(text("""
-                                        UPDATE cadastro_geral_colaborador 
-                                        SET nome = :n, cpf = :c, cargo = :ca, admissao = :ad, demissao = :de, 
-                                            chave_pix = :pix, salario_mes_12_24 = :sm, salario_hora = :sh
-                                        WHERE id = :id
-                                    """), {
-                                        "n": edit_nome, "c": edit_cpf if edit_cpf.strip() else None, 
-                                        "ca": edit_cargo if edit_cargo.strip() else None, "ad": edit_adm if edit_adm.strip() else None, 
-                                        "de": edit_dem if edit_dem.strip() else None, "pix": edit_pix if edit_pix.strip() else None,
-                                        "sm": clean_money_to_db(edit_sal_mes), "sh": clean_money_to_db(edit_sal_hora), "id": str(colab_id)
-                                    })
-                                st.success("Ficha Mestra corrigida com sucesso! A alteração será refletida no painel.")
-                                st.session_state['status_acao'] = None
-                                st.rerun()
+                                try:
+                                    with engine.begin() as conn:
+                                        # Verifica se está a tentar mudar para um ID que já é de outra pessoa
+                                        if edit_id.strip() != str(colab_id):
+                                            existe = conn.execute(text("SELECT 1 FROM cadastro_geral_colaborador WHERE id = :nid"), {"nid": edit_id.strip()}).fetchone()
+                                            if existe:
+                                                st.error(f"Erro Crítico: O ID '{edit_id.strip()}' já está sendo utilizado por outro colaborador!")
+                                                raise Exception("ID duplicado")
+                                        
+                                        # 1. Atualiza a Ficha Mestra e o Próprio ID simultaneamente
+                                        conn.execute(text("""
+                                            UPDATE cadastro_geral_colaborador 
+                                            SET id = :nid, nome = :n, cpf = :c, cargo = :ca, admissao = :ad, demissao = :de, 
+                                                chave_pix = :pix, salario_mes_12_24 = :sm, salario_hora = :sh
+                                            WHERE id = :oid
+                                        """), {
+                                            "nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf if edit_cpf.strip() else None, 
+                                            "ca": edit_cargo if edit_cargo.strip() else None, "ad": edit_adm if edit_adm.strip() else None, 
+                                            "de": edit_dem if edit_dem.strip() else None, "pix": edit_pix if edit_pix.strip() else None,
+                                            "sm": clean_money_to_db(edit_sal_mes), "sh": clean_money_to_db(edit_sal_hora), 
+                                            "oid": str(colab_id)
+                                        })
+                                        
+                                        # 2. Motor de Migração: Se o ID mudou, movemos todas as tabelas filhas para o novo ID!
+                                        if edit_id.strip() != str(colab_id):
+                                            conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
+                                            conn.execute(text("UPDATE historico_salarial SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
+                                            conn.execute(text("UPDATE cadastro_financeiro_colaborador SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
+                                            
+                                    st.success("Ficha Mestra corrigida com sucesso!")
+                                    st.session_state['busca_selecionada_id'] = edit_id.strip() # Atualiza a tela para o novo ID
+                                    st.session_state['status_acao'] = None
+                                    st.rerun()
+                                    
+                                except Exception as e:
+                                    if "ID duplicado" not in str(e):
+                                        # Plano de Segurança Extra: Se o banco de dados bloquear o UPDATE direto por causa de constraints de chave estrangeira
+                                        try:
+                                            with engine.begin() as conn2:
+                                                conn2.execute(text("""
+                                                    INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, salario_mes_12_24, salario_hora, chave_pix)
+                                                    VALUES (:nid, :n, :c, :ca, :ad, :de, :sm, :sh, :pix)
+                                                """), {"nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf if edit_cpf.strip() else None, "ca": edit_cargo if edit_cargo.strip() else None, "ad": edit_adm if edit_adm.strip() else None, "de": edit_dem if edit_dem.strip() else None, "sm": clean_money_to_db(edit_sal_mes), "sh": clean_money_to_db(edit_sal_hora), "pix": edit_pix if edit_pix.strip() else None})
+                                                
+                                                conn2.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
+                                                conn2.execute(text("UPDATE historico_salarial SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
+                                                conn2.execute(text("UPDATE cadastro_financeiro_colaborador SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
+                                                
+                                                conn2.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :oid"), {"oid": str(colab_id)})
+                                                
+                                            st.success("ID migrado e ficha corrigida com sucesso via protocolo de segurança!")
+                                            st.session_state['busca_selecionada_id'] = edit_id.strip()
+                                            st.session_state['status_acao'] = None
+                                            st.rerun()
+                                        except Exception as inner_e:
+                                            st.error(f"Falha Crítica ao tentar migrar o ID. O banco de dados bloqueou a operação: {inner_e}")
                         
                         if st.button("Abandonar Edição", key="k_ebtn_abandonar"):
                             st.session_state['status_acao'] = None
