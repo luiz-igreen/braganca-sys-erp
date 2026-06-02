@@ -77,7 +77,6 @@ components.html("""
 <script>
 const doc = window.parent.document;
 
-// 1. Blindagem de Autofill
 setInterval(function(){
     doc.querySelectorAll('input').forEach(function(el){
         el.setAttribute('autocomplete', 'new-password');
@@ -89,12 +88,10 @@ setInterval(function(){
     });
 }, 150);
 
-// 2. Navegação Desktop (Enter = Tab)
 if (!window.parent.EnterToTabInjected) {
     window.parent.EnterToTabInjected = true;
     doc.addEventListener('keydown', function(e) {
         if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
-            // Ignora o Enter se for uma lista suspensa aberta
             if (e.target.hasAttribute('aria-controls') || e.target.hasAttribute('aria-expanded')) {
                 return; 
             }
@@ -676,7 +673,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                         col_as1, col_as2 = st.columns(2)
                         with col_as1:
                             as_sal_atual = st.text_input("Salário Atual Registrado", value=salario_mes_display, disabled=True)
-                            as_data = st.date_input("Data Efetiva da Alteração", value=datetime.today(), format="DD/MM/YYYY")
+                            as_data = st.date_input("Data Efetiva da Alteração", value=datetime.today().date(), format="DD/MM/YYYY")
                         with col_as2:
                             motivos_cct = ["MUDANÇA DE FUNÇÃO", "TEMPO DE SERVIÇO", "DISSÍDIO COLETIVO", "REAJUSTE ESPONTÂNEO", "AUMENTO DO SALÁRIO MÍNIMO", "READMISSÃO", "CORREÇÃO DE DADOS"]
                             as_motivo = st.selectbox("Motivo da Alteração", motivos_cct)
@@ -751,7 +748,12 @@ elif menu == "🛠️ Gestão de Cadastros":
                             else:
                                 edit_cargo = sel_cargo
                                 
-                            edit_dem = st.date_input("Data de Demissão (Deixe em branco se ativo)", value=dt_dem_val, format="DD/MM/YYYY")
+                            ativo_ed = st.checkbox("✅ Colaborador Ativo (Remove a Demissão)", value=(dt_dem_val is None))
+                            if ativo_ed:
+                                edit_dem = None
+                            else:
+                                edit_dem = st.date_input("Data de Demissão", value=dt_dem_val if dt_dem_val else datetime.today().date(), format="DD/MM/YYYY")
+                                
                             edit_pix = st.text_input("Chave PIX Principal", value=str(colab.chave_pix) if colab.chave_pix else "", key="k_epix")
                             edit_sal_hora = st.text_input("Correção: Salário-Hora Base", value=str(colab.salario_hora) if colab.salario_hora else "", key="k_esal_hora")
                         
@@ -847,7 +849,12 @@ elif menu == "🛠️ Gestão de Cadastros":
             else:
                 n_cargo = sel_nc_cargo
                 
-            n_demissao = st.date_input("Data de Demissão (Deixe em branco se ativo)", value=None, format="DD/MM/YYYY", key="k_nc_dem")
+            ativo_nc = st.checkbox("✅ Colaborador Ativo", value=True)
+            if ativo_nc:
+                n_demissao = None
+            else:
+                n_demissao = st.date_input("Data de Demissão", value=datetime.today().date(), format="DD/MM/YYYY", key="k_nc_dem")
+                
             n_pix = st.text_input("Chave PIX", key="k_nc_pix")
             n_sal_hora = st.text_input("Salário-Hora Atual", key="k_nc_sal_hora")
             
