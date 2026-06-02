@@ -351,11 +351,13 @@ elif menu == "🛠️ Gestão de Cadastros":
             
             try:
                 with engine.connect() as conn:
+                    # CORREÇÃO CRÍTICA APLICADA: Pesquisa Exata EXCLUSIVA para ID. 
                     sql_exact = "SELECT * FROM cadastro_geral_colaborador WHERE id = :t"
                     resultados = conn.execute(text(sql_exact), {"t": str(termo).strip()}).fetchall()
                     
                     if not resultados:
-                        sql_like = "SELECT * FROM cadastro_geral_colaborador WHERE nome ILIKE :t OR id ILIKE :t ORDER BY nome ASC"
+                        # Se não encontrar ID exato, procura APENAS PARTE DO NOME (ILIKE removido do ID para evitar confusões de substring)
+                        sql_like = "SELECT * FROM cadastro_geral_colaborador WHERE nome ILIKE :t ORDER BY nome ASC"
                         resultados = conn.execute(text(sql_like), {"t": f"%{termo.strip()}%"}).fetchall()
                     
                     if not resultados:
@@ -380,7 +382,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                 with engine.connect() as conn:
                     colab = conn.execute(text("SELECT * FROM cadastro_geral_colaborador WHERE id = :id"), {"id": str(colab_id)}).fetchone()
                     df_fin = pd.read_sql(text("SELECT * FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), conn, params={"id": str(colab_id)})
-                    fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None # <-- A LINHA PERDIDA FOI RECUPERADA!
+                    fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None
                     
                     df_hist = pd.read_sql(text("SELECT id as id_lancamento, competencia, tipo_lancamento, valor_lancamento, status_pagamento, retroativo_pago, data_pagamento FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
                     df_evo_salarial = pd.read_sql(text("SELECT data_alteracao, motivo, salario_anterior, novo_salario FROM historico_salarial WHERE id_colaborador = :id ORDER BY data_alteracao DESC, id DESC"), conn, params={"id": str(colab_id)})
@@ -813,4 +815,4 @@ elif menu == "🔎 Auditoria CCT (IA)":
                 st.dataframe(df_view, use_container_width=True, hide_index=True)
                 
             except Exception as e:
-                st.error(f"Erro durante a auditoria: {e}")    
+                st.error(f"Erro durante a auditoria: {e}")
