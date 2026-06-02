@@ -162,16 +162,21 @@ elif menu == "🛠️ Gestão de Cadastros":
             
             try:
                 with engine.connect() as conn:
-                    # Como o ID agora é TEXT, podemos pesquisar de forma flexível
-                    sql = "SELECT * FROM cadastro_geral_colaborador WHERE id ILIKE :t OR nome ILIKE :t ORDER BY nome ASC"
-                    params = {"t": f"%{termo}%"}
+                    # 1. Tenta Busca Exata por ID primeiro (Resolve o problema de listar vários)
+                    sql_exact = "SELECT * FROM cadastro_geral_colaborador WHERE id = :t"
+                    resultados = conn.execute(text(sql_exact), {"t": str(termo).strip()}).fetchall()
                     
-                    resultados = conn.execute(text(sql), params).fetchall()
+                    # 2. Se não achar ID exato, busca por partes do nome ou da matrícula
+                    if not resultados:
+                        sql_like = "SELECT * FROM cadastro_geral_colaborador WHERE nome ILIKE :t OR id ILIKE :t ORDER BY nome ASC"
+                        resultados = conn.execute(text(sql_like), {"t": f"%{termo.strip()}%"}).fetchall()
                     
                     if not resultados:
                         st.warning("Nenhum registro encontrado para o critério informado.")
                     elif len(resultados) == 1:
+                        # Se encontrou exatamente um (ou pelo ID exato), abre a ficha na hora!
                         st.session_state['busca_selecionada_id'] = str(resultados[0].id)
+                        st.rerun() # Força o recarregamento imediato para exibir a ficha
                     else:
                         st.info("Múltiplos registros encontrados. Selecione o colaborador desejado abaixo:")
                         opcoes_lista = {f"ID: {r.id} | Nome: {r.nome}": str(r.id) for r in resultados}
