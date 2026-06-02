@@ -380,7 +380,8 @@ elif menu == "🛠️ Gestão de Cadastros":
                 with engine.connect() as conn:
                     colab = conn.execute(text("SELECT * FROM cadastro_geral_colaborador WHERE id = :id"), {"id": str(colab_id)}).fetchone()
                     df_fin = pd.read_sql(text("SELECT * FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), conn, params={"id": str(colab_id)})
-                    # ATENÇÃO: Agora puxamos o ID do lançamento também para poder editar depois
+                    fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None # <-- A LINHA PERDIDA FOI RECUPERADA!
+                    
                     df_hist = pd.read_sql(text("SELECT id as id_lancamento, competencia, tipo_lancamento, valor_lancamento, status_pagamento, retroativo_pago, data_pagamento FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
                     df_evo_salarial = pd.read_sql(text("SELECT data_alteracao, motivo, salario_anterior, novo_salario FROM historico_salarial WHERE id_colaborador = :id ORDER BY data_alteracao DESC, id DESC"), conn, params={"id": str(colab_id)})
                 
@@ -488,13 +489,11 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.info("Nenhum histórico financeiro ou de premiações registrado.")
                     st.markdown('</div>', unsafe_allow_html=True)
 
-                    # --- NOVA BARRA DE BOTÕES CLARIFICADA ---
                     if st.session_state['status_acao'] is None:
                         col_b1, col_b2, col_b3, col_b4, col_b5 = st.columns([1.2, 1.2, 1.2, 1.2, 1])
                         if col_b1.button("✏️ Editar Cadastro"):
                             st.session_state['status_acao'] = 'solicitou_alterar'
                             st.rerun()
-                        # NOVO BOTÃO DE CORREÇÃO DE HISTÓRICO
                         if col_b2.button("🛠️ Corrigir Histórico"):
                             st.session_state['status_acao'] = 'solicitou_corrigir_historico'
                             st.rerun()
@@ -509,7 +508,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.session_state['status_acao'] = None
                             st.rerun()
 
-                    # --- PAINEL: EXCLUIR ---
                     if st.session_state['status_acao'] == 'solicitou_excluir':
                         st.warning(f"⚠️ **Deseja realmente excluir o colaborador {colab.nome} (ID: {colab.id})?**")
                         col_conf1, col_conf2 = st.columns(2)
@@ -527,7 +525,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.session_state['status_acao'] = None
                             st.rerun()
 
-                    # --- NOVO PAINEL: CORREÇÃO DE HISTÓRICO MANUAL ---
                     if st.session_state['status_acao'] == 'solicitou_corrigir_historico':
                         st.info("🛠️ **Editor de Histórico:** Use esta ferramenta para corrigir valores incorretos que vieram da planilha ou apagar meses fantasmas.")
                         
@@ -537,7 +534,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 st.session_state['status_acao'] = None
                                 st.rerun()
                         else:
-                            # Cria uma lista bonita para o usuário escolher qual mês quer editar
                             opcoes_hist = {f"Competência: {row['competencia']} | Tipo: {row['tipo_lancamento']} | Valor Atual: R$ {row['valor_lancamento']}": row['id_lancamento'] for _, row in df_hist.iterrows()}
                             
                             st.markdown("<p class='field-label'>1. Selecione a linha do histórico com erro:</p>", unsafe_allow_html=True)
@@ -581,7 +577,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 st.session_state['status_acao'] = None
                                 st.rerun()
 
-                    # --- PAINEL: AUDITORIA OFICIAL (GERAR HISTÓRICO NOVO) ---
                     if st.session_state['status_acao'] == 'solicitou_alteracao_salarial':
                         st.info("📈 Modo de Alteração Salarial (Auditoria Ativa)")
                         col_as1, col_as2 = st.columns(2)
@@ -635,7 +630,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.session_state['status_acao'] = None
                             st.rerun()
 
-                    # --- PAINEL: EDIÇÃO DE CADASTRO COM SANITIZAÇÃO DE DADOS ---
                     if st.session_state['status_acao'] == 'solicitou_alterar':
                         st.info("📝 Modo de Edição Ativo - Utilize para corrigir dados mestres (Nome, Cargo, CPF, Salário Base).")
                         col_e1, col_e2 = st.columns(2)
