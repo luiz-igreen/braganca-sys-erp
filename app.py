@@ -198,7 +198,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     df_fin = pd.read_sql(text("SELECT * FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), conn, params={"id": str(colab_id)})
                     fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None
                     
-                    # 3. Busca Histórico (ORDENANDO POR ID DESC PARA EVITAR ERRO DE NOME DE COLUNA)
+                    # 3. Busca Histórico
                     df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
                 
                 if colab:
@@ -323,8 +323,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     conn.execute(text("""
                                         UPDATE cadastro_geral_colaborador 
                                         SET nome = :n, cpf = :c, cargo = :ca, admissao = :ad, demissao = :de,
-                                            salario_mes_12_24 = :sm, salario_hora = :sh, chave_pix = :pix,
-                                            atualizado_em = CURRENT_TIMESTAMP
+                                            salario_mes_12_24 = :sm, salario_hora = :sh, chave_pix = :pix
                                         WHERE id = :id
                                     """), {
                                         "n": edit_nome, 
