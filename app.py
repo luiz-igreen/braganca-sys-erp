@@ -103,7 +103,7 @@ elif menu == "📥 Importação Inteligente":
     
     aba_imp1, aba_imp2 = st.tabs(["📋 Carga Base (Cadastros)", "💰 Motor ETL (Histórico Salarial)"])
     
-    # === SUB-ABA 1: CADASTRO GERAL (BLINDADA) ===
+    # === SUB-ABA 1: CADASTRO GERAL ===
     with aba_imp1:
         st.subheader("Importação de Cadastros Novos")
         arquivo = st.file_uploader("Selecione o arquivo de migração de colaboradores (.xlsx, .csv)", type=["xlsx", "csv"])
@@ -148,7 +148,7 @@ elif menu == "📥 Importação Inteligente":
                             
                 st.success("Ingestão de dados de cadastro executada com sucesso!")
             except Exception as e:
-                st.error(f"Erro Crítico no mapeamento das colunas: {e}. Certifique-se de que é a planilha de Cadastros Base.")
+                st.error(f"Erro Crítico no mapeamento das colunas: {e}")
 
     # === SUB-ABA 2: O MOTOR DE HISTÓRICO SALARIAL E AUTO-RECUPERAÇÃO ===
     with aba_imp2:
@@ -156,6 +156,18 @@ elif menu == "📥 Importação Inteligente":
         st.markdown("""
         O sistema lerá os meses na planilha, aplicará a **Barreira de 12/2024** + **Janela de Admissão/Demissão** e irá **Recuperar Automaticamente** qualquer colaborador excluído por engano.
         """)
+        
+        # --- BOTÃO DE FAXINA DIRETO NO SISTEMA ---
+        st.markdown('<div style="background-color: rgba(220, 38, 38, 0.2); border: 1px solid #dc2626; padding: 15px; border-radius: 8px; margin-bottom: 20px;">', unsafe_allow_html=True)
+        st.markdown("⚠️ **Ferramenta de Correção:** Utilize este botão para apagar todos os lançamentos antigos de Setembro, Outubro e Novembro de 2024 que entraram por engano no banco.")
+        if st.button("🚨 APAGAR DEFINITIVAMENTE OS MESES 09, 10 e 11"):
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE competencia IN ('09/2024', '10/2024', '11/2024')"))
+                st.success("Faxina concluída! Verifique o cadastro, os meses antigos desapareceram.")
+            except Exception as e:
+                st.error(f"Erro ao limpar: {e}")
+        st.markdown('</div>', unsafe_allow_html=True)
         
         arquivo_hist = st.file_uploader("Selecione a matriz salarial (.xlsx)", type=["xlsx"], key="file_hist")
         
@@ -204,7 +216,7 @@ elif menu == "📥 Importação Inteligente":
                     coluna_nome = next((col for col in df_excel.columns if str(col).strip().upper() == 'NOME'), None)
 
                     if not coluna_nome:
-                        st.error("Erro: A planilha enviada não possui uma coluna com o título 'Nome'. Verifique se é a planilha correta.")
+                        st.error("Erro: A planilha enviada não possui uma coluna com o título 'Nome'.")
                     else:
                         for _, row in df_excel.iterrows():
                             nome_xls = str(row[coluna_nome]).strip().upper()
@@ -290,11 +302,11 @@ elif menu == "📥 Importação Inteligente":
                                         """), item)
                             
                             st.success(f"✅ Ingestão Concluída! Lidos {linhas_processadas} colaboradores.")
-                            st.info(f"💾 Foram injetados {len(inserts_pendentes)} registros de histórico salarial no banco de dados.")
+                            st.info(f"💾 Foram injetados {len(inserts_pendentes)} registros de histórico salarial.")
                             if recuperados_ia > 0:
-                                st.warning(f"🤖 **Auto-Recuperação IA:** {recuperados_ia} colaborador(es) que não estavam no banco foram detectados e recadastrados automaticamente (IDs sequenciais).")
+                                st.warning(f"🤖 **Auto-Recuperação IA:** {recuperados_ia} recadastrados automaticamente.")
                         else:
-                            st.warning("Aviso: A planilha foi lida, mas nenhum registro novo foi inserido.")
+                            st.warning("Aviso: Nenhum registro novo importado.")
 
                 except Exception as e:
                     st.error(f"Falha Operacional no Motor ETL: {e}")
@@ -416,8 +428,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                             'data_pagamento': 'Data Pagamento'
                         }
                         df_view.rename(columns=mapa_colunas, inplace=True)
-                        
-                        # --- SOLUÇÃO: ESCONDENDO O ÍNDICE DA TABELA HISTÓRICA ---
                         st.dataframe(df_view, use_container_width=True, hide_index=True)
                     else:
                         st.info("Nenhum histórico financeiro ou de premiações registrado.")
