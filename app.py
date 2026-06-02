@@ -4,6 +4,7 @@ from sqlalchemy import create_engine, text
 import re
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
+import streamlit.components.v1 as components
 
 # --- CONFIGURAÇÃO INICIAL DA APLICAÇÃO ---
 st.set_page_config(page_title="BRAGANÇA SYS", page_icon="🏗️", layout="wide")
@@ -71,44 +72,48 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- BLINDAGEM CONTRA AUTOFILL E NAVEGAÇÃO DESKTOP (ENTER = TAB) ---
-st.markdown("""
-<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" onload="(function(){
-    setInterval(function(){
-        document.querySelectorAll('input').forEach(function(el){
-            el.setAttribute('autocomplete', 'new-password');
-            el.setAttribute('autofill', 'off');
-            if (!el.hasAttribute('data-name-set')) {
-                el.setAttribute('name', 'input_' + Math.random().toString(36).substring(7));
-                el.setAttribute('data-name-set', 'true');
-            }
-        });
-    }, 150);
+# --- INJEÇÃO DE JAVASCRIPT PROFISSIONAL (AUTOFILL + ENTER = TAB) ---
+components.html("""
+<script>
+const doc = window.parent.document;
 
-    if (!window.EnterToTabInjected) {
-        window.EnterToTabInjected = true;
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
-                if (e.target.hasAttribute('aria-controls') || e.target.hasAttribute('aria-expanded')) {
-                    return; 
-                }
-                
-                e.preventDefault();
-                e.stopPropagation();
-                
-                var selectors = 'input:not([disabled]):not([type=\"hidden\"]), button:not([disabled])';
-                var focusable = Array.from(document.querySelectorAll(selectors));
-                focusable = focusable.filter(el => el.offsetWidth > 0 || el.offsetHeight > 0);
-                var index = focusable.indexOf(e.target);
-                
-                if (index > -1 && index < focusable.length - 1) {
-                    focusable[index + 1].focus();
-                }
+// 1. Blindagem de Autofill
+setInterval(function(){
+    doc.querySelectorAll('input').forEach(function(el){
+        el.setAttribute('autocomplete', 'new-password');
+        el.setAttribute('autofill', 'off');
+        if (!el.hasAttribute('data-name-set')) {
+            el.setAttribute('name', 'input_' + Math.random().toString(36).substring(7));
+            el.setAttribute('data-name-set', 'true');
+        }
+    });
+}, 150);
+
+// 2. Navegação Desktop (Enter = Tab)
+if (!window.parent.EnterToTabInjected) {
+    window.parent.EnterToTabInjected = true;
+    doc.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+            // Ignora o Enter se for uma lista suspensa aberta
+            if (e.target.hasAttribute('aria-controls') || e.target.hasAttribute('aria-expanded')) {
+                return; 
             }
-        }, true); 
-    }
-})()" style="display:none;">
-""", unsafe_allow_html=True)
+            e.preventDefault();
+            e.stopPropagation();
+            
+            var selectors = 'input:not([disabled]):not([type="hidden"]), button:not([disabled])';
+            var focusable = Array.from(doc.querySelectorAll(selectors));
+            focusable = focusable.filter(el => el.offsetWidth > 0 || el.offsetHeight > 0);
+            var index = focusable.indexOf(e.target);
+            
+            if (index > -1 && index < focusable.length - 1) {
+                focusable[index + 1].focus();
+            }
+        }
+    }, true); 
+}
+</script>
+""", height=0, width=0)
 
 # --- LISTA PADRÃO DE CARGOS (CCT) ---
 LISTA_CARGOS = [
