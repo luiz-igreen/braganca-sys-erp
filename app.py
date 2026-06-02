@@ -385,26 +385,30 @@ elif menu == "🛠️ Gestão de Cadastros":
                     df_evo_salarial = pd.read_sql(text("SELECT data_alteracao, motivo, salario_anterior, novo_salario FROM historico_salarial WHERE id_colaborador = :id ORDER BY data_alteracao DESC, id DESC"), conn, params={"id": str(colab_id)})
                 
                 if colab:
-                    # --- LÓGICA DE EXIBIÇÃO CORRIGIDA ---
                     salario_mes_display = "Não Informado"
                     salario_hora_display = "Não Informado"
                     val_atual_base = 0.0
                     
-                    # 1º: O sistema prioriza sempre o valor que está gravado na ficha mestra (permitindo correções manuais)
-                    if colab.salario_mes_12_24 and str(colab.salario_mes_12_24).strip() != "":
+                    # 1º LÓGICA DE EXIBIÇÃO BLINDADA (Lê perfeitamente com pontos e vírgulas)
+                    if colab.salario_mes_12_24 and str(colab.salario_mes_12_24).strip() != "" and str(colab.salario_mes_12_24).strip().lower() != "none":
                         try:
-                            # Se for um número válido, calcula a hora e formata
-                            val_m = float(str(colab.salario_mes_12_24).replace(',', '.'))
+                            s_val = str(colab.salario_mes_12_24).upper().replace('R$', '').strip()
+                            if '.' in s_val and ',' in s_val:
+                                s_val = s_val.replace('.', '').replace(',', '.')
+                            elif ',' in s_val:
+                                s_val = s_val.replace(',', '.')
+                            
+                            val_m = float(s_val)
                             val_h = val_m / 220.0
                             val_atual_base = val_m
                             salario_mes_display = f"R$ {val_m:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
                             salario_hora_display = f"R$ {val_h:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
                         except:
-                            # Se for um texto ("R$ 1.500,00" direto do Excel antigo), exibe como está
                             salario_mes_display = str(colab.salario_mes_12_24)
                             salario_hora_display = str(colab.salario_hora) if colab.salario_hora else "Não Informado"
+                            val_atual_base = -1.0 # Trava de Segurança para NÃO puxar o Histórico!
                     
-                    # 2º: Se a ficha mestra estiver vazia, ele busca no histórico (ETL)
+                    # 2º SÓ puxa o histórico se a ficha mestra estiver completamente VAZIA (0.0)
                     if val_atual_base == 0.0 and not df_hist.empty:
                         df_sal = df_hist[df_hist['tipo_lancamento'].str.contains('Salário', na=False, case=False)]
                         if not df_sal.empty:
@@ -519,7 +523,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.session_state['status_acao'] = None
                             st.rerun()
 
-                    # --- PAINEL: AUDITORIA (GERAR HISTÓRICO NOVO) ---
+                    # --- PAINEL: AUDITORIA OFICIAL (GERAR HISTÓRICO NOVO) ---
                     if st.session_state['status_acao'] == 'solicitou_alteracao_salarial':
                         st.info("📈 Modo de Alteração Salarial (Auditoria Ativa)")
                         col_as1, col_as2 = st.columns(2)
@@ -573,22 +577,20 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.session_state['status_acao'] = None
                             st.rerun()
 
-                    # --- PAINEL: EDIÇÃO BÁSICA (CORREÇÃO SILENCIOSA DE TYPOS) ---
+                    # --- PAINEL: EDIÇÃO DE CADASTRO COM SANITIZAÇÃO DE DADOS ---
                     if st.session_state['status_acao'] == 'solicitou_alterar':
-                        st.info("📝 Modo de Edição Ativo - Utilize para correção de erros de digitação.")
+                        st.info("📝 Modo de Edição Ativo - Utilize para corrigir erros de digitação (sem gerar histórico)")
                         col_e1, col_e2 = st.columns(2)
                         with col_e1:
                             edit_nome = st.text_input("Nome Completo", value=str(colab.nome), key="k_enome")
                             st.markdown('<label class="fake-label">Inscrição Cadastral Individual</label>', unsafe_allow_html=True)
                             edit_cpf = st.text_input(" ", value=str(colab.cpf) if colab.cpf else "", placeholder="Apenas dígitos", key="k_ecpf")
                             edit_adm = st.text_input("Data Admissão (AAAA-MM-DD)", value=str(colab.admissao) if colab.admissao else "", key="k_eadm")
-                            # CAMPO DE VOLTA!
-                            edit_sal_mes = st.text_input("Correção: Salário-Mês Base (Use Ponto)", value=str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "", key="k_esal_mes")
+                            edit_sal_mes = st.text_input("Correção: Salário-Mês Base (Use Ponto ou Vírgula)", value=str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "", key="k_esal_mes")
                         with col_e2:
                             edit_cargo = st.text_input("Cargo", value=str(colab.cargo) if colab.cargo else "", key="k_ecargo")
                             edit_dem = st.text_input("Data Demissão (AAAA-MM-DD)", value=str(colab.demissao) if colab.demissao else "", key="k_edem")
                             edit_pix = st.text_input("Chave PIX Principal", value=str(colab.chave_pix) if colab.chave_pix else "", key="k_epix")
-                            # CAMPO DE VOLTA!
                             edit_sal_hora = st.text_input("Correção: Salário-Hora Base", value=str(colab.salario_hora) if colab.salario_hora else "", key="k_esal_hora")
                         
                         st.markdown("<br>", unsafe_allow_html=True)
@@ -596,6 +598,19 @@ elif menu == "🛠️ Gestão de Cadastros":
                             if not edit_nome.strip():
                                 st.error("O nome do colaborador não pode ficar vazio.")
                             else:
+                                # Função de sanitização antes de gravar no banco de dados
+                                def clean_money_to_db(val):
+                                    if not val or str(val).strip() == "" or str(val).strip().lower() == "none": return None
+                                    s = str(val).upper().replace('R$', '').strip()
+                                    if '.' in s and ',' in s:
+                                        s = s.replace('.', '').replace(',', '.')
+                                    elif ',' in s:
+                                        s = s.replace(',', '.')
+                                    try:
+                                        return str(float(s))
+                                    except:
+                                        return str(val)
+
                                 with engine.begin() as conn:
                                     conn.execute(text("""
                                         UPDATE cadastro_geral_colaborador 
@@ -609,8 +624,8 @@ elif menu == "🛠️ Gestão de Cadastros":
                                         "ad": edit_adm if edit_adm.strip() else None, 
                                         "de": edit_dem if edit_dem.strip() else None, 
                                         "pix": edit_pix if edit_pix.strip() else None,
-                                        "sm": edit_sal_mes if edit_sal_mes.strip() else None,
-                                        "sh": edit_sal_hora if edit_sal_hora.strip() else None,
+                                        "sm": clean_money_to_db(edit_sal_mes),
+                                        "sh": clean_money_to_db(edit_sal_hora),
                                         "id": str(colab_id)
                                     })
                                 st.success("Ficha Mestra corrigida com sucesso! A alteração será refletida no painel.")
@@ -756,4 +771,4 @@ elif menu == "🔎 Auditoria CCT (IA)":
                 st.dataframe(df_view, use_container_width=True, hide_index=True)
                 
             except Exception as e:
-                st.error(f"Erro durante a auditoria: {e}")    
+                st.error(f"Erro durante a auditoria: {e}")
