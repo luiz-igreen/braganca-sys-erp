@@ -958,4 +958,4 @@ elif menu == "🔎 Auditoria CCT (IA)":
                 st.dataframe(df_view, use_container_width=True, hide_index=True)
                 
             except Exception as e:
-                st.error(f"Erro durante a auditoria: {e}")
+                st.error(f"Erro durante a auditoria: {e}")    
