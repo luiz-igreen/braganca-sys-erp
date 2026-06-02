@@ -8,10 +8,12 @@ st.set_page_config(page_title="BRAGANÇA SYS", page_icon="🏗️", layout="wide
 # Conexão segura com o Banco de Dados
 engine = create_engine(st.secrets["DATABASE_URL"])
 
-# --- MOTOR DE MIGRAÇÃO AUTOMÁTICA (PREVINE ERRO DE COLUNA E TABELA INEXISTENTE) ---
+# --- MOTOR DE MIGRAÇÃO AUTOMÁTICA DE FORÇA BRUTA (AUTOCOMMIT) ---
 try:
-    with engine.begin() as conn:
-        # Criar as tabelas novas automaticamente se não existirem no banco ativo
+    # O nível de isolamento AUTOCOMMIT obriga o PostgreSQL a aceitar alterações estruturais (DDL) sem dar rollback
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        
+        # 1. Forçar Criação de Novas Tabelas
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS cadastro_financeiro_colaborador (
                 id SERIAL PRIMARY KEY,
@@ -24,6 +26,7 @@ try:
                 atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """))
+        
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS historico_premiacoes_e_folha (
                 id SERIAL PRIMARY KEY,
@@ -39,11 +42,13 @@ try:
                 registrado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """))
-        # Adicionar colunas salariais caso a tabela antiga não as tenha
+        
+        # 2. Forçar Injeção de Colunas Faltantes na Tabela Principal
         conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS salario_mes_12_24 TEXT;"))
         conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS salario_hora TEXT;"))
+
 except Exception as e:
-    pass  # Ignora silenciosamente se o banco já estiver perfeitamente configurado
+    st.error(f"⚠️ Alerta do Motor de Banco de Dados: {e}")
 
 # --- ESTILIZAÇÃO VISUAL AVANÇADA (DARK PREMIUM GLASSMORPHISM) ---
 st.markdown("""
