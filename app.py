@@ -157,14 +157,16 @@ elif menu == "📥 Importação Inteligente":
         O sistema lerá os meses na planilha, aplicará a **Barreira de 12/2024** + **Janela de Admissão/Demissão** e irá **Recuperar Automaticamente** qualquer colaborador excluído por engano.
         """)
         
-        # --- BOTÃO DE FAXINA DIRETO NO SISTEMA ---
+        # --- BOTÃO NUCLEAR (LIMPEZA TOTAL DO BANCO DE HISTÓRICO) ---
         st.markdown('<div style="background-color: rgba(220, 38, 38, 0.2); border: 1px solid #dc2626; padding: 15px; border-radius: 8px; margin-bottom: 20px;">', unsafe_allow_html=True)
-        st.markdown("⚠️ **Ferramenta de Correção:** Utilize este botão para apagar todos os lançamentos antigos de Setembro, Outubro e Novembro de 2024 que entraram por engano no banco.")
-        if st.button("🚨 APAGAR DEFINITIVAMENTE OS MESES 09, 10 e 11"):
+        st.markdown("⚠️ **OPÇÃO NUCLEAR:** Este botão vai **ZERAR** completamente a tabela de histórico de salários do banco de dados para podermos começar do zero e sem erros.")
+        
+        if st.button("🧨 ESVAZIAR TODO O HISTÓRICO DO BANCO", type="primary"):
             try:
                 with engine.begin() as conn:
-                    conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE competencia IN ('09/2024', '10/2024', '11/2024')"))
-                st.success("Faxina concluída! Verifique o cadastro, os meses antigos desapareceram.")
+                    # O comando TRUNCATE apaga tudo de forma implacável e reinicia os IDs
+                    conn.execute(text("TRUNCATE TABLE historico_premiacoes_e_folha RESTART IDENTITY"))
+                st.success("💥 BANCO DE HISTÓRICO ZERADO COM SUCESSO! Pode consultar qualquer ficha, os pagamentos sumiram. Faça a importação da planilha novamente.")
             except Exception as e:
                 st.error(f"Erro ao limpar: {e}")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -422,147 +424,4 @@ elif menu == "🛠️ Gestão de Cadastros":
                         mapa_colunas = {
                             'competencia': 'Competência',
                             'tipo_lancamento': 'Tipo',
-                            'valor_lancamento': 'Valor (R$)',
-                            'status_pagamento': 'Status',
-                            'retroativo_pago': 'Foi Retroativo?',
-                            'data_pagamento': 'Data Pagamento'
-                        }
-                        df_view.rename(columns=mapa_colunas, inplace=True)
-                        st.dataframe(df_view, use_container_width=True, hide_index=True)
-                    else:
-                        st.info("Nenhum histórico financeiro ou de premiações registrado.")
-                    st.markdown('</div>', unsafe_allow_html=True)
-
-                    if st.session_state['status_acao'] is None:
-                        col_b1, col_b2, col_b3 = st.columns([1, 1, 2])
-                        if col_b1.button("✏️ Alterar Cadastro"):
-                            st.session_state['status_acao'] = 'solicitou_alterar'
-                            st.rerun()
-                        if col_b2.button("❌ Excluir Colaborador"):
-                            st.session_state['status_acao'] = 'solicitou_excluir'
-                            st.rerun()
-                        if col_b3.button("🧹 Limpar Consulta"):
-                            st.session_state['busca_selecionada_id'] = None
-                            st.session_state['status_acao'] = None
-                            st.rerun()
-
-                    if st.session_state['status_acao'] == 'solicitou_excluir':
-                        st.warning(f"⚠️ **Deseja realmente excluir o colaborador {colab.nome} (ID: {colab.id})?**")
-                        col_conf1, col_conf2 = st.columns(2)
-                        if col_conf1.button("🔥 Sim, Quero Excluir", key="btn_conf_del"):
-                            with engine.begin() as conn:
-                                conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador = :id"), {"id": str(colab_id)})
-                                conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": str(colab_id)})
-                                conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": str(colab_id)})
-                            st.success("Registro excluído permanentemente de todas as bases.")
-                            st.session_state['busca_selecionada_id'] = None
-                            st.session_state['status_acao'] = None
-                            st.rerun()
-                        if col_conf2.button("Voltar / Cancelar", key="btn_canc_del"):
-                            st.session_state['status_acao'] = None
-                            st.rerun()
-
-                    if st.session_state['status_acao'] == 'solicitou_alterar':
-                        st.info("📝 Modo de Edição Ativo")
-                        
-                        col_e1, col_e2 = st.columns(2)
-                        with col_e1:
-                            edit_nome = st.text_input("Nome Completo", value=str(colab.nome), key="k_enome")
-                            st.markdown('<label class="fake-label">Inscrição Cadastral Individual</label>', unsafe_allow_html=True)
-                            edit_cpf = st.text_input(" ", value=str(colab.cpf) if colab.cpf else "", placeholder="Apenas dígitos", key="k_ecpf")
-                            edit_adm = st.text_input("Data Admissão (AAAA-MM-DD)", value=str(colab.admissao) if colab.admissao else "", key="k_eadm")
-                            edit_sal_mes = st.text_input("Salário-Mês Atual", value=str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "", key="k_esal_mes")
-                        with col_e2:
-                            edit_cargo = st.text_input("Cargo", value=str(colab.cargo) if colab.cargo else "", key="k_ecargo")
-                            edit_dem = st.text_input("Data Demissão (AAAA-MM-DD)", value=str(colab.demissao) if colab.demissao else "", key="k_edem")
-                            edit_pix = st.text_input("Chave PIX Principal", value=str(colab.chave_pix) if colab.chave_pix else "", key="k_epix")
-                            edit_sal_hora = st.text_input("Salário-Hora Atual", value=str(colab.salario_hora) if colab.salario_hora else "", key="k_esal_hora")
-                        
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        if st.button("Confirmar e Salvar Alterações", key="k_ebtn_salvar"):
-                            if not edit_nome.strip():
-                                st.error("O nome do colaborador não pode ficar vazio.")
-                            else:
-                                with engine.begin() as conn:
-                                    conn.execute(text("""
-                                        UPDATE cadastro_geral_colaborador 
-                                        SET nome = :n, cpf = :c, cargo = :ca, admissao = :ad, demissao = :de,
-                                            salario_mes_12_24 = :sm, salario_hora = :sh, chave_pix = :pix
-                                        WHERE id = :id
-                                    """), {
-                                        "n": edit_nome, 
-                                        "c": edit_cpf if edit_cpf.strip() else None,
-                                        "ca": edit_cargo if edit_cargo.strip() else None,
-                                        "ad": edit_adm if edit_adm.strip() else None,
-                                        "de": edit_dem if edit_dem.strip() else None,
-                                        "sm": edit_sal_mes if edit_sal_mes.strip() else None,
-                                        "sh": edit_sal_hora if edit_sal_hora.strip() else None,
-                                        "pix": edit_pix if edit_pix.strip() else None,
-                                        "id": str(colab_id)
-                                    })
-                                st.success("Alterações gravadas com sucesso!")
-                                st.session_state['status_acao'] = None
-                                st.rerun()
-                        
-                        if st.button("Abandonar Edição", key="k_ebtn_abandonar"):
-                            st.session_state['status_acao'] = None
-                            st.rerun()
-            except Exception as e:
-                st.error(f"Falha operacional de leitura/escrita no banco: {e}")
-
-    elif sub_menu == "➕ Novo Cadastro":
-        col_tit, col_can = st.columns([3, 1])
-        with col_tit:
-            st.subheader("Inserir Novo Colaborador")
-        with col_can:
-            if st.button("⬅️ Cancelar e Voltar", use_container_width=True, key="k_btn_canc_voltar"):
-                st.session_state['redirect_to_consulta'] = True
-                st.rerun()
-        
-        st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
-        col_nc1, col_nc2 = st.columns(2)
-        
-        with col_nc1:
-            n_id = st.text_input("Código ID / Matrícula (Ex: M0001 ou 1025)", key="k_nc_id")
-            st.markdown('<label class="fake-label">Inscrição Cadastral Individual</label>', unsafe_allow_html=True)
-            n_cpf = st.text_input(" ", placeholder="Digite apenas os 11 números", key="k_nc_cpf")
-            n_admissao = st.text_input("Data de Admissão (Formatada AAAA-MM-DD)", key="k_nc_adm")
-            n_sal_mes = st.text_input("Salário-Mês Atual", key="k_nc_sal_mes")
-            
-        with col_nc2:
-            n_nome = st.text_input("Nome Completo", key="k_nc_nome")
-            n_cargo = st.text_input("Cargo Ocupado", key="k_nc_cargo")
-            n_demissao = st.text_input("Data de Demissão (Opcional - AAAA-MM-DD)", key="k_nc_dem")
-            n_pix = st.text_input("Chave PIX", key="k_nc_pix")
-            n_sal_hora = st.text_input("Salário-Hora Atual", key="k_nc_sal_hora")
-            
-        st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        submetido = st.button("💾 Salvar Registro no Sistema", key="k_nc_btn_salvar")
-        if submetido:
-            if not n_id.strip() or not n_nome.strip():
-                st.error("⚠️ Os campos 'ID / Matrícula' e 'Nome Completo' são obrigatórios.")
-            else:
-                try:
-                    with engine.begin() as conn: 
-                        conn.execute(text("""
-                            INSERT INTO cadastro_geral_colaborador 
-                            (id, nome, cpf, cargo, admissao, demissao, salario_mes_12_24, salario_hora, chave_pix) 
-                            VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :sm, :sh, :pix)
-                        """), {
-                            "id": str(n_id), 
-                            "nome": str(n_nome),
-                            "cpf": str(n_cpf) if n_cpf.strip() else None,
-                            "cargo": str(n_cargo) if n_cargo.strip() else None,
-                            "admissao": str(n_admissao) if n_admissao.strip() else None,
-                            "demissao": str(n_demissao) if n_demissao.strip() else None,
-                            "sm": str(n_sal_mes) if n_sal_mes.strip() else None,
-                            "sh": str(n_sal_hora) if n_sal_hora.strip() else None,
-                            "pix": str(n_pix) if n_pix.strip() else None
-                        })
-                    st.success(f"Colaborador {n_nome} inserido com sucesso!")
-                    st.session_state['redirect_to_consulta'] = True
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro de Integridade: Verifique se o ID digitado já pertence a outro cadastro. Detalhes: {e}")    
+                            'valor
