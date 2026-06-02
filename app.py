@@ -93,7 +93,7 @@ if menu == "👥 Visão Geral":
             FROM cadastro_geral_colaborador 
             ORDER BY nome ASC
         """, engine)
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df, use_container_width=True, hide_index=True)
     except Exception as e:
         st.error(f"Erro ao carregar dados do painel: {e}")
 
@@ -117,11 +117,10 @@ elif menu == "📥 Importação Inteligente":
                 
                 with engine.begin() as conn:
                     for _, row in df_bruto.iterrows():
-                        # Uso de iloc com try/except blinda o sistema contra KeyErrors e falta de colunas
                         try:
                             v_id = str(row.iloc[0]) if len(row) > 0 else None
                             if not v_id or v_id == 'nan':
-                                continue # Pula linhas vazias
+                                continue 
                                 
                             conn.execute(text("""
                                 INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, salario_mes_12_24, salario_hora) 
@@ -155,7 +154,7 @@ elif menu == "📥 Importação Inteligente":
     with aba_imp2:
         st.subheader("Extração Inteligente de Matriz Salarial")
         st.markdown("""
-        O sistema lerá os meses na planilha, aplicará a **Janela de Admissão/Demissão** e irá **Recuperar/Criar Automaticamente** qualquer colaborador excluído por engano.
+        O sistema lerá os meses na planilha, aplicará a **Barreira de 12/2024** + **Janela de Admissão/Demissão** e irá **Recuperar Automaticamente** qualquer colaborador excluído por engano.
         """)
         
         arquivo_hist = st.file_uploader("Selecione a matriz salarial (.xlsx)", type=["xlsx"], key="file_hist")
@@ -165,7 +164,6 @@ elif menu == "📥 Importação Inteligente":
                 try:
                     df_excel = pd.read_excel(arquivo_hist, engine='openpyxl')
                     
-                    # 1. Puxar dados base para Match e pegar o Maior ID numérico para sequência
                     with engine.connect() as conn:
                         db_cols = conn.execute(text("SELECT id, nome, admissao, demissao FROM cadastro_geral_colaborador")).fetchall()
                     
@@ -208,13 +206,11 @@ elif menu == "📥 Importação Inteligente":
                     if not coluna_nome:
                         st.error("Erro: A planilha enviada não possui uma coluna com o título 'Nome'. Verifique se é a planilha correta.")
                     else:
-                        # 2. Varrer Planilha
                         for _, row in df_excel.iterrows():
                             nome_xls = str(row[coluna_nome]).strip().upper()
                             if not nome_xls or nome_xls == 'NAN':
                                 continue
                                 
-                            # --- A MÁGICA DA AUTO-RECUPERAÇÃO ---
                             if nome_xls not in db_dict:
                                 novo_id = str(proximo_id_livre)
                                 proximo_id_livre += 1
@@ -247,13 +243,16 @@ elif menu == "📥 Importação Inteligente":
                                     if not dt_coluna:
                                         continue
                                         
-                                    # Janela Temporal
+                                    # --- BARREIRA GLOBAL: SÓ ACEITA DE 12/2024 EM DIANTE ---
+                                    if dt_coluna < pd.Timestamp(year=2024, month=12, day=1):
+                                        continue
+                                        
+                                    # --- JANELA TEMPORAL INDIVIDUAL ---
                                     if dt_adm and dt_coluna < dt_adm:
                                         continue
                                     if dt_dem and dt_coluna > dt_dem:
                                         continue
                                         
-                                    # Limpeza matemática
                                     try:
                                         if isinstance(val, str):
                                             val_limpo = val.upper().replace('R$', '').replace('.', '').replace(',', '.').strip()
@@ -273,7 +272,6 @@ elif menu == "📥 Importação Inteligente":
                                         })
                             linhas_processadas += 1
 
-                        # 3. Executar Ingestão Massiva
                         if inserts_pendentes:
                             with engine.begin() as conn:
                                 for item in inserts_pendentes:
@@ -296,7 +294,7 @@ elif menu == "📥 Importação Inteligente":
                             if recuperados_ia > 0:
                                 st.warning(f"🤖 **Auto-Recuperação IA:** {recuperados_ia} colaborador(es) que não estavam no banco foram detectados e recadastrados automaticamente (IDs sequenciais).")
                         else:
-                            st.warning("Aviso: A planilha foi lida, mas nenhum registro novo foi inserido (ou os meses não se encaixam nas datas de admissão, ou todos já estavam gravados).")
+                            st.warning("Aviso: A planilha foi lida, mas nenhum registro novo foi inserido.")
 
                 except Exception as e:
                     st.error(f"Falha Operacional no Motor ETL: {e}")
@@ -315,7 +313,6 @@ elif menu == "🛠️ Gestão de Cadastros":
     st.session_state['sub_menu_index'] = opcoes_sub.index(sub_menu)
     st.markdown("---")
 
-    # --- ABA: CONSULTAR, ALTERAR E EXCLUIR ---
     if sub_menu == "🔍 Consultar & Gerenciar":
         st.subheader("Consultar Ficha do Colaborador")
         
@@ -328,11 +325,9 @@ elif menu == "🛠️ Gestão de Cadastros":
             
             try:
                 with engine.connect() as conn:
-                    # 1. Tenta Busca Exata por ID primeiro
                     sql_exact = "SELECT * FROM cadastro_geral_colaborador WHERE id = :t"
                     resultados = conn.execute(text(sql_exact), {"t": str(termo).strip()}).fetchall()
                     
-                    # 2. Se não achar ID exato, busca por partes do nome ou da matrícula
                     if not resultados:
                         sql_like = "SELECT * FROM cadastro_geral_colaborador WHERE nome ILIKE :t OR id ILIKE :t ORDER BY nome ASC"
                         resultados = conn.execute(text(sql_like), {"t": f"%{termo.strip()}%"}).fetchall()
@@ -357,18 +352,12 @@ elif menu == "🛠️ Gestão de Cadastros":
             
             try:
                 with engine.connect() as conn:
-                    # 1. Busca Cadastro Geral
                     colab = conn.execute(text("SELECT * FROM cadastro_geral_colaborador WHERE id = :id"), {"id": str(colab_id)}).fetchone()
-                    
-                    # 2. Busca Dados Bancários
                     df_fin = pd.read_sql(text("SELECT * FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), conn, params={"id": str(colab_id)})
                     fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None
-                    
-                    # 3. Busca Histórico
                     df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
                 
                 if colab:
-                    # --- BLOCO 1: DADOS GERAIS ---
                     st.markdown("### 📋 Ficha Completa do Colaborador")
                     st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                     c1, c2, c3 = st.columns(3)
@@ -393,7 +382,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.markdown(f'<p class="field-value">{colab.demissao if colab.demissao else "Ativo / Em Aberto"}</p>', unsafe_allow_html=True)
                     st.markdown('</div>', unsafe_allow_html=True)
 
-                    # --- BLOCO 2: DADOS FINANCEIROS ---
                     st.markdown("### 🏦 Dados Bancários (PIX Principal)")
                     st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                     if fin_data or colab.chave_pix:
@@ -412,7 +400,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.info("Nenhum dado bancário ou PIX registrado para este colaborador. Utilize a edição para preencher.")
                     st.markdown('</div>', unsafe_allow_html=True)
 
-                    # --- BLOCO 3: HISTÓRICO DE PRÊMIOS ---
                     st.markdown("### 💰 Histórico Mensal de Prêmios e Ajustes (CCT)")
                     st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                     if not df_hist.empty:
@@ -429,12 +416,13 @@ elif menu == "🛠️ Gestão de Cadastros":
                             'data_pagamento': 'Data Pagamento'
                         }
                         df_view.rename(columns=mapa_colunas, inplace=True)
-                        st.dataframe(df_view, use_container_width=True)
+                        
+                        # --- SOLUÇÃO: ESCONDENDO O ÍNDICE DA TABELA HISTÓRICA ---
+                        st.dataframe(df_view, use_container_width=True, hide_index=True)
                     else:
                         st.info("Nenhum histórico financeiro ou de premiações registrado.")
                     st.markdown('</div>', unsafe_allow_html=True)
 
-                    # --- BOTÕES DE AÇÃO ---
                     if st.session_state['status_acao'] is None:
                         col_b1, col_b2, col_b3 = st.columns([1, 1, 2])
                         if col_b1.button("✏️ Alterar Cadastro"):
@@ -512,7 +500,6 @@ elif menu == "🛠️ Gestão de Cadastros":
             except Exception as e:
                 st.error(f"Falha operacional de leitura/escrita no banco: {e}")
 
-    # --- ABA: NOVO CADASTRO ---
     elif sub_menu == "➕ Novo Cadastro":
         col_tit, col_can = st.columns([3, 1])
         with col_tit:
