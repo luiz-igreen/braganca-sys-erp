@@ -8,48 +8,6 @@ st.set_page_config(page_title="BRAGANÇA SYS", page_icon="🏗️", layout="wide
 # Conexão segura com o Banco de Dados
 engine = create_engine(st.secrets["DATABASE_URL"])
 
-# --- MOTOR DE MIGRAÇÃO AUTOMÁTICA DE FORÇA BRUTA (AUTOCOMMIT) ---
-try:
-    # O nível de isolamento AUTOCOMMIT obriga o PostgreSQL a aceitar alterações estruturais (DDL) sem dar rollback
-    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        
-        # 1. Forçar Criação de Novas Tabelas
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS cadastro_financeiro_colaborador (
-                id SERIAL PRIMARY KEY,
-                id_colaborador INTEGER NOT NULL,
-                tipo_chave_pix VARCHAR(50),
-                chave_pix VARCHAR(255),
-                banco VARCHAR(100),
-                agencia VARCHAR(20),
-                conta VARCHAR(20),
-                atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """))
-        
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS historico_premiacoes_e_folha (
-                id SERIAL PRIMARY KEY,
-                id_colaborador INTEGER NOT NULL,
-                competencia VARCHAR(7) NOT NULL,
-                tipo_lancamento VARCHAR(50) NOT NULL,
-                valor_lancamento NUMERIC(10, 2) NOT NULL,
-                status_pagamento VARCHAR(30) DEFAULT 'Pendente',
-                data_pagamento DATE,
-                observacoes TEXT,
-                retroativo_pago BOOLEAN DEFAULT FALSE,
-                competencia_origem VARCHAR(7),
-                registrado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """))
-        
-        # 2. Forçar Injeção de Colunas Faltantes na Tabela Principal
-        conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS salario_mes_12_24 TEXT;"))
-        conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS salario_hora TEXT;"))
-
-except Exception as e:
-    st.error(f"⚠️ Alerta do Motor de Banco de Dados: {e}")
-
 # --- ESTILIZAÇÃO VISUAL AVANÇADA (DARK PREMIUM GLASSMORPHISM) ---
 st.markdown("""
 <style>
@@ -66,7 +24,6 @@ st.markdown("""
     .field-label { color: #94a3b8; font-size: 0.9rem; font-weight: bold; }
     .field-value { color: #f8fafc; font-size: 1.1rem; margin-bottom: 12px; background: rgba(15, 23, 42, 0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); }
     
-    /* Proteção Visual do Rótulo Customizado */
     .fake-label {
         color: #f8fafc;
         font-size: 0.85rem;
@@ -75,7 +32,6 @@ st.markdown("""
         display: block;
     }
 
-    /* Customização das Abas de Operação */
     div[data-testid="stRadio"] > div {
         flex-direction: row;
         gap: 10px;
@@ -96,7 +52,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- INJETOR DE BLOQUEIO DE AUTOFILL (BLINDAGEM CONTRA HEURÍSTICA DE CARTÕES) ---
+# --- BLINDAGEM CONTRA AUTOFILL ---
 st.markdown("""
 <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" onload="(function(){
     setInterval(function(){
@@ -119,7 +75,6 @@ if 'sub_menu_index' not in st.session_state:
 if 'redirect_to_consulta' not in st.session_state:
     st.session_state['redirect_to_consulta'] = False
 
-# Interceptador Inteligente de Redirecionamento 
 if st.session_state['redirect_to_consulta']:
     st.session_state['sub_menu_index'] = 0
     st.session_state['redirect_to_consulta'] = False
@@ -184,7 +139,6 @@ elif menu == "📥 Importação Inteligente":
 elif menu == "🛠️ Gestão de Cadastros":
     st.title("🛠️ Gestão de Cadastros")
     
-    # Roteamento seguro usando index para evitar StreamlitAPIException
     opcoes_sub = ["🔍 Consultar & Gerenciar", "➕ Novo Cadastro"]
     sub_menu = st.radio(
         label="Menu de Operações",
@@ -192,8 +146,6 @@ elif menu == "🛠️ Gestão de Cadastros":
         index=st.session_state['sub_menu_index'],
         label_visibility="collapsed"
     )
-    
-    # Sincroniza o estado caso o utilizador mude manualmente na UI
     st.session_state['sub_menu_index'] = opcoes_sub.index(sub_menu)
     st.markdown("---")
 
@@ -201,7 +153,7 @@ elif menu == "🛠️ Gestão de Cadastros":
     if sub_menu == "🔍 Consultar & Gerenciar":
         st.subheader("Consultar Ficha do Colaborador")
         
-        termo = st.text_input("Digite o ID exato ou parte do Nome:", key="k_term_busca")
+        termo = st.text_input("Digite o ID (Matrícula) ou parte do Nome:", key="k_term_busca")
         btn_buscar = st.button("Buscar Registro")
         
         if btn_buscar and termo:
@@ -210,12 +162,9 @@ elif menu == "🛠️ Gestão de Cadastros":
             
             try:
                 with engine.connect() as conn:
-                    if termo.isdigit():
-                        sql = "SELECT * FROM cadastro_geral_colaborador WHERE CAST(id AS TEXT) = :t"
-                        params = {"t": str(termo)}
-                    else:
-                        sql = "SELECT * FROM cadastro_geral_colaborador WHERE nome ILIKE :t ORDER BY nome ASC"
-                        params = {"t": f"%{termo}%"}
+                    # Como o ID agora é TEXT, podemos pesquisar de forma flexível
+                    sql = "SELECT * FROM cadastro_geral_colaborador WHERE id ILIKE :t OR nome ILIKE :t ORDER BY nome ASC"
+                    params = {"t": f"%{termo}%"}
                     
                     resultados = conn.execute(text(sql), params).fetchall()
                     
@@ -236,23 +185,17 @@ elif menu == "🛠️ Gestão de Cadastros":
         if st.session_state['busca_selecionada_id']:
             colab_id = st.session_state['busca_selecionada_id']
             
-            # Garantir conversão segura do ID para tabelas relacionais
-            try:
-                numeric_colab_id = int(colab_id)
-            except ValueError:
-                numeric_colab_id = -1
-            
             try:
                 with engine.connect() as conn:
                     # 1. Busca Cadastro Geral
-                    colab = conn.execute(text("SELECT * FROM cadastro_geral_colaborador WHERE CAST(id AS TEXT) = :id"), {"id": str(colab_id)}).fetchone()
+                    colab = conn.execute(text("SELECT * FROM cadastro_geral_colaborador WHERE id = :id"), {"id": str(colab_id)}).fetchone()
                     
-                    # 2. Busca Dados Bancários via Pandas (Proteção Anti-Erro de Tupla)
-                    df_fin = pd.read_sql(text("SELECT * FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), conn, params={"id": numeric_colab_id})
+                    # 2. Busca Dados Bancários
+                    df_fin = pd.read_sql(text("SELECT * FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), conn, params={"id": str(colab_id)})
                     fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None
                     
-                    # 3. Busca Histórico via Pandas (Proteção Anti-KeyError)
-                    df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY registrado_em DESC"), conn, params={"id": numeric_colab_id})
+                    # 3. Busca Histórico
+                    df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY atualizado_em DESC"), conn, params={"id": str(colab_id)})
                 
                 if colab:
                     # --- BLOCO 1: DADOS GERAIS ---
@@ -264,14 +207,14 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.markdown(f'<p class="field-value">{colab.id}</p>', unsafe_allow_html=True)
                         st.markdown('<p class="field-label">CARGO</p>', unsafe_allow_html=True)
                         st.markdown(f'<p class="field-value">{colab.cargo if colab.cargo else "Não Informado"}</p>', unsafe_allow_html=True)
-                        st.markdown('<p class="field-label">SALÁRIO-MÊS (12/24)</p>', unsafe_allow_html=True)
+                        st.markdown('<p class="field-label">SALÁRIO-MÊS</p>', unsafe_allow_html=True)
                         st.markdown(f'<p class="field-value">{colab.salario_mes_12_24 if colab.salario_mes_12_24 else "Não Informado"}</p>', unsafe_allow_html=True)
                     with c2:
                         st.markdown('<p class="field-label">NOME COMPLETO</p>', unsafe_allow_html=True)
                         st.markdown(f'<p class="field-value">{colab.nome}</p>', unsafe_allow_html=True)
                         st.markdown('<p class="field-label">DATA DE ADMISSÃO</p>', unsafe_allow_html=True)
                         st.markdown(f'<p class="field-value">{colab.admissao if colab.admissao else "Não Informada"}</p>', unsafe_allow_html=True)
-                        st.markdown('<p class="field-label">SALÁRIO-HORA (DEZ/24 EM DIANTE)</p>', unsafe_allow_html=True)
+                        st.markdown('<p class="field-label">SALÁRIO-HORA</p>', unsafe_allow_html=True)
                         st.markdown(f'<p class="field-value">{colab.salario_hora if colab.salario_hora else "Não Informado"}</p>', unsafe_allow_html=True)
                     with c3:
                         st.markdown('<p class="field-label">CPF</p>', unsafe_allow_html=True)
@@ -281,29 +224,28 @@ elif menu == "🛠️ Gestão de Cadastros":
                     st.markdown('</div>', unsafe_allow_html=True)
 
                     # --- BLOCO 2: DADOS FINANCEIROS ---
-                    st.markdown("### 🏦 Dados Bancários (PIX)")
+                    st.markdown("### 🏦 Dados Bancários (PIX Principal)")
                     st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
-                    if fin_data:
+                    if fin_data or colab.chave_pix:
                         cf1, cf2 = st.columns(2)
                         with cf1:
                             st.markdown('<p class="field-label">TIPO DE CHAVE</p>', unsafe_allow_html=True)
-                            st.markdown(f'<p class="field-value">{fin_data.get("tipo_chave_pix") or "Não Informado"}</p>', unsafe_allow_html=True)
+                            st.markdown(f'<p class="field-value">{fin_data.get("tipo_chave_pix") if fin_data else "PIX Principal"}</p>', unsafe_allow_html=True)
                             st.markdown('<p class="field-label">BANCO</p>', unsafe_allow_html=True)
-                            st.markdown(f'<p class="field-value">{fin_data.get("banco") or "Não Informado"}</p>', unsafe_allow_html=True)
+                            st.markdown(f'<p class="field-value">{(fin_data.get("banco") if fin_data else "") or "Não Informado"}</p>', unsafe_allow_html=True)
                         with cf2:
                             st.markdown('<p class="field-label">CHAVE PIX</p>', unsafe_allow_html=True)
-                            st.markdown(f'<p class="field-value">{fin_data.get("chave_pix") or "Não Informado"}</p>', unsafe_allow_html=True)
+                            st.markdown(f'<p class="field-value">{colab.chave_pix or (fin_data.get("chave_pix") if fin_data else "Não Informado")}</p>', unsafe_allow_html=True)
                             st.markdown('<p class="field-label">AGÊNCIA / CONTA</p>', unsafe_allow_html=True)
-                            st.markdown(f'<p class="field-value">{fin_data.get("agencia") or "-"} / {fin_data.get("conta") or "-"}</p>', unsafe_allow_html=True)
+                            st.markdown(f'<p class="field-value">{(fin_data.get("agencia") if fin_data else "-")} / {(fin_data.get("conta") if fin_data else "-")}</p>', unsafe_allow_html=True)
                     else:
-                        st.info("Nenhum dado bancário registrado para este colaborador. Utilize o modo de edição para preencher.")
+                        st.info("Nenhum dado bancário ou PIX registrado para este colaborador. Utilize a edição para preencher.")
                     st.markdown('</div>', unsafe_allow_html=True)
 
                     # --- BLOCO 3: HISTÓRICO DE PRÊMIOS ---
-                    st.markdown("### 💰 Histórico de Prêmios e Ajustes (CCT)")
+                    st.markdown("### 💰 Histórico Mensal de Prêmios e Ajustes (CCT)")
                     st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                     if not df_hist.empty:
-                        # Extração segura das colunas
                         cols_desejadas = ['competencia', 'tipo_lancamento', 'valor_lancamento', 'status_pagamento', 'retroativo_pago', 'data_pagamento']
                         cols_existentes = [c for c in cols_desejadas if c in df_hist.columns]
                         
@@ -341,11 +283,9 @@ elif menu == "🛠️ Gestão de Cadastros":
                         col_conf1, col_conf2 = st.columns(2)
                         if col_conf1.button("🔥 Sim, Quero Excluir", key="btn_conf_del"):
                             with engine.begin() as conn:
-                                # Exclui garantidamente das 3 tabelas
-                                if numeric_colab_id != -1:
-                                    conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador = :id"), {"id": numeric_colab_id})
-                                    conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": numeric_colab_id})
-                                conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE CAST(id AS TEXT) = :id"), {"id": str(colab_id)})
+                                conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador = :id"), {"id": str(colab_id)})
+                                conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": str(colab_id)})
+                                conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": str(colab_id)})
                             st.success("Registro excluído permanentemente de todas as bases.")
                             st.session_state['busca_selecionada_id'] = None
                             st.session_state['status_acao'] = None
@@ -363,12 +303,12 @@ elif menu == "🛠️ Gestão de Cadastros":
                             st.markdown('<label class="fake-label">Inscrição Cadastral Individual</label>', unsafe_allow_html=True)
                             edit_cpf = st.text_input(" ", value=str(colab.cpf) if colab.cpf else "", placeholder="Apenas dígitos", key="k_ecpf")
                             edit_adm = st.text_input("Data Admissão (AAAA-MM-DD)", value=str(colab.admissao) if colab.admissao else "", key="k_eadm")
-                            edit_sal_mes = st.text_input("Salário-Mês (12/24)", value=str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "", key="k_esal_mes")
+                            edit_sal_mes = st.text_input("Salário-Mês Atual", value=str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "", key="k_esal_mes")
                         with col_e2:
                             edit_cargo = st.text_input("Cargo", value=str(colab.cargo) if colab.cargo else "", key="k_ecargo")
                             edit_dem = st.text_input("Data Demissão (AAAA-MM-DD)", value=str(colab.demissao) if colab.demissao else "", key="k_edem")
-                            st.markdown("<br><br>", unsafe_allow_html=True)
-                            edit_sal_hora = st.text_input("Salário-Hora (Dez/24 em diante)", value=str(colab.salario_hora) if colab.salario_hora else "", key="k_esal_hora")
+                            edit_pix = st.text_input("Chave PIX Principal", value=str(colab.chave_pix) if colab.chave_pix else "", key="k_epix")
+                            edit_sal_hora = st.text_input("Salário-Hora Atual", value=str(colab.salario_hora) if colab.salario_hora else "", key="k_esal_hora")
                         
                         st.markdown("<br>", unsafe_allow_html=True)
                         if st.button("Confirmar e Salvar Alterações", key="k_ebtn_salvar"):
@@ -379,8 +319,9 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     conn.execute(text("""
                                         UPDATE cadastro_geral_colaborador 
                                         SET nome = :n, cpf = :c, cargo = :ca, admissao = :ad, demissao = :de,
-                                            salario_mes_12_24 = :sm, salario_hora = :sh
-                                        WHERE CAST(id AS TEXT) = :id
+                                            salario_mes_12_24 = :sm, salario_hora = :sh, chave_pix = :pix,
+                                            atualizado_em = CURRENT_TIMESTAMP
+                                        WHERE id = :id
                                     """), {
                                         "n": edit_nome, 
                                         "c": edit_cpf if edit_cpf.strip() else None,
@@ -389,6 +330,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                                         "de": edit_dem if edit_dem.strip() else None,
                                         "sm": edit_sal_mes if edit_sal_mes.strip() else None,
                                         "sh": edit_sal_hora if edit_sal_hora.strip() else None,
+                                        "pix": edit_pix if edit_pix.strip() else None,
                                         "id": str(colab_id)
                                     })
                                 st.success("Alterações gravadas com sucesso!")
@@ -415,18 +357,18 @@ elif menu == "🛠️ Gestão de Cadastros":
         col_nc1, col_nc2 = st.columns(2)
         
         with col_nc1:
-            n_id = st.text_input("Código ID / Matrícula (Ex: 1025)", key="k_nc_id")
+            n_id = st.text_input("Código ID / Matrícula (Ex: M0001 ou 1025)", key="k_nc_id")
             st.markdown('<label class="fake-label">Inscrição Cadastral Individual</label>', unsafe_allow_html=True)
             n_cpf = st.text_input(" ", placeholder="Digite apenas os 11 números", key="k_nc_cpf")
             n_admissao = st.text_input("Data de Admissão (Formatada AAAA-MM-DD)", key="k_nc_adm")
-            n_sal_mes = st.text_input("Salário-Mês (12/24)", key="k_nc_sal_mes")
+            n_sal_mes = st.text_input("Salário-Mês Atual", key="k_nc_sal_mes")
             
         with col_nc2:
             n_nome = st.text_input("Nome Completo", key="k_nc_nome")
             n_cargo = st.text_input("Cargo Ocupado", key="k_nc_cargo")
             n_demissao = st.text_input("Data de Demissão (Opcional - AAAA-MM-DD)", key="k_nc_dem")
-            st.markdown("<br><br>", unsafe_allow_html=True)
-            n_sal_hora = st.text_input("Salário-Hora (Dez/24 em diante)", key="k_nc_sal_hora")
+            n_pix = st.text_input("Chave PIX", key="k_nc_pix")
+            n_sal_hora = st.text_input("Salário-Hora Atual", key="k_nc_sal_hora")
             
         st.markdown('</div>', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
@@ -434,13 +376,14 @@ elif menu == "🛠️ Gestão de Cadastros":
         submetido = st.button("💾 Salvar Registro no Sistema", key="k_nc_btn_salvar")
         if submetido:
             if not n_id.strip() or not n_nome.strip():
-                st.error("⚠️ Os campos 'ID' e 'Nome Completo' são obrigatórios.")
+                st.error("⚠️ Os campos 'ID / Matrícula' e 'Nome Completo' são obrigatórios.")
             else:
                 try:
                     with engine.begin() as conn: 
                         conn.execute(text("""
-                            INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, salario_mes_12_24, salario_hora) 
-                            VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :sm, :sh)
+                            INSERT INTO cadastro_geral_colaborador 
+                            (id, nome, cpf, cargo, admissao, demissao, salario_mes_12_24, salario_hora, chave_pix) 
+                            VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :sm, :sh, :pix)
                         """), {
                             "id": str(n_id), 
                             "nome": str(n_nome),
@@ -449,7 +392,8 @@ elif menu == "🛠️ Gestão de Cadastros":
                             "admissao": str(n_admissao) if n_admissao.strip() else None,
                             "demissao": str(n_demissao) if n_demissao.strip() else None,
                             "sm": str(n_sal_mes) if n_sal_mes.strip() else None,
-                            "sh": str(n_sal_hora) if n_sal_hora.strip() else None
+                            "sh": str(n_sal_hora) if n_sal_hora.strip() else None,
+                            "pix": str(n_pix) if n_pix.strip() else None
                         })
                     st.success(f"Colaborador {n_nome} inserido com sucesso!")
                     st.session_state['redirect_to_consulta'] = True
