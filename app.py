@@ -380,8 +380,8 @@ elif menu == "🛠️ Gestão de Cadastros":
                 with engine.connect() as conn:
                     colab = conn.execute(text("SELECT * FROM cadastro_geral_colaborador WHERE id = :id"), {"id": str(colab_id)}).fetchone()
                     df_fin = pd.read_sql(text("SELECT * FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), conn, params={"id": str(colab_id)})
-                    fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None
-                    df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
+                    # ATENÇÃO: Agora puxamos o ID do lançamento também para poder editar depois
+                    df_hist = pd.read_sql(text("SELECT id as id_lancamento, competencia, tipo_lancamento, valor_lancamento, status_pagamento, retroativo_pago, data_pagamento FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
                     df_evo_salarial = pd.read_sql(text("SELECT data_alteracao, motivo, salario_anterior, novo_salario FROM historico_salarial WHERE id_colaborador = :id ORDER BY data_alteracao DESC, id DESC"), conn, params={"id": str(colab_id)})
                 
                 if colab:
@@ -389,7 +389,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                     salario_hora_display = "Não Informado"
                     val_atual_base = 0.0
                     
-                    # 1º LÓGICA DE EXIBIÇÃO BLINDADA (Lê perfeitamente com pontos e vírgulas)
                     if colab.salario_mes_12_24 and str(colab.salario_mes_12_24).strip() != "" and str(colab.salario_mes_12_24).strip().lower() != "none":
                         try:
                             s_val = str(colab.salario_mes_12_24).upper().replace('R$', '').strip()
@@ -406,9 +405,8 @@ elif menu == "🛠️ Gestão de Cadastros":
                         except:
                             salario_mes_display = str(colab.salario_mes_12_24)
                             salario_hora_display = str(colab.salario_hora) if colab.salario_hora else "Não Informado"
-                            val_atual_base = -1.0 # Trava de Segurança para NÃO puxar o Histórico!
+                            val_atual_base = -1.0 
                     
-                    # 2º SÓ puxa o histórico se a ficha mestra estiver completamente VAZIA (0.0)
                     if val_atual_base == 0.0 and not df_hist.empty:
                         df_sal = df_hist[df_hist['tipo_lancamento'].str.contains('Salário', na=False, case=False)]
                         if not df_sal.empty:
@@ -490,22 +488,28 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.info("Nenhum histórico financeiro ou de premiações registrado.")
                     st.markdown('</div>', unsafe_allow_html=True)
 
+                    # --- NOVA BARRA DE BOTÕES CLARIFICADA ---
                     if st.session_state['status_acao'] is None:
-                        col_b1, col_b2, col_b3, col_b4 = st.columns([1, 1, 1, 1])
-                        if col_b1.button("✏️ Alterar Cadastro"):
+                        col_b1, col_b2, col_b3, col_b4, col_b5 = st.columns([1.2, 1.2, 1.2, 1.2, 1])
+                        if col_b1.button("✏️ Editar Cadastro"):
                             st.session_state['status_acao'] = 'solicitou_alterar'
                             st.rerun()
-                        if col_b2.button("📈 Alteração Salarial"):
+                        # NOVO BOTÃO DE CORREÇÃO DE HISTÓRICO
+                        if col_b2.button("🛠️ Corrigir Histórico"):
+                            st.session_state['status_acao'] = 'solicitou_corrigir_historico'
+                            st.rerun()
+                        if col_b3.button("📈 Nova Alteração"):
                             st.session_state['status_acao'] = 'solicitou_alteracao_salarial'
                             st.rerun()
-                        if col_b3.button("❌ Excluir Colab."):
+                        if col_b4.button("❌ Excluir Colab."):
                             st.session_state['status_acao'] = 'solicitou_excluir'
                             st.rerun()
-                        if col_b4.button("🧹 Limpar Consulta"):
+                        if col_b5.button("🧹 Fechar Ficha"):
                             st.session_state['busca_selecionada_id'] = None
                             st.session_state['status_acao'] = None
                             st.rerun()
 
+                    # --- PAINEL: EXCLUIR ---
                     if st.session_state['status_acao'] == 'solicitou_excluir':
                         st.warning(f"⚠️ **Deseja realmente excluir o colaborador {colab.nome} (ID: {colab.id})?**")
                         col_conf1, col_conf2 = st.columns(2)
@@ -522,6 +526,60 @@ elif menu == "🛠️ Gestão de Cadastros":
                         if col_conf2.button("Voltar / Cancelar", key="btn_canc_del"):
                             st.session_state['status_acao'] = None
                             st.rerun()
+
+                    # --- NOVO PAINEL: CORREÇÃO DE HISTÓRICO MANUAL ---
+                    if st.session_state['status_acao'] == 'solicitou_corrigir_historico':
+                        st.info("🛠️ **Editor de Histórico:** Use esta ferramenta para corrigir valores incorretos que vieram da planilha ou apagar meses fantasmas.")
+                        
+                        if df_hist.empty:
+                            st.warning("Não há lançamentos no histórico deste colaborador para corrigir.")
+                            if st.button("Voltar"):
+                                st.session_state['status_acao'] = None
+                                st.rerun()
+                        else:
+                            # Cria uma lista bonita para o usuário escolher qual mês quer editar
+                            opcoes_hist = {f"Competência: {row['competencia']} | Tipo: {row['tipo_lancamento']} | Valor Atual: R$ {row['valor_lancamento']}": row['id_lancamento'] for _, row in df_hist.iterrows()}
+                            
+                            st.markdown("<p class='field-label'>1. Selecione a linha do histórico com erro:</p>", unsafe_allow_html=True)
+                            sel_lbl = st.selectbox(" ", list(opcoes_hist.keys()), label_visibility="collapsed")
+                            id_alvo = opcoes_hist[sel_lbl]
+                            
+                            col_ch1, col_ch2 = st.columns(2)
+                            with col_ch1:
+                                novo_val_hist = st.text_input("2. Digite o Valor Correto (Use Ponto ou Vírgula)", placeholder="Ex: 1659.84")
+                            
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
+                            
+                            if col_btn1.button("💾 Salvar Novo Valor"):
+                                def clean_money_to_db(val):
+                                    if not val or str(val).strip() == "" or str(val).strip().lower() == "none": return None
+                                    s = str(val).upper().replace('R$', '').strip()
+                                    if '.' in s and ',' in s: s = s.replace('.', '').replace(',', '.')
+                                    elif ',' in s: s = s.replace(',', '.')
+                                    try: return float(s)
+                                    except: return None
+                                        
+                                v_clean = clean_money_to_db(novo_val_hist)
+                                if v_clean is not None:
+                                    with engine.begin() as conn:
+                                        conn.execute(text("UPDATE historico_premiacoes_e_folha SET valor_lancamento = :v WHERE id = :id"), {"v": v_clean, "id": id_alvo})
+                                    st.success("Tabela de Histórico corrigida com sucesso!")
+                                    st.session_state['status_acao'] = None
+                                    st.rerun()
+                                else:
+                                    st.error("Digite um valor numérico válido (ex: 1659.84).")
+                                    
+                            if col_btn2.button("🗑️ Apagar Mês Inteiro"):
+                                with engine.begin() as conn:
+                                    conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id = :id"), {"id": id_alvo})
+                                st.success("Aquele mês foi completamente apagado do histórico!")
+                                st.session_state['status_acao'] = None
+                                st.rerun()
+                                
+                            if col_btn3.button("Cancelar Edição"):
+                                st.session_state['status_acao'] = None
+                                st.rerun()
 
                     # --- PAINEL: AUDITORIA OFICIAL (GERAR HISTÓRICO NOVO) ---
                     if st.session_state['status_acao'] == 'solicitou_alteracao_salarial':
@@ -579,37 +637,32 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- PAINEL: EDIÇÃO DE CADASTRO COM SANITIZAÇÃO DE DADOS ---
                     if st.session_state['status_acao'] == 'solicitou_alterar':
-                        st.info("📝 Modo de Edição Ativo - Utilize para corrigir erros de digitação (sem gerar histórico)")
+                        st.info("📝 Modo de Edição Ativo - Utilize para corrigir dados mestres (Nome, Cargo, CPF, Salário Base).")
                         col_e1, col_e2 = st.columns(2)
                         with col_e1:
                             edit_nome = st.text_input("Nome Completo", value=str(colab.nome), key="k_enome")
                             st.markdown('<label class="fake-label">Inscrição Cadastral Individual</label>', unsafe_allow_html=True)
                             edit_cpf = st.text_input(" ", value=str(colab.cpf) if colab.cpf else "", placeholder="Apenas dígitos", key="k_ecpf")
                             edit_adm = st.text_input("Data Admissão (AAAA-MM-DD)", value=str(colab.admissao) if colab.admissao else "", key="k_eadm")
-                            edit_sal_mes = st.text_input("Correção: Salário-Mês Base (Use Ponto ou Vírgula)", value=str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "", key="k_esal_mes")
+                            edit_sal_mes = st.text_input("Correção: Salário-Mês Atual da Ficha", value=str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "", key="k_esal_mes")
                         with col_e2:
                             edit_cargo = st.text_input("Cargo", value=str(colab.cargo) if colab.cargo else "", key="k_ecargo")
                             edit_dem = st.text_input("Data Demissão (AAAA-MM-DD)", value=str(colab.demissao) if colab.demissao else "", key="k_edem")
                             edit_pix = st.text_input("Chave PIX Principal", value=str(colab.chave_pix) if colab.chave_pix else "", key="k_epix")
-                            edit_sal_hora = st.text_input("Correção: Salário-Hora Base", value=str(colab.salario_hora) if colab.salario_hora else "", key="k_esal_hora")
+                            edit_sal_hora = st.text_input("Correção: Salário-Hora Atual da Ficha", value=str(colab.salario_hora) if colab.salario_hora else "", key="k_esal_hora")
                         
                         st.markdown("<br>", unsafe_allow_html=True)
                         if st.button("Confirmar e Salvar Alterações", key="k_ebtn_salvar"):
                             if not edit_nome.strip():
                                 st.error("O nome do colaborador não pode ficar vazio.")
                             else:
-                                # Função de sanitização antes de gravar no banco de dados
                                 def clean_money_to_db(val):
                                     if not val or str(val).strip() == "" or str(val).strip().lower() == "none": return None
                                     s = str(val).upper().replace('R$', '').strip()
-                                    if '.' in s and ',' in s:
-                                        s = s.replace('.', '').replace(',', '.')
-                                    elif ',' in s:
-                                        s = s.replace(',', '.')
-                                    try:
-                                        return str(float(s))
-                                    except:
-                                        return str(val)
+                                    if '.' in s and ',' in s: s = s.replace('.', '').replace(',', '.')
+                                    elif ',' in s: s = s.replace(',', '.')
+                                    try: return str(float(s))
+                                    except: return str(val)
 
                                 with engine.begin() as conn:
                                     conn.execute(text("""
@@ -618,15 +671,10 @@ elif menu == "🛠️ Gestão de Cadastros":
                                             chave_pix = :pix, salario_mes_12_24 = :sm, salario_hora = :sh
                                         WHERE id = :id
                                     """), {
-                                        "n": edit_nome, 
-                                        "c": edit_cpf if edit_cpf.strip() else None, 
-                                        "ca": edit_cargo if edit_cargo.strip() else None, 
-                                        "ad": edit_adm if edit_adm.strip() else None, 
-                                        "de": edit_dem if edit_dem.strip() else None, 
-                                        "pix": edit_pix if edit_pix.strip() else None,
-                                        "sm": clean_money_to_db(edit_sal_mes),
-                                        "sh": clean_money_to_db(edit_sal_hora),
-                                        "id": str(colab_id)
+                                        "n": edit_nome, "c": edit_cpf if edit_cpf.strip() else None, 
+                                        "ca": edit_cargo if edit_cargo.strip() else None, "ad": edit_adm if edit_adm.strip() else None, 
+                                        "de": edit_dem if edit_dem.strip() else None, "pix": edit_pix if edit_pix.strip() else None,
+                                        "sm": clean_money_to_db(edit_sal_mes), "sh": clean_money_to_db(edit_sal_hora), "id": str(colab_id)
                                     })
                                 st.success("Ficha Mestra corrigida com sucesso! A alteração será refletida no painel.")
                                 st.session_state['status_acao'] = None
@@ -771,4 +819,4 @@ elif menu == "🔎 Auditoria CCT (IA)":
                 st.dataframe(df_view, use_container_width=True, hide_index=True)
                 
             except Exception as e:
-                st.error(f"Erro durante a auditoria: {e}")
+                st.error(f"Erro durante a auditoria: {e}")    
