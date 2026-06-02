@@ -198,7 +198,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     df_fin = pd.read_sql(text("SELECT * FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), conn, params={"id": str(colab_id)})
                     fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None
                     
-                    # 3. Busca Histórico (CORRIGIDO: ORDENANDO POR ID DESC PARA EVITAR ERRO DE NOME DE COLUNA)
+                    # 3. Busca Histórico (ORDENANDO POR ID DESC PARA EVITAR ERRO DE NOME DE COLUNA)
                     df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
                 
                 if colab:
@@ -315,4 +315,92 @@ elif menu == "🛠️ Gestão de Cadastros":
                             edit_sal_hora = st.text_input("Salário-Hora Atual", value=str(colab.salario_hora) if colab.salario_hora else "", key="k_esal_hora")
                         
                         st.markdown("<br>", unsafe_allow_html=True)
-                        if st.button("Confirmar e Salvar Alterações", key="k_ebtn_
+                        if st.button("Confirmar e Salvar Alterações", key="k_ebtn_salvar"):
+                            if not edit_nome.strip():
+                                st.error("O nome do colaborador não pode ficar vazio.")
+                            else:
+                                with engine.begin() as conn:
+                                    conn.execute(text("""
+                                        UPDATE cadastro_geral_colaborador 
+                                        SET nome = :n, cpf = :c, cargo = :ca, admissao = :ad, demissao = :de,
+                                            salario_mes_12_24 = :sm, salario_hora = :sh, chave_pix = :pix,
+                                            atualizado_em = CURRENT_TIMESTAMP
+                                        WHERE id = :id
+                                    """), {
+                                        "n": edit_nome, 
+                                        "c": edit_cpf if edit_cpf.strip() else None,
+                                        "ca": edit_cargo if edit_cargo.strip() else None,
+                                        "ad": edit_adm if edit_adm.strip() else None,
+                                        "de": edit_dem if edit_dem.strip() else None,
+                                        "sm": edit_sal_mes if edit_sal_mes.strip() else None,
+                                        "sh": edit_sal_hora if edit_sal_hora.strip() else None,
+                                        "pix": edit_pix if edit_pix.strip() else None,
+                                        "id": str(colab_id)
+                                    })
+                                st.success("Alterações gravadas com sucesso!")
+                                st.session_state['status_acao'] = None
+                                st.rerun()
+                        
+                        if st.button("Abandonar Edição", key="k_ebtn_abandonar"):
+                            st.session_state['status_acao'] = None
+                            st.rerun()
+            except Exception as e:
+                st.error(f"Falha operacional de leitura/escrita no banco: {e}")
+
+    # --- ABA: NOVO CADASTRO ---
+    elif sub_menu == "➕ Novo Cadastro":
+        col_tit, col_can = st.columns([3, 1])
+        with col_tit:
+            st.subheader("Inserir Novo Colaborador")
+        with col_can:
+            if st.button("⬅️ Cancelar e Voltar", use_container_width=True, key="k_btn_canc_voltar"):
+                st.session_state['redirect_to_consulta'] = True
+                st.rerun()
+        
+        st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
+        col_nc1, col_nc2 = st.columns(2)
+        
+        with col_nc1:
+            n_id = st.text_input("Código ID / Matrícula (Ex: M0001 ou 1025)", key="k_nc_id")
+            st.markdown('<label class="fake-label">Inscrição Cadastral Individual</label>', unsafe_allow_html=True)
+            n_cpf = st.text_input(" ", placeholder="Digite apenas os 11 números", key="k_nc_cpf")
+            n_admissao = st.text_input("Data de Admissão (Formatada AAAA-MM-DD)", key="k_nc_adm")
+            n_sal_mes = st.text_input("Salário-Mês Atual", key="k_nc_sal_mes")
+            
+        with col_nc2:
+            n_nome = st.text_input("Nome Completo", key="k_nc_nome")
+            n_cargo = st.text_input("Cargo Ocupado", key="k_nc_cargo")
+            n_demissao = st.text_input("Data de Demissão (Opcional - AAAA-MM-DD)", key="k_nc_dem")
+            n_pix = st.text_input("Chave PIX", key="k_nc_pix")
+            n_sal_hora = st.text_input("Salário-Hora Atual", key="k_nc_sal_hora")
+            
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        submetido = st.button("💾 Salvar Registro no Sistema", key="k_nc_btn_salvar")
+        if submetido:
+            if not n_id.strip() or not n_nome.strip():
+                st.error("⚠️ Os campos 'ID / Matrícula' e 'Nome Completo' são obrigatórios.")
+            else:
+                try:
+                    with engine.begin() as conn: 
+                        conn.execute(text("""
+                            INSERT INTO cadastro_geral_colaborador 
+                            (id, nome, cpf, cargo, admissao, demissao, salario_mes_12_24, salario_hora, chave_pix) 
+                            VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :sm, :sh, :pix)
+                        """), {
+                            "id": str(n_id), 
+                            "nome": str(n_nome),
+                            "cpf": str(n_cpf) if n_cpf.strip() else None,
+                            "cargo": str(n_cargo) if n_cargo.strip() else None,
+                            "admissao": str(n_admissao) if n_admissao.strip() else None,
+                            "demissao": str(n_demissao) if n_demissao.strip() else None,
+                            "sm": str(n_sal_mes) if n_sal_mes.strip() else None,
+                            "sh": str(n_sal_hora) if n_sal_hora.strip() else None,
+                            "pix": str(n_pix) if n_pix.strip() else None
+                        })
+                    st.success(f"Colaborador {n_nome} inserido com sucesso!")
+                    st.session_state['redirect_to_consulta'] = True
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro de Integridade: Verifique se o ID digitado já pertence a outro cadastro. Detalhes: {e}")    
