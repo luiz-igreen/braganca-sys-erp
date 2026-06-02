@@ -12,7 +12,7 @@ st.set_page_config(page_title="BRAGANÇA SYS", page_icon="🏗️", layout="wide
 # Conexão segura com o Banco de Dados
 engine = create_engine(st.secrets["DATABASE_URL"])
 
-# --- CRIAÇÃO AUTOMÁTICA DA TABELA DE EVOLUÇÃO SALARIAL (SE NÃO EXISTIR) ---
+# --- MIGRAÇÃO AUTOMÁTICA DE BANCO DE DADOS (INSS E HISTÓRICOS) ---
 try:
     with engine.begin() as conn:
         conn.execute(text("""
@@ -27,6 +27,18 @@ try:
         """))
 except Exception as e:
     st.error(f"Erro ao inicializar tabelas de sistema: {e}")
+
+# Injeção das colunas de INSS se não existirem
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN data_afastamento VARCHAR(50);"))
+except:
+    pass # A coluna já existe
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN data_retorno VARCHAR(50);"))
+except:
+    pass # A coluna já existe
 
 # --- ESTILIZAÇÃO VISUAL AVANÇADA (DARK PREMIUM GLASSMORPHISM) ---
 st.markdown("""
@@ -169,14 +181,21 @@ menu = st.sidebar.radio("Navegação", ["👥 Visão Geral", "📥 Importação 
 if menu == "👥 Visão Geral":
     st.title("📊 Painel Corporativo")
     try:
+        # Puxa os dados incluindo as novas colunas
         df = pd.read_sql("""
-            SELECT id, nome, cpf, cargo, admissao, demissao, salario_mes_12_24, salario_hora 
+            SELECT id, nome, cpf, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora 
             FROM cadastro_geral_colaborador 
             ORDER BY nome ASC
         """, engine)
         
         df['salario_mes_12_24'] = df['salario_mes_12_24'].apply(format_currency_brl)
         df['salario_hora'] = df['salario_hora'].apply(format_currency_brl)
+        
+        # Renomeia para ficar bonito na tela
+        df.rename(columns={
+            'data_afastamento': 'Afastamento (INSS)',
+            'data_retorno': 'Retorno (INSS)'
+        }, inplace=True)
         
         st.dataframe(df, use_container_width=True, hide_index=True)
     except Exception as e:
@@ -508,6 +527,22 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.markdown(f'<p class="field-value">{pd.to_datetime(colab.demissao).strftime("%d/%m/%Y") if colab.demissao else "Ativo / Em Aberto"}</p>', unsafe_allow_html=True)
                     st.markdown('</div>', unsafe_allow_html=True)
 
+                    # --- NOVO PAINEL DE AFASTAMENTO INSS NA FICHA ---
+                    v_afast = getattr(colab, 'data_afastamento', None)
+                    v_ret = getattr(colab, 'data_retorno', None)
+                    
+                    if v_afast:
+                        st.markdown("### 🏥 Status de Afastamento (INSS)")
+                        st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
+                        ca1, ca2 = st.columns(2)
+                        with ca1:
+                            st.markdown('<p class="field-label">AFASTAMENTO</p>', unsafe_allow_html=True)
+                            st.markdown(f'<p class="field-value" style="color:#facc15;">{pd.to_datetime(v_afast).strftime("%d/%m/%Y")}</p>', unsafe_allow_html=True)
+                        with ca2:
+                            st.markdown('<p class="field-label">RETORNO</p>', unsafe_allow_html=True)
+                            st.markdown(f'<p class="field-value">{pd.to_datetime(v_ret).strftime("%d/%m/%Y") if v_ret else "Ainda Afastado"}</p>', unsafe_allow_html=True)
+                        st.markdown('</div>', unsafe_allow_html=True)
+
                     st.markdown("### 🏦 Dados Bancários (PIX Principal)")
                     st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                     if fin_data or colab.chave_pix:
@@ -729,6 +764,12 @@ elif menu == "🛠️ Gestão de Cadastros":
                         try: dt_dem_val = pd.to_datetime(colab.demissao).date() if colab.demissao else None
                         except: dt_dem_val = None
                         
+                        # INSS Data
+                        try: dt_afast_val = pd.to_datetime(v_afast).date() if v_afast else None
+                        except: dt_afast_val = None
+                        try: dt_ret_val = pd.to_datetime(v_ret).date() if v_ret else None
+                        except: dt_ret_val = None
+                        
                         cargo_atual = str(colab.cargo).upper().strip() if colab.cargo else ""
                         cargo_idx = LISTA_CARGOS.index(cargo_atual) if cargo_atual in LISTA_CARGOS else (len(LISTA_CARGOS)-1)
                         
@@ -756,6 +797,13 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 
                             edit_pix = st.text_input("Chave PIX Principal", value=str(colab.chave_pix) if colab.chave_pix else "", key="k_epix")
                             edit_sal_hora = st.text_input("Correção: Salário-Hora Base", value=str(colab.salario_hora) if colab.salario_hora else "", key="k_esal_hora")
+                            
+                        st.markdown("##### 🏥 Dados de Afastamento (INSS)")
+                        col_inss1, col_inss2 = st.columns(2)
+                        with col_inss1:
+                            edit_afast = st.date_input("Data de Afastamento (Deixe vazio se OK)", value=dt_afast_val, format="DD/MM/YYYY", key="k_eafast")
+                        with col_inss2:
+                            edit_ret = st.date_input("Data de Retorno (Deixe vazio se não retornou)", value=dt_ret_val, format="DD/MM/YYYY", key="k_eret")
                         
                         st.markdown("<br>", unsafe_allow_html=True)
                         if st.button("Confirmar e Salvar Alterações", key="k_ebtn_salvar"):
@@ -764,6 +812,8 @@ elif menu == "🛠️ Gestão de Cadastros":
                             else:
                                 adm_str = edit_adm.strftime('%Y-%m-%d') if edit_adm else None
                                 dem_str = edit_dem.strftime('%Y-%m-%d') if edit_dem else None
+                                afast_str = edit_afast.strftime('%Y-%m-%d') if edit_afast else None
+                                ret_str = edit_ret.strftime('%Y-%m-%d') if edit_ret else None
                                 
                                 try:
                                     with engine.begin() as conn:
@@ -776,12 +826,14 @@ elif menu == "🛠️ Gestão de Cadastros":
                                         conn.execute(text("""
                                             UPDATE cadastro_geral_colaborador 
                                             SET id = :nid, nome = :n, cpf = :c, cargo = :ca, admissao = :ad, demissao = :de, 
+                                                data_afastamento = :afast, data_retorno = :ret,
                                                 chave_pix = :pix, salario_mes_12_24 = :sm, salario_hora = :sh
                                             WHERE id = :oid
                                         """), {
                                             "nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf if edit_cpf.strip() else None, 
                                             "ca": edit_cargo if edit_cargo.strip() else None, "ad": adm_str, 
-                                            "de": dem_str, "pix": edit_pix if edit_pix.strip() else None,
+                                            "de": dem_str, "afast": afast_str, "ret": ret_str,
+                                            "pix": edit_pix if edit_pix.strip() else None,
                                             "sm": clean_money_to_db(edit_sal_mes), "sh": clean_money_to_db(edit_sal_hora), 
                                             "oid": str(colab_id)
                                         })
@@ -801,9 +853,9 @@ elif menu == "🛠️ Gestão de Cadastros":
                                         try:
                                             with engine.begin() as conn2:
                                                 conn2.execute(text("""
-                                                    INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, salario_mes_12_24, salario_hora, chave_pix)
-                                                    VALUES (:nid, :n, :c, :ca, :ad, :de, :sm, :sh, :pix)
-                                                """), {"nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf if edit_cpf.strip() else None, "ca": edit_cargo if edit_cargo.strip() else None, "ad": adm_str, "de": dem_str, "sm": clean_money_to_db(edit_sal_mes), "sh": clean_money_to_db(edit_sal_hora), "pix": edit_pix if edit_pix.strip() else None})
+                                                    INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora, chave_pix)
+                                                    VALUES (:nid, :n, :c, :ca, :ad, :de, :afast, :ret, :sm, :sh, :pix)
+                                                """), {"nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf if edit_cpf.strip() else None, "ca": edit_cargo if edit_cargo.strip() else None, "ad": adm_str, "de": dem_str, "afast": afast_str, "ret": ret_str, "sm": clean_money_to_db(edit_sal_mes), "sh": clean_money_to_db(edit_sal_hora), "pix": edit_pix if edit_pix.strip() else None})
                                                 
                                                 conn2.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
                                                 conn2.execute(text("UPDATE historico_salarial SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
@@ -858,6 +910,13 @@ elif menu == "🛠️ Gestão de Cadastros":
             n_pix = st.text_input("Chave PIX", key="k_nc_pix")
             n_sal_hora = st.text_input("Salário-Hora Atual", key="k_nc_sal_hora")
             
+        st.markdown("##### 🏥 Dados de Afastamento (INSS)")
+        col_ninss1, col_ninss2 = st.columns(2)
+        with col_ninss1:
+            n_afast = st.date_input("Data de Afastamento (Opcional)", value=None, format="DD/MM/YYYY", key="k_n_afast")
+        with col_ninss2:
+            n_ret = st.date_input("Data de Retorno (Opcional)", value=None, format="DD/MM/YYYY", key="k_n_ret")
+            
         st.markdown('</div>', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         
@@ -868,14 +927,16 @@ elif menu == "🛠️ Gestão de Cadastros":
             else:
                 adm_str = n_admissao.strftime('%Y-%m-%d') if n_admissao else None
                 dem_str = n_demissao.strftime('%Y-%m-%d') if n_demissao else None
+                afast_str = n_afast.strftime('%Y-%m-%d') if n_afast else None
+                ret_str = n_ret.strftime('%Y-%m-%d') if n_ret else None
                 
                 try:
                     with engine.begin() as conn: 
                         conn.execute(text("""
                             INSERT INTO cadastro_geral_colaborador 
-                            (id, nome, cpf, cargo, admissao, demissao, salario_mes_12_24, salario_hora, chave_pix) 
-                            VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :sm, :sh, :pix)
-                        """), {"id": str(n_id), "nome": str(n_nome), "cpf": str(n_cpf) if n_cpf.strip() else None, "cargo": str(n_cargo) if n_cargo.strip() else None, "admissao": adm_str, "demissao": dem_str, "sm": clean_money_to_db(n_sal_mes), "sh": clean_money_to_db(n_sal_hora), "pix": str(n_pix) if n_pix.strip() else None})
+                            (id, nome, cpf, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora, chave_pix) 
+                            VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :afast, :ret, :sm, :sh, :pix)
+                        """), {"id": str(n_id), "nome": str(n_nome), "cpf": str(n_cpf) if n_cpf.strip() else None, "cargo": str(n_cargo) if n_cargo.strip() else None, "admissao": adm_str, "demissao": dem_str, "afast": afast_str, "ret": ret_str, "sm": clean_money_to_db(n_sal_mes), "sh": clean_money_to_db(n_sal_hora), "pix": str(n_pix) if n_pix.strip() else None})
                     st.success(f"Colaborador {n_nome} inserido com sucesso!")
                     st.session_state['redirect_to_consulta'] = True
                     st.rerun()
@@ -887,7 +948,7 @@ elif menu == "🔎 Auditoria CCT (IA)":
     st.title("🔎 Auditoria Automatizada da Folha")
     st.markdown("""
     O Cérebro da Inteligência Artificial fará agora um Raio-X a toda a folha de pagamento cruzando:
-    **Pisos da CCT + Regra de 5% (18/36/54 meses) + Exclusão de Aprendizes/Estagiários**.
+    **Pisos da CCT + Regra de 5% (18/36/54 meses) + Exclusão de Aprendizes/Estagiários/Afastados**.
     """)
     
     st.info("Pisos Internos Ativos (CCT SINDTICMAL): Grupo E (Pedreiros/etc): R$ 2.063,92 | Grupo I (Servente): R$ 1.548,00 | Grupo A (Mestre): R$ 4.068,99 | Base Nacional Mínima: R$ 1.518,00.")
@@ -895,7 +956,8 @@ elif menu == "🔎 Auditoria CCT (IA)":
     if st.button("🚀 Executar Varredura Completa na Folha", type="primary"):
         with st.spinner("A cruzar salários atuais com as normas da convenção coletiva..."):
             try:
-                df_folha = pd.read_sql("SELECT id, nome, cargo, admissao, demissao, salario_mes_12_24 FROM cadastro_geral_colaborador", engine)
+                # Agora puxamos também os dados de INSS para a IA entender
+                df_folha = pd.read_sql("SELECT id, nome, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24 FROM cadastro_geral_colaborador", engine)
                 hoje = pd.Timestamp.today()
                 
                 def converter_salario(val_str):
@@ -910,10 +972,16 @@ elif menu == "🔎 Auditoria CCT (IA)":
                     cargo = str(row['cargo']).upper() if pd.notna(row['cargo']) else ""
                     adm_str = row['admissao']
                     dem_str = row['demissao']
+                    afast_str = row.get('data_afastamento', None)
+                    ret_str = row.get('data_retorno', None)
                     sal_atual = converter_salario(row['salario_mes_12_24'])
                     
                     if pd.notna(dem_str) and str(dem_str).strip() != "" and str(dem_str).strip().lower() != "ativo / em aberto":
                         return pd.Series(["Demitido (Ignorado)", "-", "Ok"])
+                        
+                    # NOVA REGRA IA: Se está afastado e não voltou, o salário zero não é erro da empresa!
+                    if pd.notna(afast_str) and str(afast_str).strip() != "" and (pd.isna(ret_str) or str(ret_str).strip() == ""):
+                        return pd.Series(["Afastado INSS", "-", "Ok (Benefício INSS)"])
                     
                     if "ESTAGIÁR" in cargo or "ESTAGIAR" in cargo or "APRENDIZ" in cargo:
                         return pd.Series(["N/A (Jovem Aprendiz/Estagiário)", "-", "Ok (Contrato Especial)"])
@@ -970,4 +1038,4 @@ elif menu == "🔎 Auditoria CCT (IA)":
                 st.dataframe(df_view, use_container_width=True, hide_index=True)
                 
             except Exception as e:
-                st.error(f"Erro durante a auditoria: {e}")    
+                st.error(f"Erro durante a auditoria: {e}")
