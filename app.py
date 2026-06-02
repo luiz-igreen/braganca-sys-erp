@@ -103,7 +103,7 @@ elif menu == "📥 Importação Inteligente":
     
     aba_imp1, aba_imp2 = st.tabs(["📋 Carga Base (Cadastros)", "💰 Motor ETL (Histórico Salarial)"])
     
-    # === SUB-ABA 1: CADASTRO GERAL ===
+    # === SUB-ABA 1: CADASTRO GERAL (BLINDADA) ===
     with aba_imp1:
         st.subheader("Importação de Cadastros Novos")
         arquivo = st.file_uploader("Selecione o arquivo de migração de colaboradores (.xlsx, .csv)", type=["xlsx", "csv"])
@@ -117,30 +117,39 @@ elif menu == "📥 Importação Inteligente":
                 
                 with engine.begin() as conn:
                     for _, row in df_bruto.iterrows():
-                        conn.execute(text("""
-                            INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, salario_mes_12_24, salario_hora) 
-                            VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :sal_mes, :sal_hora)
-                            ON CONFLICT (id) DO UPDATE SET 
-                                nome = EXCLUDED.nome,
-                                cpf = EXCLUDED.cpf,
-                                cargo = EXCLUDED.cargo,
-                                admissao = EXCLUDED.admissao,
-                                demissao = EXCLUDED.demissao,
-                                salario_mes_12_24 = EXCLUDED.salario_mes_12_24,
-                                salario_hora = EXCLUDED.salario_hora
-                        """), {
-                            "id": str(row[0]), 
-                            "nome": str(row[1]),
-                            "cpf": str(row[2]) if len(row) > 2 else None,
-                            "cargo": str(row[3]) if len(row) > 3 else None,
-                            "admissao": str(row[4]) if len(row) > 4 else None,
-                            "demissao": str(row[5]) if len(row) > 5 else None,
-                            "sal_mes": str(row[6]) if len(row) > 6 else None,
-                            "sal_hora": str(row[7]) if len(row) > 7 else None
-                        })
+                        # Uso de iloc com try/except blinda o sistema contra KeyErrors e falta de colunas
+                        try:
+                            v_id = str(row.iloc[0]) if len(row) > 0 else None
+                            if not v_id or v_id == 'nan':
+                                continue # Pula linhas vazias
+                                
+                            conn.execute(text("""
+                                INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, salario_mes_12_24, salario_hora) 
+                                VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :sal_mes, :sal_hora)
+                                ON CONFLICT (id) DO UPDATE SET 
+                                    nome = EXCLUDED.nome,
+                                    cpf = EXCLUDED.cpf,
+                                    cargo = EXCLUDED.cargo,
+                                    admissao = EXCLUDED.admissao,
+                                    demissao = EXCLUDED.demissao,
+                                    salario_mes_12_24 = EXCLUDED.salario_mes_12_24,
+                                    salario_hora = EXCLUDED.salario_hora
+                            """), {
+                                "id": v_id, 
+                                "nome": str(row.iloc[1]) if len(row) > 1 else None,
+                                "cpf": str(row.iloc[2]) if len(row) > 2 else None,
+                                "cargo": str(row.iloc[3]) if len(row) > 3 else None,
+                                "admissao": str(row.iloc[4]) if len(row) > 4 else None,
+                                "demissao": str(row.iloc[5]) if len(row) > 5 else None,
+                                "sal_mes": str(row.iloc[6]) if len(row) > 6 else None,
+                                "sal_hora": str(row.iloc[7]) if len(row) > 7 else None
+                            })
+                        except Exception as inner_e:
+                            st.warning(f"Linha ignorada devido a formato incompatível. Detalhe: {inner_e}")
+                            
                 st.success("Ingestão de dados de cadastro executada com sucesso!")
             except Exception as e:
-                st.error(f"Erro Crítico no mapeamento das colunas: {e}")
+                st.error(f"Erro Crítico no mapeamento das colunas: {e}. Certifique-se de que é a planilha de Cadastros Base.")
 
     # === SUB-ABA 2: O MOTOR DE HISTÓRICO SALARIAL E AUTO-RECUPERAÇÃO ===
     with aba_imp2:
@@ -156,7 +165,7 @@ elif menu == "📥 Importação Inteligente":
                 try:
                     df_excel = pd.read_excel(arquivo_hist, engine='openpyxl')
                     
-                    # 1. Puxar dados base para Match e pegar o Maior ID
+                    # 1. Puxar dados base para Match e pegar o Maior ID numérico para sequência
                     with engine.connect() as conn:
                         db_cols = conn.execute(text("SELECT id, nome, admissao, demissao FROM cadastro_geral_colaborador")).fetchall()
                     
@@ -173,7 +182,6 @@ elif menu == "📥 Importação Inteligente":
                         if str(r.id).isdigit():
                             lista_ids_numericos.append(int(r.id))
                     
-                    # Motor para gerar IDs automáticos para colaboradores perdidos
                     proximo_id_livre = max(lista_ids_numericos) + 1 if lista_ids_numericos else 1000
                     
                     def get_comp_date(col_name):
@@ -195,11 +203,10 @@ elif menu == "📥 Importação Inteligente":
                     linhas_processadas = 0
                     recuperados_ia = 0
                     
-                    # Encontrar a coluna de nome corretamente
                     coluna_nome = next((col for col in df_excel.columns if str(col).strip().upper() == 'NOME'), None)
 
                     if not coluna_nome:
-                        st.error("Erro: A planilha enviada não possui uma coluna com o título 'Nome'.")
+                        st.error("Erro: A planilha enviada não possui uma coluna com o título 'Nome'. Verifique se é a planilha correta.")
                     else:
                         # 2. Varrer Planilha
                         for _, row in df_excel.iterrows():
@@ -212,14 +219,12 @@ elif menu == "📥 Importação Inteligente":
                                 novo_id = str(proximo_id_livre)
                                 proximo_id_livre += 1
                                 
-                                # Grava o colaborador perdido de volta no banco IMEDIATAMENTE
                                 with engine.begin() as conn_recupera:
                                     conn_recupera.execute(text("""
                                         INSERT INTO cadastro_geral_colaborador (id, nome) VALUES (:id, :nome)
                                         ON CONFLICT (id) DO NOTHING
                                     """), {"id": novo_id, "nome": nome_xls})
                                 
-                                # Adiciona à memória para poder processar o salário logo abaixo
                                 db_dict[nome_xls] = {
                                     'id': novo_id,
                                     'admissao': None,
@@ -233,7 +238,6 @@ elif menu == "📥 Importação Inteligente":
                             
                             for col in df_excel.columns:
                                 col_str = str(col).strip().upper()
-                                # Filtramos apenas as colunas de "Salário MÊS"
                                 if "SALÁRIO MÊS" in col_str or "SALARIO MES" in col_str:
                                     val = row[col]
                                     if pd.isna(val) or str(val).strip() == "":
@@ -264,7 +268,7 @@ elif menu == "📥 Importação Inteligente":
                                         inserts_pendentes.append({
                                             "id_colab": colab['id'],
                                             "comp": comp_str,
-                                            "tipo": "Salário Mensal Fixo",
+                                            "tipo": "Salário Mensal",
                                             "valor": val_float
                                         })
                             linhas_processadas += 1
@@ -290,9 +294,9 @@ elif menu == "📥 Importação Inteligente":
                             st.success(f"✅ Ingestão Concluída! Lidos {linhas_processadas} colaboradores.")
                             st.info(f"💾 Foram injetados {len(inserts_pendentes)} registros de histórico salarial no banco de dados.")
                             if recuperados_ia > 0:
-                                st.warning(f"🤖 **Auto-Recuperação IA:** {recuperados_ia} colaborador(es) que não estavam no banco foram detectados e recadastrados automaticamente (os IDs foram gerados em sequência).")
+                                st.warning(f"🤖 **Auto-Recuperação IA:** {recuperados_ia} colaborador(es) que não estavam no banco foram detectados e recadastrados automaticamente (IDs sequenciais).")
                         else:
-                            st.warning("Aviso: A planilha foi lida, mas nenhum registro combinou com as regras (ou já estavam todos inseridos).")
+                            st.warning("Aviso: A planilha foi lida, mas nenhum registro novo foi inserido (ou os meses não se encaixam nas datas de admissão, ou todos já estavam gravados).")
 
                 except Exception as e:
                     st.error(f"Falha Operacional no Motor ETL: {e}")
@@ -360,7 +364,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     df_fin = pd.read_sql(text("SELECT * FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), conn, params={"id": str(colab_id)})
                     fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None
                     
-                    # 3. Busca Histórico (ORDENANDO POR ID DESC PARA EVITAR ERRO DE NOME DE COLUNA)
+                    # 3. Busca Histórico
                     df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
                 
                 if colab:
