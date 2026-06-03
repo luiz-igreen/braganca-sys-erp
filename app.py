@@ -85,7 +85,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- INJEÇÃO DE JAVASCRIPT PROFISSIONAL (AUTOFILL + NAVEGAÇÃO ENTER CONTÍNUA) ---
+# --- INJEÇÃO DE JAVASCRIPT PROFISSIONAL (AUTOFILL + ENTER COM SELEÇÃO TOTAL) ---
 components.html("""
 <script>
 const doc = window.parent.document;
@@ -118,7 +118,12 @@ if (!window.parent.EnterToTabInjected) {
             var index = focusable.indexOf(e.target);
             
             if (index > -1 && index < focusable.length - 1) {
-                focusable[index + 1].focus();
+                var nextEl = focusable[index + 1];
+                nextEl.focus();
+                // A MÁGICA DOS SISTEMAS DESKTOP: Seleciona o texto todo ao receber foco
+                if (nextEl.tagName === 'INPUT' && (nextEl.type === 'text' || nextEl.type === 'number')) {
+                    setTimeout(() => nextEl.select(), 10);
+                }
             }
         }
     }, true); 
@@ -391,20 +396,41 @@ elif menu == "🛠️ Gestão de Cadastros":
                     df_evo_salarial = pd.read_sql(text("SELECT data_alteracao, motivo, salario_anterior, novo_salario FROM historico_salarial WHERE id_colaborador = :id ORDER BY data_alteracao DESC, id DESC"), conn, params={"id": str(colab_id)})
                 
                 if colab:
-                    salario_mes_display, salario_hora_display, val_atual_base = "Não Informado", "Não Informado", 0.0
-                    if colab.salario_mes_12_24 and str(colab.salario_mes_12_24).strip() != "" and str(colab.salario_mes_12_24).strip().lower() != "none":
-                        try:
-                            s_val = str(colab.salario_mes_12_24).upper().replace('R$', '').strip()
-                            s_val = s_val.replace('.', '').replace(',', '.') if '.' in s_val and ',' in s_val else s_val.replace(',', '.')
-                            val_m = float(s_val)
-                            val_h = val_m / 220.0
-                            val_atual_base = val_m
-                            salario_mes_display = f"R$ {val_m:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-                            salario_hora_display = f"R$ {val_h:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-                        except:
-                            salario_mes_display = str(colab.salario_mes_12_24)
-                            salario_hora_display = str(colab.salario_hora) if colab.salario_hora else "Não Informado"
-                            val_atual_base = -1.0 
+                    # --- AUTO-SINCRONIZAÇÃO INTELIGENTE (FICHA <-> HISTÓRICO) ---
+                    sal_mestra_vazio = not colab.salario_mes_12_24 or str(colab.salario_mes_12_24).strip() == "" or str(colab.salario_mes_12_24).lower() in ["nan", "none"]
+                    hist_salario = df_hist[df_hist['tipo_lancamento'].str.contains('Salário', na=False, case=False)]
+                    tem_hist = not hist_salario.empty
+                    
+                    val_atual_base = 0.0
+                    
+                    if sal_mestra_vazio and tem_hist:
+                        ultimo_salario_hist = hist_salario.iloc[0]['valor_lancamento']
+                        val_hora_calc = float(ultimo_salario_hist) / 220.0
+                        with engine.begin() as conn_sync:
+                            conn_sync.execute(text("UPDATE cadastro_geral_colaborador SET salario_mes_12_24 = :sm, salario_hora = :sh WHERE id = :id"), {"sm": str(ultimo_salario_hist), "sh": str(val_hora_calc), "id": str(colab_id)})
+                        val_atual_base = float(ultimo_salario_hist)
+                        salario_mes_display = format_currency_brl(val_atual_base)
+                        salario_hora_display = format_currency_brl(val_hora_calc)
+                        
+                    elif not sal_mestra_vazio and not tem_hist:
+                        sm_val = clean_money_to_db(str(colab.salario_mes_12_24))
+                        if sm_val:
+                            comp_atual = datetime.today().strftime('%m/%Y')
+                            with engine.begin() as conn_sync:
+                                conn_sync.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": str(colab_id), "comp": comp_atual, "val": float(sm_val)})
+                            df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), engine, params={"id": str(colab_id)})
+                            val_atual_base = float(sm_val)
+                            salario_mes_display = format_currency_brl(val_atual_base)
+                            salario_hora_display = format_currency_brl(val_atual_base / 220.0)
+                    else:
+                        if not sal_mestra_vazio:
+                            sm_val = clean_money_to_db(str(colab.salario_mes_12_24))
+                            val_atual_base = float(sm_val) if sm_val else 0.0
+                            salario_mes_display = format_currency_brl(val_atual_base)
+                            salario_hora_display = format_currency_brl(val_atual_base / 220.0)
+                        else:
+                            salario_mes_display = "Não Informado"
+                            salario_hora_display = "Não Informado"
                     
                     st.markdown("### 📋 Ficha Completa do Colaborador")
                     st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
@@ -471,6 +497,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                             with engine.begin() as conn:
                                 conn.execute(text("DELETE FROM historico_salarial WHERE id_colaborador = :id"), {"id": str(colab_id)})
                                 conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador = :id"), {"id": str(colab_id)})
+                                conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": str(colab_id)})
                                 conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": str(colab_id)})
                             st.success("Excluído!"); st.session_state['busca_selecionada_id'] = None; st.session_state['status_acao'] = None; st.rerun()
                         if cx2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
@@ -507,10 +534,10 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 if ch2.button("🗑️ Apagar"):
                                     with engine.begin() as conn: conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id = :id"), {"id": id_alvo})
                                     st.success("Apagado!"); st.session_state['status_acao'] = None; st.rerun()
-                                if ch3.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
+                                if ch3.button("⬅️ Voltar / Cancelar"): st.session_state['status_acao'] = None; st.rerun()
                             except Exception as e:
-                                st.error(f"Erro ao carregar lista de histórico: {e}")
-                                if st.button("⬅️ Voltar / Cancelar (Erro de Segurança)"): st.session_state['status_acao'] = None; st.rerun()
+                                st.error(f"Erro ao carregar lista de histórico. Os nomes das colunas podem não corresponder. ({e})")
+                                if st.button("⬅️ Voltar / Cancelar (Modo de Segurança)"): st.session_state['status_acao'] = None; st.rerun()
                         else: 
                             st.warning("Nenhum histórico para corrigir.")
                             if st.button("⬅️ Voltar / Cancelar"): st.session_state['status_acao'] = None; st.rerun()
@@ -524,7 +551,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                             edit_id = st.text_input("ID / Matrícula", value=str(colab.id), key="k_eid")
                             edit_nome = st.text_input("Nome Completo", value=str(colab.nome), key="k_enome")
                             edit_cpf = st.text_input("CPF", value=str(colab.cpf) if colab.cpf else "", key="k_ecpf")
-                            edit_adm = st.text_input("Data de Admissão (Pode digitar sem barras)", value=format_date_br(colab.admissao), placeholder="Ex: 01072025")
+                            edit_adm = st.text_input("Data de Admissão (Sem barras)", value=format_date_br(colab.admissao), placeholder="Ex: 01072025")
                             edit_sal_mes = st.text_input("Salário-Mês Base", value=str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "", key="k_esal_mes")
                         with ce2:
                             sel_cargo = st.selectbox("Cargo", LISTA_CARGOS, index=cargo_idx)
@@ -534,7 +561,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                             edit_dem = st.text_input("Data de Demissão (Sem barras)", value=format_date_br(colab.demissao), placeholder="Ex: 01072025", disabled=ativo_ed)
                             
                             edit_pix = st.text_input("Chave PIX", value=str(colab.chave_pix) if colab.chave_pix else "", key="k_epix")
-                            edit_sal_hora = st.text_input("Salário-Hora Base (Calculado Pela IA)", value=format_currency_brl(colab.salario_hora) if colab.salario_hora else "Automático (Base / 220)", disabled=True, key="k_esal_hora")
+                            edit_sal_hora = st.text_input("Salário-Hora Base (Calculado Pela IA)", value="O sistema calcula dividindo a Base por 220", disabled=True, key="k_esal_hora")
                             
                         st.markdown("##### 🏥 INSS")
                         ci1, ci2 = st.columns(2)
