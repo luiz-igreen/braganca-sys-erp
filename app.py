@@ -120,7 +120,6 @@ if (!window.parent.EnterToTabInjected) {
             if (index > -1 && index < focusable.length - 1) {
                 var nextEl = focusable[index + 1];
                 nextEl.focus();
-                // A MÁGICA DOS SISTEMAS DESKTOP: Seleciona o texto todo ao receber foco
                 if (nextEl.tagName === 'INPUT' && (nextEl.type === 'text' || nextEl.type === 'number')) {
                     setTimeout(() => nextEl.select(), 10);
                 }
@@ -202,6 +201,16 @@ def format_date_br(d_val):
     if not d_val or pd.isna(d_val) or str(d_val).lower() in ["none", "nat", "nan"]: return ""
     try: return pd.to_datetime(d_val).strftime("%d/%m/%Y")
     except: return ""
+
+def format_competencia_smart(val):
+    """Lê Mês e Ano (MM/AAAA) sem barras e formata corretamente"""
+    if not val or str(val).strip() == "" or str(val).lower() in ["none", "nan"]: return ""
+    s = str(val).strip()
+    if '/' in s: return s
+    digitos = re.sub(r'[^\d]', '', s)
+    if len(digitos) == 6: return f"{digitos[:2]}/{digitos[2:]}"
+    elif len(digitos) == 4: return f"{digitos[:2]}/20{digitos[2:]}"
+    return s
 
 # --- BARRA LATERAL DE NAVEGAÇÃO CENTRAL ---
 menu = st.sidebar.radio("Navegação", [
@@ -396,9 +405,8 @@ elif menu == "🛠️ Gestão de Cadastros":
                     df_evo_salarial = pd.read_sql(text("SELECT data_alteracao, motivo, salario_anterior, novo_salario FROM historico_salarial WHERE id_colaborador = :id ORDER BY data_alteracao DESC, id DESC"), conn, params={"id": str(colab_id)})
                 
                 if colab:
-                    # --- AUTO-SINCRONIZAÇÃO INTELIGENTE (FICHA <-> HISTÓRICO) ---
                     sal_mestra_vazio = not colab.salario_mes_12_24 or str(colab.salario_mes_12_24).strip() == "" or str(colab.salario_mes_12_24).lower() in ["nan", "none"]
-                    hist_salario = df_hist[df_hist['tipo_lancamento'].str.contains('Salário', na=False, case=False)]
+                    hist_salario = df_hist[df_hist['tipo_lancamento'].str.contains('Salário', na=False, case=False)] if not df_hist.empty else pd.DataFrame()
                     tem_hist = not hist_salario.empty
                     
                     val_atual_base = 0.0
@@ -475,6 +483,10 @@ elif menu == "🛠️ Gestão de Cadastros":
                         df_view = df_hist[cols_existentes].copy()
                         df_view['valor_lancamento'] = df_view['valor_lancamento'].apply(format_brl_number)
                         
+                        # CORREÇÃO VISUAL DA COMPETÊNCIA ANTIGA (Ex: 122024 -> 12/2024)
+                        if 'competencia' in df_view.columns:
+                            df_view['competencia'] = df_view['competencia'].apply(format_competencia_smart)
+                        
                         rename_dict = {'competencia': 'Competência', 'tipo_lancamento': 'Tipo', 'valor_lancamento': 'Valor (R$)', 'status_pagamento': 'Status', 'retroativo_pago': 'Foi Retroativo?', 'data_pagamento': 'Data Pagamento'}
                         df_view.rename(columns={k: v for k, v in rename_dict.items() if k in df_view.columns}, inplace=True)
                         st.dataframe(df_view, use_container_width=True, hide_index=True)
@@ -505,24 +517,26 @@ elif menu == "🛠️ Gestão de Cadastros":
                     if st.session_state['status_acao'] == 'solicitou_lancamento_avulso':
                         st.info("➕ **Inserção Avulsa:**")
                         c_av1, c_av2, c_av3 = st.columns(3)
-                        with c_av1: av_comp = st.text_input("Competência (MM/AAAA)", placeholder="Ex: 09/2025")
+                        # CORREÇÃO DA MÁSCARA INTELIGENTE PARA A COMPETÊNCIA
+                        with c_av1: av_comp = st.text_input("Competência (MM/AAAA)", placeholder="Ex: 092025 ou 09/2025")
                         with c_av2: av_tipo = st.selectbox("Tipo", ["Salário Mensal", "Prêmio ZAUT", "Férias", "Outros"])
                         with c_av3: av_valor = st.text_input("Valor", placeholder="2354,90")
                         c_bt1, c_bt2 = st.columns([1, 4])
                         if c_bt1.button("💾 Salvar"):
                             v_clean = clean_money_to_db(av_valor)
-                            if v_clean:
+                            c_clean = format_competencia_smart(av_comp)
+                            if v_clean and c_clean:
                                 with engine.begin() as conn:
-                                    conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, :tipo, :valor, 'Pago')"), {"id": str(colab_id), "comp": av_comp.strip(), "tipo": av_tipo, "valor": float(v_clean)})
+                                    conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, :tipo, :valor, 'Pago')"), {"id": str(colab_id), "comp": c_clean, "tipo": av_tipo, "valor": float(v_clean)})
                                 st.success("Salvo!"); st.session_state['status_acao'] = None; st.rerun()
-                            else: st.error("Valor inválido.")
+                            else: st.error("Valor ou formato de competência inválidos.")
                         if c_bt2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
                     if st.session_state['status_acao'] == 'solicitou_corrigir_historico':
                         st.info("🛠️ **Editor de Histórico:**")
                         if not df_hist.empty:
                             try:
-                                opcoes_hist = {f"Comp: {row['competencia']} | Tipo: {row['tipo_lancamento']} | Val: R$ {format_brl_number(row['valor_lancamento'])}": row['id'] for _, row in df_hist.iterrows()}
+                                opcoes_hist = {f"Comp: {format_competencia_smart(row['competencia'])} | Tipo: {row['tipo_lancamento']} | Val: R$ {format_brl_number(row['valor_lancamento'])}": row['id'] for _, row in df_hist.iterrows()}
                                 id_alvo = opcoes_hist[st.selectbox("Selecione:", list(opcoes_hist.keys()))]
                                 novo_val = st.text_input("Novo Valor", placeholder="Ex: 2354,90")
                                 ch1, ch2, ch3 = st.columns(3)
@@ -551,7 +565,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                             edit_id = st.text_input("ID / Matrícula", value=str(colab.id), key="k_eid")
                             edit_nome = st.text_input("Nome Completo", value=str(colab.nome), key="k_enome")
                             edit_cpf = st.text_input("CPF", value=str(colab.cpf) if colab.cpf else "", key="k_ecpf")
-                            edit_adm = st.text_input("Data de Admissão (Sem barras)", value=format_date_br(colab.admissao), placeholder="Ex: 01072025")
+                            edit_adm = st.text_input("Data de Admissão (Pode digitar sem barras)", value=format_date_br(colab.admissao), placeholder="Ex: 01072025")
                             edit_sal_mes = st.text_input("Salário-Mês Base", value=str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "", key="k_esal_mes")
                         with ce2:
                             sel_cargo = st.selectbox("Cargo", LISTA_CARGOS, index=cargo_idx)
@@ -561,7 +575,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                             edit_dem = st.text_input("Data de Demissão (Sem barras)", value=format_date_br(colab.demissao), placeholder="Ex: 01072025", disabled=ativo_ed)
                             
                             edit_pix = st.text_input("Chave PIX", value=str(colab.chave_pix) if colab.chave_pix else "", key="k_epix")
-                            edit_sal_hora = st.text_input("Salário-Hora Base (Calculado Pela IA)", value="O sistema calcula dividindo a Base por 220", disabled=True, key="k_esal_hora")
+                            edit_sal_hora = st.text_input("Salário-Hora Base (Calculado Pela IA)", value="Automático (Base / 220)", disabled=True, key="k_esal_hora")
                             
                         st.markdown("##### 🏥 INSS")
                         ci1, ci2 = st.columns(2)
