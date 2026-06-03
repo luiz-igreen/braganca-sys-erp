@@ -484,13 +484,12 @@ elif menu == "🛠️ Gestão de Cadastros":
                             salario_mes_display = "Não Informado"
                             salario_hora_display = "Não Informado"
                     
-                    # --- LÓGICA DE CORES DA SITUAÇÃO ESOCIAL ---
                     v_sit_atual = getattr(colab, "situacao", "1 - Trabalhando") or "1 - Trabalhando"
-                    sit_color = "#f8fafc" # Fundo padrão (Branco/Cinza)
-                    if v_sit_atual.startswith("8"): sit_color = "#ef4444" # Vermelho
-                    elif v_sit_atual.startswith("1"): sit_color = "#10b981" # Verde
-                    elif v_sit_atual.startswith("9"): sit_color = "#3b82f6" # Azul Férias
-                    else: sit_color = "#facc15" # Amarelo (Outros Afastamentos)
+                    sit_color = "#f8fafc"
+                    if v_sit_atual.startswith("8"): sit_color = "#ef4444"
+                    elif v_sit_atual.startswith("1"): sit_color = "#10b981"
+                    elif v_sit_atual.startswith("9"): sit_color = "#3b82f6"
+                    else: sit_color = "#facc15"
 
                     st.markdown("### 📋 Ficha Completa do Colaborador")
                     st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
@@ -511,11 +510,30 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     v_afast = getattr(colab, 'data_afastamento', None)
                     v_ret = getattr(colab, 'data_retorno', None)
-                    if v_afast or v_sit_atual.startswith(("2", "3", "5", "6", "9")):
-                        st.markdown("### 🏥 Afastamentos (INSS / Férias / Outros)")
+                    
+                    # --- A INTELIGÊNCIA DINÂMICA DOS AFASTAMENTOS ---
+                    mostrar_painel_afastamento = False
+                    if v_afast or v_sit_atual not in ["1 - Trabalhando", "8 - Demitido"]:
+                        mostrar_painel_afastamento = True
+
+                    if mostrar_painel_afastamento:
+                        if v_sit_atual in ["1 - Trabalhando", "8 - Demitido"]:
+                            icon_afast = "⚠️"
+                            titulo_afast = f"{icon_afast} Inconsistência: Data informada, mas status é '{v_sit_atual}'"
+                            alerta_color = "#ef4444"
+                        elif "Ferias" in v_sit_atual:
+                            icon_afast = "🏖️"
+                            titulo_afast = f"{icon_afast} Afastamento Registado: {v_sit_atual}"
+                            alerta_color = "#3b82f6"
+                        else:
+                            icon_afast = "🏥"
+                            titulo_afast = f"{icon_afast} Afastamento Registado: {v_sit_atual}"
+                            alerta_color = "#facc15"
+
+                        st.markdown(f"### <span style='color:{alerta_color};'>{titulo_afast}</span>", unsafe_allow_html=True)
                         st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                         ca1, ca2 = st.columns(2)
-                        with ca1: st.markdown('<p class="field-label">DATA DE INÍCIO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value" style="color:#facc15;">{format_date_br(v_afast) or "Pendente"}</p>', unsafe_allow_html=True)
+                        with ca1: st.markdown('<p class="field-label">DATA DE INÍCIO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value" style="color:{alerta_color}; font-weight: bold;">{format_date_br(v_afast) or "Pendente"}</p>', unsafe_allow_html=True)
                         with ca2: st.markdown('<p class="field-label">RETORNO PREVISTO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{format_date_br(v_ret) or "Em Aberto"}</p>', unsafe_allow_html=True)
                         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -529,7 +547,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                     st.markdown('</div>', unsafe_allow_html=True)
 
                     st.markdown("### 💰 Histórico Mensal de Prêmios e Folha")
-                    
                     if not df_hist.empty:
                         df_hist['competencia'] = df_hist['competencia'].apply(format_competencia_smart)
                         duplicatas = df_hist.groupby(['competencia', 'tipo_lancamento']).size().reset_index(name='contagem')
@@ -566,7 +583,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                         if cb5.button("❌ Excluir"): st.session_state['status_acao'] = 'solicitou_excluir'; st.rerun()
                         if cb6.button("🧹 Fechar"): st.session_state['busca_selecionada_id'] = None; st.session_state['status_acao'] = None; st.rerun()
 
-                    # --- NOVO MÓDULO EXCLUSIVO DE DEMISSÃO ---
+                    # --- MÓDULO EXCLUSIVO DE DEMISSÃO ---
                     if st.session_state['status_acao'] == 'solicitou_demissao':
                         st.info("🛑 **Módulo de Desligamento e Correção de Demissão:**")
                         c_dem1, c_dem2 = st.columns(2)
@@ -703,10 +720,10 @@ elif menu == "🛠️ Gestão de Cadastros":
                             edit_pix = st.text_input("Chave PIX", value=str(colab.chave_pix) if colab.chave_pix else "", key="k_epix")
                             edit_sal_hora = st.text_input("Salário-Hora Base (Calculado Pela IA)", value="Automático (Base / 220)", disabled=True, key="k_esal_hora")
                             
-                        st.markdown("##### 🏥 Afastamentos (INSS / Férias / Outros)")
+                        st.markdown("##### 📅 Datas da Situação Atual (Férias, Licenças, INSS, etc.)")
                         ci1, ci2 = st.columns(2)
-                        with ci1: edit_afast = st.text_input("Data Início (Férias/INSS)", value=format_date_br(v_afast), placeholder="Ex: 01072025")
-                        with ci2: edit_ret = st.text_input("Retorno Previsto", value=format_date_br(v_ret), placeholder="Ex: 01072025")
+                        with ci1: edit_afast = st.text_input("Data de Início da Situação Acima", value=format_date_br(v_afast), placeholder="Ex: 01072025")
+                        with ci2: edit_ret = st.text_input("Data de Retorno Previsto", value=format_date_br(v_ret), placeholder="Ex: 01072025")
                         
                         if st.button("Confirmar e Salvar Alterações", key="k_ebtn_salvar"):
                             if not edit_id.strip() or not edit_nome.strip(): st.error("O ID/Matrícula e o Nome do colaborador não podem ficar vazios.")
@@ -748,14 +765,14 @@ elif menu == "🛠️ Gestão de Cadastros":
             n_cpf = st.text_input("CPF")
             n_adm_str = st.text_input("Admissão (Pode digitar sem barras)", placeholder="Ex: 01072025")
             n_sal_mes = st.text_input("Salário-Mês")
-            n_afast_str = st.text_input("Afastamento (Opcional)", placeholder="Ex: 01072025")
+            n_afast_str = st.text_input("Data de Início da Situação Acima", placeholder="Ex: 01072025")
         with cn2:
             n_nome = st.text_input("Nome Completo")
             s_c = st.selectbox("Cargo", LISTA_CARGOS)
             n_cargo = st.text_input("Digite o Cargo") if s_c == "OUTRO (DIGITAR MANUALMENTE)" else s_c
             n_sit = st.selectbox("Situação Inicial", LISTA_SITUACOES_ESOCIAL, index=0)
             n_sal_hora = st.text_input("Salário-Hora", value="Automático (Base / 220)", disabled=True)
-            n_ret_str = st.text_input("Retorno (Opcional)", placeholder="Ex: 01072025")
+            n_ret_str = st.text_input("Retorno Previsto", placeholder="Ex: 01072025")
         st.markdown('</div>', unsafe_allow_html=True)
         if st.button("💾 Salvar Registro no Sistema"):
             dt_a = parse_br_date_smart(n_adm_str)
