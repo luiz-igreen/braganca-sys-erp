@@ -85,7 +85,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- INJEÇÃO DE JAVASCRIPT PROFISSIONAL (AUTOFILL + ENTER COM SELEÇÃO TOTAL) ---
+# --- INJEÇÃO DE JAVASCRIPT PROFISSIONAL (AUTOFILL + NAVEGAÇÃO ENTER CONTÍNUA) ---
 components.html("""
 <script>
 const doc = window.parent.document;
@@ -423,8 +423,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                         sm_val = clean_money_to_db(str(colab.salario_mes_12_24))
                         if sm_val:
                             comp_atual_dt = datetime.today()
-                            
-                            # BLINDAGEM AUTO-SYNC: Não cria salário atual para demitidos no passado
                             pode_sincronizar = True
                             if pd.notna(colab.demissao):
                                 dt_dem = pd.to_datetime(colab.demissao).date()
@@ -528,19 +526,21 @@ elif menu == "🛠️ Gestão de Cadastros":
                         c_av1, c_av2, c_av3 = st.columns(3)
                         with c_av1: av_comp = st.text_input("Competência (MM/AAAA)", placeholder="Ex: 092025 ou 09/2025")
                         with c_av2: av_tipo = st.selectbox("Tipo", ["Salário Mensal", "Prêmio ZAUT", "Férias", "Outros"])
-                        with c_av3: av_valor = st.text_input("Valor", placeholder="2354,90")
+                        with c_av3: av_valor = st.text_input("Valor (R$)", placeholder="Digite o valor aqui")
                         c_bt1, c_bt2 = st.columns([1, 4])
                         
-                        if c_bt1.button("💾 Salvar"):
+                        if c_bt1.button("💾 Salvar Lançamento"):
                             v_clean = clean_money_to_db(av_valor)
                             c_clean = format_competencia_smart(av_comp)
                             
-                            if v_clean and c_clean:
+                            if not c_clean or len(c_clean) < 6:
+                                st.error("⚠️ A competência é inválida. Digite no formato MMAAAA ou MM/AAAA.")
+                            elif not v_clean:
+                                st.error("⚠️ O campo 'Valor' está vazio. Você precisa digitar um número.")
+                            else:
                                 try:
-                                    # BARREIRA DE SEGURANÇA TEMPORAL
                                     m_c, y_c = map(int, c_clean.split('/'))
                                     dt_comp = date(y_c, m_c, 1)
-                                    
                                     bloqueado = False
                                     msg_bloqueio = ""
                                     
@@ -548,23 +548,22 @@ elif menu == "🛠️ Gestão de Cadastros":
                                         dt_a = pd.to_datetime(colab.admissao).date()
                                         if dt_comp < date(dt_a.year, dt_a.month, 1):
                                             bloqueado = True
-                                            msg_bloqueio = f"Competência ({c_clean}) anterior ao mês de admissão ({dt_a.strftime('%m/%Y')})."
+                                            msg_bloqueio = f"Competência ({c_clean}) é anterior ao mês de admissão ({dt_a.strftime('%m/%Y')})."
                                             
                                     if not bloqueado and pd.notna(colab.demissao):
                                         dt_d = pd.to_datetime(colab.demissao).date()
                                         if dt_comp > date(dt_d.year, dt_d.month, 1):
                                             bloqueado = True
-                                            msg_bloqueio = f"Colaborador demitido em {dt_d.strftime('%d/%m/%Y')}. Não é possível lançar para competência posterior."
+                                            msg_bloqueio = f"Colaborador demitido em {dt_d.strftime('%d/%m/%Y')}. Não é possível lançar para a competência {c_clean}."
                                             
                                     if bloqueado:
                                         st.error(f"🛑 **Lançamento Bloqueado:** {msg_bloqueio}")
                                     else:
                                         with engine.begin() as conn:
                                             conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, :tipo, :valor, 'Pago')"), {"id": str(colab_id), "comp": c_clean, "tipo": av_tipo, "valor": float(v_clean)})
-                                        st.success("Salvo!"); st.session_state['status_acao'] = None; st.rerun()
+                                        st.success(f"Mês {c_clean} salvo com sucesso!"); st.session_state['status_acao'] = None; st.rerun()
                                 except Exception as e:
-                                    st.error("Erro ao validar datas. Verifique o formato da competência.")
-                            else: st.error("Valor ou formato de competência inválidos.")
+                                    st.error("Erro ao validar datas. Verifique se o mês digitado existe.")
                             
                         if c_bt2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
@@ -581,12 +580,14 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     if vc:
                                         with engine.begin() as conn: conn.execute(text("UPDATE historico_premiacoes_e_folha SET valor_lancamento = :v WHERE id = :id"), {"v": float(vc), "id": id_alvo})
                                         st.success("Corrigido!"); st.session_state['status_acao'] = None; st.rerun()
+                                    else:
+                                        st.error("⚠️ O campo de novo valor está vazio ou inválido.")
                                 if ch2.button("🗑️ Apagar"):
                                     with engine.begin() as conn: conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id = :id"), {"id": id_alvo})
                                     st.success("Apagado!"); st.session_state['status_acao'] = None; st.rerun()
                                 if ch3.button("⬅️ Voltar / Cancelar"): st.session_state['status_acao'] = None; st.rerun()
                             except Exception as e:
-                                st.error(f"Erro ao carregar lista de histórico. Os nomes das colunas podem não corresponder. ({e})")
+                                st.error(f"Erro ao carregar lista de histórico. ({e})")
                                 if st.button("⬅️ Voltar / Cancelar (Modo de Segurança)"): st.session_state['status_acao'] = None; st.rerun()
                         else: 
                             st.warning("Nenhum histórico para corrigir.")
@@ -615,276 +616,4 @@ elif menu == "🛠️ Gestão de Cadastros":
                             
                         st.markdown("##### 🏥 INSS")
                         ci1, ci2 = st.columns(2)
-                        with ci1: edit_afast = st.text_input("Afastamento (Deixe vazio se OK)", value=format_date_br(v_afast), placeholder="Ex: 01072025")
-                        with ci2: edit_ret = st.text_input("Retorno (Deixe vazio se não voltou)", value=format_date_br(v_ret), placeholder="Ex: 01072025")
-                        
-                        if st.button("Confirmar e Salvar Alterações", key="k_ebtn_salvar"):
-                            if not edit_id.strip() or not edit_nome.strip(): st.error("O ID/Matrícula e o Nome do colaborador não podem ficar vazios.")
-                            else:
-                                dt_a = parse_br_date_smart(edit_adm)
-                                dt_d = parse_br_date_smart(edit_dem) if not ativo_ed else None
-                                dt_af = parse_br_date_smart(edit_afast)
-                                dt_r = parse_br_date_smart(edit_ret)
-                                
-                                adm_str = dt_a.strftime('%Y-%m-%d') if dt_a else None
-                                dem_str = dt_d.strftime('%Y-%m-%d') if dt_d else None
-                                af_str = dt_af.strftime('%Y-%m-%d') if dt_af else None
-                                ret_str = dt_r.strftime('%Y-%m-%d') if dt_r else None
-                                
-                                sm_val = clean_money_to_db(edit_sal_mes)
-                                sh_val = str(float(sm_val)/220.0) if sm_val is not None else None
-                                
-                                with engine.begin() as conn:
-                                    conn.execute(text("UPDATE cadastro_geral_colaborador SET id=:nid, nome=:n, cpf=:c, cargo=:ca, admissao=:ad, demissao=:de, data_afastamento=:afast, data_retorno=:ret, chave_pix=:pix, salario_mes_12_24=:sm, salario_hora=:sh WHERE id=:oid"), {"nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf, "ca": edit_cargo, "ad": adm_str, "de": dem_str, "afast": af_str, "ret": ret_str, "pix": edit_pix, "sm": sm_val, "sh": sh_val, "oid": str(colab_id)})
-                                    if edit_id.strip() != str(colab_id):
-                                        conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
-                                st.success("Salvo com Sucesso!"); st.session_state['busca_selecionada_id'] = edit_id.strip(); st.session_state['status_acao'] = None; st.rerun()
-                        if st.button("Cancelar", key="k_ebtn_abandonar"): st.session_state['status_acao'] = None; st.rerun()
-            except Exception as e: st.error(f"Erro: {e}")
-
-    elif sub_menu == "➕ Novo Cadastro":
-        st.subheader("Inserir Novo Colaborador")
-        st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
-        cn1, cn2 = st.columns(2)
-        with cn1:
-            n_id = st.text_input("ID / Matrícula")
-            n_cpf = st.text_input("CPF")
-            n_adm_str = st.text_input("Admissão (Pode digitar sem barras)", placeholder="Ex: 01072025")
-            n_sal_mes = st.text_input("Salário-Mês")
-            n_afast_str = st.text_input("Afastamento INSS (Opcional)", placeholder="Ex: 01072025")
-        with cn2:
-            n_nome = st.text_input("Nome Completo")
-            s_c = st.selectbox("Cargo", LISTA_CARGOS)
-            n_cargo = st.text_input("Digite o Cargo") if s_c == "OUTRO (DIGITAR MANUALMENTE)" else s_c
-            a_nc = st.checkbox("✅ Colaborador Ativo", value=True)
-            n_dem_str = st.text_input("Demissão (Sem barras)", placeholder="Ex: 01072025", disabled=a_nc)
-            n_sal_hora = st.text_input("Salário-Hora Atual (Calculado pela IA)", value="Automático (Base / 220)", disabled=True)
-            n_ret_str = st.text_input("Retorno INSS (Opcional)", placeholder="Ex: 01072025")
-        st.markdown('</div>', unsafe_allow_html=True)
-        if st.button("💾 Salvar Registro no Sistema"):
-            dt_a = parse_br_date_smart(n_adm_str)
-            dt_d = parse_br_date_smart(n_dem_str) if not a_nc else None
-            dt_af = parse_br_date_smart(n_afast_str)
-            dt_r = parse_br_date_smart(n_ret_str)
-            
-            sm_val = clean_money_to_db(n_sal_mes)
-            sh_val = str(float(sm_val)/220.0) if sm_val is not None else None
-            
-            with engine.begin() as conn:
-                conn.execute(text("INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora) VALUES (:id, :n, :c, :ca, :ad, :de, :afast, :ret, :sm, :sh)"), {"id": str(n_id), "n": str(n_nome), "c": str(n_cpf), "ca": str(n_cargo), "ad": dt_a.strftime('%Y-%m-%d') if dt_a else None, "de": dt_d.strftime('%Y-%m-%d') if dt_d else None, "afast": dt_af.strftime('%Y-%m-%d') if dt_af else None, "ret": dt_r.strftime('%Y-%m-%d') if dt_r else None, "sm": sm_val, "sh": sh_val})
-            st.success("Salvo!"); st.session_state['redirect_to_consulta'] = True; st.rerun()
-
-# ==========================================
-# 4. GESTÃO DE PRÊMIOS (ZAUT) - NOVO MÓDULO
-# ==========================================
-elif menu == "🏆 Gestão de Prêmios (ZAUT)":
-    st.title("🏆 Lançamento de Prêmios (ZAUT)")
-    st.markdown("Aponte as horas trabalhadas diretamente na grelha ou individualmente.")
-    
-    col_comp1, col_comp2 = st.columns([1, 3])
-    with col_comp1:
-        hoje = datetime.today()
-        meses = [f"{str(m).zfill(2)}/{hoje.year}" for m in range(1, 13)] + [f"{str(m).zfill(2)}/{hoje.year+1}" for m in range(1, 13)]
-        comp_sel = st.selectbox("Selecione a Competência:", meses, index=(hoje.month - 1))
-    
-    st.markdown("---")
-    
-    try:
-        df_colabs = pd.read_sql("SELECT id, nome, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24 FROM cadastro_geral_colaborador ORDER BY nome ASC", engine)
-        
-        mes_comp = int(comp_sel.split('/')[0])
-        ano_comp = int(comp_sel.split('/')[1])
-        data_inicio_comp = pd.Timestamp(year=ano_comp, month=mes_comp, day=1)
-        ultimo_dia = calendar.monthrange(ano_comp, mes_comp)[1]
-        data_fim_comp = pd.Timestamp(year=ano_comp, month=mes_comp, day=ultimo_dia)
-        
-        colabs_elegiveis = []
-        
-        for _, row in df_colabs.iterrows():
-            dt_dem = pd.to_datetime(row['demissao']) if pd.notna(row['demissao']) else None
-            if dt_dem and dt_dem < data_inicio_comp: continue 
-            
-            dt_afast = pd.to_datetime(row['data_afastamento']) if pd.notna(row['data_afastamento']) else None
-            dt_ret = pd.to_datetime(row['data_retorno']) if pd.notna(row['data_retorno']) else None
-            if dt_afast and dt_afast < data_inicio_comp:
-                if dt_ret is None or dt_ret > data_fim_comp: continue 
-            
-            sal_base_db = row['salario_mes_12_24']
-            try:
-                s_val = str(sal_base_db).upper().replace('R$', '').strip()
-                s_val = s_val.replace('.', '').replace(',', '.') if '.' in s_val and ',' in s_val else s_val.replace(',', '.')
-                sal_base_float = float(s_val)
-            except: sal_base_float = 0.0
-                
-            if sal_base_float == 0.0:
-                try:
-                    with engine.connect() as conn2:
-                        hs = conn2.execute(text("SELECT valor_lancamento FROM historico_premiacoes_e_folha WHERE id_colaborador = :id AND tipo_lancamento ILIKE '%Salário%' ORDER BY id DESC LIMIT 1"), {"id": str(row['id'])}).fetchone()
-                        if hs: sal_base_float = float(hs[0])
-                except: pass
-                
-            colabs_elegiveis.append({"id": str(row['id']), "nome": str(row['nome']), "sal_hora": sal_base_float / 220.0 if sal_base_float > 0 else 0.0})
-            
-        if not colabs_elegiveis:
-            st.warning("Nenhum colaborador elegível (ativo) encontrado para esta competência.")
-        else:
-            aba_lote, aba_ind = st.tabs(["📊 Planilha de Lote Rápido", "👤 Lançamento Individual"])
-            
-            with aba_lote:
-                st.markdown("Preencha as horas e selecione o serviço. Colaboradores com **0.00** serão ignorados na gravação.")
-                df_lote = pd.DataFrame(colabs_elegiveis)
-                df_lote['Horas Prêmio (HP)'] = 0.00
-                df_lote['Descrição do Serviço'] = None
-                
-                edited_df = st.data_editor(
-                    df_lote,
-                    column_config={
-                        "id": st.column_config.TextColumn("Matrícula", disabled=True),
-                        "nome": st.column_config.TextColumn("Colaborador", disabled=True),
-                        "sal_hora": st.column_config.NumberColumn("Valor Hora", format="R$ %.2f", disabled=True),
-                        "Horas Prêmio (HP)": st.column_config.NumberColumn("Total HP", min_value=0.0, format="%.2f", step=1.0),
-                        "Descrição do Serviço": st.column_config.SelectboxColumn("Serviço", options=LISTA_SERVICOS_PREMIO)
-                    },
-                    disabled=["id", "nome", "sal_hora"], hide_index=True, use_container_width=True, key="editor_lote_zaut"
-                )
-                
-                c_btn_lt1, c_btn_lt2 = st.columns([1, 4])
-                if c_btn_lt1.button("💾 Salvar Lote Inteiro", type="primary"):
-                    lancamentos = edited_df[edited_df['Horas Prêmio (HP)'] > 0]
-                    if lancamentos.empty: st.warning("Nenhuma hora prêmio preenchida na planilha.")
-                    else:
-                        sucessos, erros = 0, 0
-                        with engine.begin() as conn:
-                            for _, row_edit in lancamentos.iterrows():
-                                hp = float(row_edit['Horas Prêmio (HP)'])
-                                desc = row_edit['Descrição do Serviço'] or "PRÊMIO PRODUÇÃO (ZAUT)"
-                                val_hora = float(row_edit['sal_hora'])
-                                val_final = (val_hora * hp) + 1.00 
-                                try:
-                                    conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id_c, :comp, :tipo, :val, 'Lançado')"), {"id_c": str(row_edit['id']), "comp": comp_sel, "tipo": f"Prêmio: {desc} (Horas: {hp})", "val": val_final})
-                                    sucessos += 1
-                                except: erros += 1
-                        if sucessos > 0:
-                            st.success(f"✅ {sucessos} recibos de prêmio gerados com a taxa ZAUT aplicada.")
-                            if 'editor_lote_zaut' in st.session_state: del st.session_state['editor_lote_zaut']
-                            st.rerun()
-                        if erros > 0: st.error(f"Ocorreram {erros} erros.")
-
-                if c_btn_lt2.button("❌ Cancelar / Limpar Planilha", key="btn_canc_lote"):
-                    if 'editor_lote_zaut' in st.session_state: del st.session_state['editor_lote_zaut']
-                    st.rerun()
-
-            with aba_ind:
-                opcoes_dropdown = {f"{c['nome']} (ID: {c['id']})": c for c in colabs_elegiveis}
-                colab_escolhido = st.selectbox("Selecione o Colaborador:", list(opcoes_dropdown.keys()))
-                dados_c = opcoes_dropdown[colab_escolhido]
-                
-                st.markdown(f"##### 📜 Lançamentos já realizados para {dados_c['nome']} em {comp_sel}:")
-                try:
-                    df_ja_lancado = pd.read_sql(text("SELECT tipo_lancamento, valor_lancamento, status_pagamento FROM historico_premiacoes_e_folha WHERE id_colaborador = :id_c AND competencia = :comp"), engine, params={"id_c": dados_c['id'], "comp": comp_sel})
-                    if not df_ja_lancado.empty:
-                        df_jl_view = df_ja_lancado.copy()
-                        df_jl_view['valor_lancamento'] = df_jl_view['valor_lancamento'].apply(format_currency_brl)
-                        df_jl_view.rename(columns={'tipo_lancamento': 'Descrição do Prêmio/Lançamento', 'valor_lancamento': 'Valor', 'status_pagamento': 'Status'}, inplace=True)
-                        st.dataframe(df_jl_view, use_container_width=True, hide_index=True)
-                    else: st.info(f"O colaborador ainda NÃO recebeu nenhum prêmio nesta competência ({comp_sel}). Lançamento livre!")
-                except: pass
-                st.markdown("---")
-                
-                if st.session_state.get('zaut_acao') != 'lancando':
-                    if st.button(f"➕ Iniciar Lançamento para {dados_c['nome']}", type="primary"):
-                        st.session_state['zaut_acao'] = 'lancando'
-                        st.rerun()
-                else:
-                    st.markdown("#### 📝 Painel de Lançamento Ativo")
-                    st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
-                    
-                    sal_hora_base = dados_c['sal_hora']
-                    if sal_hora_base == 0.0:
-                        st.warning("⚠️ Valor Hora Base zerado na Ficha e no Histórico. Digite o valor manualmente para prosseguir:")
-                        sal_hora_manual = st.text_input("Valor Hora (R$)", key="k_sh_manual", placeholder="Ex: 9,38")
-                        try: sal_hora_base = float(clean_money_to_db(sal_hora_manual)) if clean_money_to_db(sal_hora_manual) else 0.0
-                        except: sal_hora_base = 0.0
-                    else:
-                        st.markdown(f"**Valor Hora Calculado pelo Sistema:** R$ {format_brl_number(sal_hora_base)}")
-                    
-                    cli1, cli2 = st.columns(2)
-                    with cli1: hp_ind = st.text_input("Quantidade de Horas (Pressione ENTER)", key="k_hpi", placeholder="Ex: 47,00")
-                    with cli2: 
-                        desc_ind = st.selectbox("Descrição do Serviço", LISTA_SERVICOS_PREMIO, key="k_di")
-                        desc_final_str = st.text_input("Especifique a Descrição:", key="k_d_outro") if desc_ind == "OUTRO (DIGITAR MANUALMENTE)" else desc_ind
-                    
-                    hp_ind_float = 0.0
-                    try: hp_ind_float = float(clean_money_to_db(hp_ind)) if clean_money_to_db(hp_ind) else 0.0
-                    except: pass
-                    
-                    val_final_ind = (sal_hora_base * hp_ind_float) + 1.00 if hp_ind_float > 0 else 0.00
-                    
-                    st.markdown('<p class="field-label">RECIBO FINAL A GRAVAR</p>', unsafe_allow_html=True)
-                    if hp_ind_float > 0 and sal_hora_base > 0:
-                        st.markdown(f'<p class="field-highlight">R$ {format_brl_number(val_final_ind)}</p>', unsafe_allow_html=True)
-                        st.caption(f"(Inclui R$ 1,00 Taxa ZAUT)")
-                    else: st.markdown(f'<p class="field-value">Aguardando Horas e Valor...</p>', unsafe_allow_html=True)
-                    
-                    c_btn_i1, c_btn_i2 = st.columns([1, 4])
-                    if c_btn_i1.button("💾 Gravar Prêmio", type="primary", key="btn_ind_gravar"):
-                        if hp_ind_float <= 0: st.error("⚠️ Digite horas válidas (pressione ENTER primeiro para calcular).")
-                        elif sal_hora_base <= 0: st.error("⚠️ O valor da hora não pode ser zero.")
-                        elif not desc_final_str.strip(): st.error("⚠️ Especifique o serviço.")
-                        else:
-                            try:
-                                with engine.begin() as conn: conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id_c, :comp, :tipo, :val, 'Lançado')"), {"id_c": dados_c['id'], "comp": comp_sel, "tipo": f"Prêmio: {desc_final_str} (Horas: {hp_ind_float})", "val": val_final_ind})
-                                st.success("✅ Gravado com sucesso!")
-                                for k in ['k_hpi', 'k_sh_manual', 'k_d_outro', 'zaut_acao']:
-                                    if k in st.session_state: del st.session_state[k]
-                                st.rerun()
-                            except Exception as e: st.error(f"Erro: {e}")
-                            
-                    if c_btn_i2.button("❌ Cancelar / Fechar Painel", key="btn_ind_fechar"):
-                        for k in ['k_hpi', 'k_sh_manual', 'k_d_outro', 'zaut_acao']:
-                            if k in st.session_state: del st.session_state[k]
-                        st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
-            
-    except Exception as e:
-        st.error(f"Erro operacional no filtro: {e}")
-
-# ==========================================
-# 5. AUDITORIA CCT (IA)
-# ==========================================
-elif menu == "🔎 Auditoria CCT (IA)":
-    st.title("🔎 Auditoria Automatizada da Folha")
-    
-    if st.button("🚀 Executar Varredura Completa na Folha", type="primary"):
-        with st.spinner("A cruzar salários atuais com as normas..."):
-            try:
-                df_folha = pd.read_sql("SELECT id, nome, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24 FROM cadastro_geral_colaborador", engine)
-                hoje = pd.Timestamp.today()
-                
-                def calcular_auditoria(row):
-                    cargo = str(row['cargo']).upper() if pd.notna(row['cargo']) else ""
-                    sal_atual = float(clean_money_to_db(row['salario_mes_12_24']) or 0.0)
-                    
-                    if pd.notna(row['demissao']) and str(row['demissao']).strip() != "": return pd.Series(["Demitido", "-", "Ok"])
-                    if pd.notna(row['data_afastamento']) and str(row['data_afastamento']).strip() != "" and pd.isna(row['data_retorno']): return pd.Series(["Afastado INSS", "-", "Ok"])
-                    if "ESTAGIÁR" in cargo or "APRENDIZ" in cargo: return pd.Series(["N/A", "-", "Ok"])
-                    
-                    piso = 1518.00
-                    if any(x in cargo for x in ["PEDREIRO", "CARPINTEIRO", "PINTOR", "ENCANADOR"]): piso = 2063.92
-                    elif any(x in cargo for x in ["SERVENTE", "AJUDANTE"]): piso = 1548.00
-                    elif "MESTRE" in cargo: piso = 4068.99
-                        
-                    try:
-                        adm_dt = pd.to_datetime(row['admissao'])
-                        ciclos = min(((hoje.year - adm_dt.year) * 12 + hoje.month - adm_dt.month) // 18, 3)
-                    except: return pd.Series(["Erro Data", "-", "Pendente"])
-                        
-                    if "SERVENTE" in cargo: ciclos = 0
-                    salario_ideal = piso * (1.05 ** ciclos)
-                    
-                    st_aud = "⚠️ Sem Salário" if sal_atual == 0.0 else ("❌ Abaixo CCT" if round(sal_atual, 2) < round(salario_ideal, 2) else "✅ Perfeito")
-                    return pd.Series([f"R$ {format_brl_number(salario_ideal)}", f"R$ {format_brl_number(sal_atual)}", st_aud])
-
-                df_folha[['Salário Ideal (CCT)', 'Salário Atual', 'Status']] = df_folha.apply(calcular_auditoria, axis=1)
-                st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)
-            except Exception as e: st.error(f"Erro: {e}")    
+                        with ci1: edit_afast = st.text_input("Afastamento (Deixe vazio se OK)", value=format_date_br(v_afast), placeholder="Ex    
