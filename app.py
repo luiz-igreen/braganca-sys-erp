@@ -203,7 +203,6 @@ def format_date_br(d_val):
     except: return ""
 
 def format_competencia_smart(val):
-    """Lê Mês e Ano (MM/AAAA) sem barras e formata corretamente"""
     if not val or str(val).strip() == "" or str(val).lower() in ["none", "nan"]: return ""
     s = str(val).strip()
     if '/' in s: return s
@@ -423,10 +422,21 @@ elif menu == "🛠️ Gestão de Cadastros":
                     elif not sal_mestra_vazio and not tem_hist:
                         sm_val = clean_money_to_db(str(colab.salario_mes_12_24))
                         if sm_val:
-                            comp_atual = datetime.today().strftime('%m/%Y')
-                            with engine.begin() as conn_sync:
-                                conn_sync.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": str(colab_id), "comp": comp_atual, "val": float(sm_val)})
-                            df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), engine, params={"id": str(colab_id)})
+                            comp_atual_dt = datetime.today()
+                            
+                            # BLINDAGEM AUTO-SYNC: Não cria salário atual para demitidos no passado
+                            pode_sincronizar = True
+                            if pd.notna(colab.demissao):
+                                dt_dem = pd.to_datetime(colab.demissao).date()
+                                if date(comp_atual_dt.year, comp_atual_dt.month, 1) > date(dt_dem.year, dt_dem.month, 1):
+                                    pode_sincronizar = False
+                            
+                            if pode_sincronizar:
+                                comp_atual = comp_atual_dt.strftime('%m/%Y')
+                                with engine.begin() as conn_sync:
+                                    conn_sync.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": str(colab_id), "comp": comp_atual, "val": float(sm_val)})
+                                df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), engine, params={"id": str(colab_id)})
+                                
                             val_atual_base = float(sm_val)
                             salario_mes_display = format_currency_brl(val_atual_base)
                             salario_hora_display = format_currency_brl(val_atual_base / 220.0)
@@ -483,7 +493,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                         df_view = df_hist[cols_existentes].copy()
                         df_view['valor_lancamento'] = df_view['valor_lancamento'].apply(format_brl_number)
                         
-                        # CORREÇÃO VISUAL DA COMPETÊNCIA ANTIGA (Ex: 122024 -> 12/2024)
                         if 'competencia' in df_view.columns:
                             df_view['competencia'] = df_view['competencia'].apply(format_competencia_smart)
                         
@@ -515,21 +524,48 @@ elif menu == "🛠️ Gestão de Cadastros":
                         if cx2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
                     if st.session_state['status_acao'] == 'solicitou_lancamento_avulso':
-                        st.info("➕ **Inserção Avulsa:**")
+                        st.info("➕ **Inserção Avulsa (Com Validação Temporal):**")
                         c_av1, c_av2, c_av3 = st.columns(3)
-                        # CORREÇÃO DA MÁSCARA INTELIGENTE PARA A COMPETÊNCIA
                         with c_av1: av_comp = st.text_input("Competência (MM/AAAA)", placeholder="Ex: 092025 ou 09/2025")
                         with c_av2: av_tipo = st.selectbox("Tipo", ["Salário Mensal", "Prêmio ZAUT", "Férias", "Outros"])
                         with c_av3: av_valor = st.text_input("Valor", placeholder="2354,90")
                         c_bt1, c_bt2 = st.columns([1, 4])
+                        
                         if c_bt1.button("💾 Salvar"):
                             v_clean = clean_money_to_db(av_valor)
                             c_clean = format_competencia_smart(av_comp)
+                            
                             if v_clean and c_clean:
-                                with engine.begin() as conn:
-                                    conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, :tipo, :valor, 'Pago')"), {"id": str(colab_id), "comp": c_clean, "tipo": av_tipo, "valor": float(v_clean)})
-                                st.success("Salvo!"); st.session_state['status_acao'] = None; st.rerun()
+                                try:
+                                    # BARREIRA DE SEGURANÇA TEMPORAL
+                                    m_c, y_c = map(int, c_clean.split('/'))
+                                    dt_comp = date(y_c, m_c, 1)
+                                    
+                                    bloqueado = False
+                                    msg_bloqueio = ""
+                                    
+                                    if pd.notna(colab.admissao):
+                                        dt_a = pd.to_datetime(colab.admissao).date()
+                                        if dt_comp < date(dt_a.year, dt_a.month, 1):
+                                            bloqueado = True
+                                            msg_bloqueio = f"Competência ({c_clean}) anterior ao mês de admissão ({dt_a.strftime('%m/%Y')})."
+                                            
+                                    if not bloqueado and pd.notna(colab.demissao):
+                                        dt_d = pd.to_datetime(colab.demissao).date()
+                                        if dt_comp > date(dt_d.year, dt_d.month, 1):
+                                            bloqueado = True
+                                            msg_bloqueio = f"Colaborador demitido em {dt_d.strftime('%d/%m/%Y')}. Não é possível lançar para competência posterior."
+                                            
+                                    if bloqueado:
+                                        st.error(f"🛑 **Lançamento Bloqueado:** {msg_bloqueio}")
+                                    else:
+                                        with engine.begin() as conn:
+                                            conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, :tipo, :valor, 'Pago')"), {"id": str(colab_id), "comp": c_clean, "tipo": av_tipo, "valor": float(v_clean)})
+                                        st.success("Salvo!"); st.session_state['status_acao'] = None; st.rerun()
+                                except Exception as e:
+                                    st.error("Erro ao validar datas. Verifique o formato da competência.")
                             else: st.error("Valor ou formato de competência inválidos.")
+                            
                         if c_bt2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
                     if st.session_state['status_acao'] == 'solicitou_corrigir_historico':
@@ -565,7 +601,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                             edit_id = st.text_input("ID / Matrícula", value=str(colab.id), key="k_eid")
                             edit_nome = st.text_input("Nome Completo", value=str(colab.nome), key="k_enome")
                             edit_cpf = st.text_input("CPF", value=str(colab.cpf) if colab.cpf else "", key="k_ecpf")
-                            edit_adm = st.text_input("Data de Admissão (Pode digitar sem barras)", value=format_date_br(colab.admissao), placeholder="Ex: 01072025")
+                            edit_adm = st.text_input("Data de Admissão (Sem barras)", value=format_date_br(colab.admissao), placeholder="Ex: 01072025")
                             edit_sal_mes = st.text_input("Salário-Mês Base", value=str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "", key="k_esal_mes")
                         with ce2:
                             sel_cargo = st.selectbox("Cargo", LISTA_CARGOS, index=cargo_idx)
@@ -851,4 +887,4 @@ elif menu == "🔎 Auditoria CCT (IA)":
 
                 df_folha[['Salário Ideal (CCT)', 'Salário Atual', 'Status']] = df_folha.apply(calcular_auditoria, axis=1)
                 st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)
-            except Exception as e: st.error(f"Erro: {e}")
+            except Exception as e: st.error(f"Erro: {e}")    
