@@ -514,12 +514,48 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- BOTÕES DE AÇÃO ---
                     if st.session_state['status_acao'] is None:
-                        cb1, cb2, cb3, cb4, cb5 = st.columns(5)
+                        cb1, cb2, cb3, cb4, cb5, cb6 = st.columns(6)
                         if cb1.button("✏️ Editar Ficha"): st.session_state['status_acao'] = 'solicitou_alterar'; st.rerun()
                         if cb2.button("➕ Lanç. Avulso"): st.session_state['status_acao'] = 'solicitou_lancamento_avulso'; st.rerun()
                         if cb3.button("🛠️ Corrigir Hist."): st.session_state['status_acao'] = 'solicitou_corrigir_historico'; st.rerun()
-                        if cb4.button("❌ Excluir"): st.session_state['status_acao'] = 'solicitou_excluir'; st.rerun()
-                        if cb5.button("🧹 Fechar"): st.session_state['busca_selecionada_id'] = None; st.session_state['status_acao'] = None; st.rerun()
+                        if cb4.button("🛑 Demissão"): st.session_state['status_acao'] = 'solicitou_demissao'; st.rerun()
+                        if cb5.button("❌ Excluir"): st.session_state['status_acao'] = 'solicitou_excluir'; st.rerun()
+                        if cb6.button("🧹 Fechar"): st.session_state['busca_selecionada_id'] = None; st.session_state['status_acao'] = None; st.rerun()
+
+                    # --- NOVO MÓDULO EXCLUSIVO DE DEMISSÃO ---
+                    if st.session_state['status_acao'] == 'solicitou_demissao':
+                        st.info("🛑 **Módulo de Desligamento e Correção de Demissão:**")
+                        st.markdown("Altere a data de saída do colaborador ou anule a demissão para torná-lo ativo novamente.")
+                        
+                        c_dem1, c_dem2 = st.columns(2)
+                        with c_dem1:
+                            ja_demitido = pd.notna(colab.demissao)
+                            status_atual = f"Demitido em {format_date_br(colab.demissao)}" if ja_demitido else "🟢 Ativo / Sem Demissão"
+                            st.markdown(f"**Status Atual:** {status_atual}")
+                            nova_dem = st.text_input("Nova Data de Demissão (Sem barras)", value=format_date_br(colab.demissao), placeholder="Ex: 01072025")
+                        with c_dem2:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            reverter = st.checkbox("🟢 Anular Demissão (Tornar Ativo)", value=not ja_demitido)
+                            
+                        c_bt1, c_bt2 = st.columns([1, 4])
+                        if c_bt1.button("💾 Gravar Demissão", type="primary"):
+                            dt_nova = None if reverter else parse_br_date_smart(nova_dem)
+                            
+                            if not reverter and not dt_nova:
+                                st.error("⚠️ Data de demissão inválida. Por favor, corrija o formato.")
+                            else:
+                                try:
+                                    dem_str = dt_nova.strftime('%Y-%m-%d') if dt_nova else None
+                                    with engine.begin() as conn:
+                                        conn.execute(text("UPDATE cadastro_geral_colaborador SET demissao = :d WHERE id = :id"), {"d": dem_str, "id": str(colab_id)})
+                                    st.success("✅ Status de Demissão atualizado com sucesso!")
+                                    st.session_state['status_acao'] = None
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Erro ao salvar: {e}")
+                        if c_bt2.button("Cancelar"):
+                            st.session_state['status_acao'] = None
+                            st.rerun()
 
                     if st.session_state['status_acao'] == 'solicitou_excluir':
                         st.warning(f"⚠️ Deseja excluir {colab.nome}?")
@@ -595,12 +631,11 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.info("🛠️ **Editor de Histórico:**")
                         if not df_hist.empty:
                             try:
-                                opcoes_hist = {f"ID: {row['id']} | Comp: {row['competencia']} | Tipo: {row['tipo_lancamento']} | Val: R$ {format_brl_number(row['valor_lancamento'])}": row['id'] for _, row in df_hist.iterrows()}
+                                opcoes_hist = {f"ID: {row['id']} | Comp: {format_competencia_smart(row['competencia'])} | Tipo: {row['tipo_lancamento']} | Val: R$ {format_brl_number(row['valor_lancamento'])}": row['id'] for _, row in df_hist.iterrows()}
                                 id_alvo = opcoes_hist[st.selectbox("Selecione qual deseja alterar/apagar:", list(opcoes_hist.keys()))]
                                 novo_val = st.text_input("Novo Valor (Deixe vazio ou 0 para apagar o registo)", placeholder="Ex: 2354,90")
                                 ch1, ch2, ch3 = st.columns(3)
                                 
-                                # A NOVA INTELIGÊNCIA DE EXCLUSÃO
                                 if ch1.button("💾 Salvar Novo Valor"):
                                     vc = clean_money_to_db(novo_val)
                                     if not vc or float(vc) == 0:
@@ -636,9 +671,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                             sel_cargo = st.selectbox("Cargo", LISTA_CARGOS, index=cargo_idx)
                             edit_cargo = st.text_input("Digite o Cargo", value=str(colab.cargo) if cargo_idx == len(LISTA_CARGOS)-1 else "") if sel_cargo == "OUTRO (DIGITAR MANUALMENTE)" else sel_cargo
                             
-                            ativo_ed = st.checkbox("✅ Colaborador Ativo (Ignorar Demissão)", value=(colab.demissao is None or pd.isna(colab.demissao)))
-                            edit_dem = st.text_input("Data de Demissão (Sem barras)", value=format_date_br(colab.demissao), placeholder="Ex: 01072025", disabled=ativo_ed)
-                            
                             edit_pix = st.text_input("Chave PIX", value=str(colab.chave_pix) if colab.chave_pix else "", key="k_epix")
                             edit_sal_hora = st.text_input("Salário-Hora Base (Calculado Pela IA)", value="Automático (Base / 220)", disabled=True, key="k_esal_hora")
                             
@@ -651,12 +683,10 @@ elif menu == "🛠️ Gestão de Cadastros":
                             if not edit_id.strip() or not edit_nome.strip(): st.error("O ID/Matrícula e o Nome do colaborador não podem ficar vazios.")
                             else:
                                 dt_a = parse_br_date_smart(edit_adm)
-                                dt_d = parse_br_date_smart(edit_dem) if not ativo_ed else None
                                 dt_af = parse_br_date_smart(edit_afast)
                                 dt_r = parse_br_date_smart(edit_ret)
                                 
                                 adm_str = dt_a.strftime('%Y-%m-%d') if dt_a else None
-                                dem_str = dt_d.strftime('%Y-%m-%d') if dt_d else None
                                 af_str = dt_af.strftime('%Y-%m-%d') if dt_af else None
                                 ret_str = dt_r.strftime('%Y-%m-%d') if dt_r else None
                                 
@@ -664,14 +694,14 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 sh_val = str(float(sm_val)/220.0) if sm_val is not None else None
                                 
                                 with engine.begin() as conn:
-                                    conn.execute(text("UPDATE cadastro_geral_colaborador SET id=:nid, nome=:n, cpf=:c, cargo=:ca, admissao=:ad, demissao=:de, data_afastamento=:afast, data_retorno=:ret, chave_pix=:pix, salario_mes_12_24=:sm, salario_hora=:sh WHERE id=:oid"), {"nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf, "ca": edit_cargo, "ad": adm_str, "de": dem_str, "afast": af_str, "ret": ret_str, "pix": edit_pix, "sm": sm_val, "sh": sh_val, "oid": str(colab_id)})
+                                    conn.execute(text("UPDATE cadastro_geral_colaborador SET id=:nid, nome=:n, cpf=:c, cargo=:ca, admissao=:ad, data_afastamento=:afast, data_retorno=:ret, chave_pix=:pix, salario_mes_12_24=:sm, salario_hora=:sh WHERE id=:oid"), {"nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf, "ca": edit_cargo, "ad": adm_str, "afast": af_str, "ret": ret_str, "pix": edit_pix, "sm": sm_val, "sh": sh_val, "oid": str(colab_id)})
                                     if edit_id.strip() != str(colab_id):
                                         conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
                                     
                                     if sm_val:
                                         existe_hist = conn.execute(text("SELECT id FROM historico_premiacoes_e_folha WHERE id_colaborador = :id AND tipo_lancamento ILIKE '%Salário%' ORDER BY id DESC LIMIT 1"), {"id": edit_id.strip()}).fetchone()
                                         if not existe_hist:
-                                            comp_str = dt_a.strftime('%m/%Y') if dt_a else (dt_d.strftime('%m/%Y') if dt_d else datetime.today().strftime('%m/%Y'))
+                                            comp_str = dt_a.strftime('%m/%Y') if dt_a else datetime.today().strftime('%m/%Y')
                                             conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": edit_id.strip(), "comp": comp_str, "val": float(sm_val)})
                                         else:
                                             conn.execute(text("UPDATE historico_premiacoes_e_folha SET valor_lancamento = :val WHERE id = :id_hist"), {"val": float(sm_val), "id_hist": existe_hist[0]})
@@ -930,4 +960,4 @@ elif menu == "🔎 Auditoria CCT (IA)":
 
                 df_folha[['Salário Ideal (CCT)', 'Salário Atual', 'Status']] = df_folha.apply(calcular_auditoria, axis=1)
                 st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)
-            except Exception as e: st.error(f"Erro: {e}")    
+            except Exception as e: st.error(f"Erro: {e}")
