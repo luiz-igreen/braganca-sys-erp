@@ -260,7 +260,7 @@ elif menu == "📥 Importação Inteligente":
                             st.warning(f"Linha ignorada: {inner_e}")
                 st.success("Ingestão executada com sucesso!")
             except Exception as e:
-                st.error(f"Erro Crítico: {e}")
+                st.error(f"Erro Crítico no mapeamento das colunas: {e}")
 
     with aba_imp2:
         st.subheader("Extração Inteligente de Matriz Salarial")
@@ -664,7 +664,9 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                     key="editor_lote_zaut"
                 )
                 
-                if st.button("💾 Processar e Salvar Lote Inteiro", type="primary"):
+                c_btn_lt1, c_btn_lt2 = st.columns([1, 4])
+                
+                if c_btn_lt1.button("💾 Salvar Lote Inteiro", type="primary"):
                     lancamentos = edited_df[edited_df['Horas Prêmio (HP)'] > 0]
                     
                     if lancamentos.empty:
@@ -678,8 +680,7 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                                 if not desc: desc = "PRÊMIO PRODUÇÃO (ZAUT)"
                                     
                                 val_hora = float(row_edit['sal_hora'])
-                                val_final = (val_hora * hp) + 1.00  # O Segredo Matemático da ZAUT!
-                                
+                                val_final = (val_hora * hp) + 1.00 
                                 tipo_lanc = f"Prêmio: {desc} (Horas: {hp})"
                                 
                                 try:
@@ -688,10 +689,7 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                                         (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) 
                                         VALUES (:id_c, :comp, :tipo, :val, 'Lançado')
                                     """), {
-                                        "id_c": str(row_edit['id']),
-                                        "comp": comp_sel,
-                                        "tipo": tipo_lanc,
-                                        "val": val_final
+                                        "id_c": str(row_edit['id']), "comp": comp_sel, "tipo": tipo_lanc, "val": val_final
                                     })
                                     sucessos += 1
                                 except:
@@ -699,15 +697,36 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                         
                         if sucessos > 0:
                             st.success(f"✅ Lote processado! {sucessos} recibos de prêmio gerados com a taxa ZAUT aplicada.")
+                            if 'editor_lote_zaut' in st.session_state: del st.session_state['editor_lote_zaut']
+                            st.rerun()
                         if erros > 0:
                             st.error(f"Ocorreram {erros} erros de gravação.")
+
+                if c_btn_lt2.button("❌ Cancelar / Limpar Planilha", key="btn_canc_lote"):
+                    if 'editor_lote_zaut' in st.session_state: del st.session_state['editor_lote_zaut']
+                    st.rerun()
 
             with aba_ind:
                 opcoes_dropdown = {f"{c['nome']} (ID: {c['id']})": c for c in colabs_elegiveis}
                 colab_escolhido = st.selectbox("Selecione o Colaborador:", list(opcoes_dropdown.keys()))
                 dados_c = opcoes_dropdown[colab_escolhido]
                 
-                st.markdown(f"**Valor Hora Calculado:** R$ {format_brl_number(dados_c['sal_hora'])}")
+                # --- NOVO VISOR DE PREVENÇÃO DE DUPLICIDADE ---
+                st.markdown(f"##### 📜 Lançamentos já realizados para {dados_c['nome']} em {comp_sel}:")
+                try:
+                    df_ja_lancado = pd.read_sql(text("SELECT tipo_lancamento, valor_lancamento, status_pagamento FROM historico_premiacoes_e_folha WHERE id_colaborador = :id_c AND competencia = :comp"), engine, params={"id_c": dados_c['id'], "comp": comp_sel})
+                    if not df_ja_lancado.empty:
+                        df_jl_view = df_ja_lancado.copy()
+                        df_jl_view['valor_lancamento'] = df_jl_view['valor_lancamento'].apply(format_currency_brl)
+                        df_jl_view.rename(columns={'tipo_lancamento': 'Descrição do Prêmio/Lançamento', 'valor_lancamento': 'Valor', 'status_pagamento': 'Status'}, inplace=True)
+                        st.dataframe(df_jl_view, use_container_width=True, hide_index=True)
+                    else:
+                        st.info(f"O colaborador ainda NÃO recebeu nenhum prêmio nesta competência ({comp_sel}). Lançamento livre!")
+                except:
+                    pass
+                
+                st.markdown("---")
+                st.markdown(f"**Valor Hora Calculado da Ficha Mestra:** R$ {format_brl_number(dados_c['sal_hora'])}")
                 
                 cli1, cli2, cli3 = st.columns(3)
                 with cli1: hp_ind = st.text_input("Quantidade de Horas (Ex: 47,00)", value="0,00", key="k_hpi")
@@ -724,10 +743,13 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                     st.markdown('<p class="field-label">RECIBO FINAL</p>', unsafe_allow_html=True)
                     if hp_ind_float > 0:
                         st.markdown(f'<p class="field-highlight">R$ {format_brl_number(val_final_ind)}</p>', unsafe_allow_html=True)
+                        st.caption(f"(Inclui R$ 1,00 Taxa ZAUT)")
                     else:
                         st.markdown(f'<p class="field-value">Aguardando...</p>', unsafe_allow_html=True)
                 
-                if st.button("💾 Gravar Prêmio Individual", type="primary", key="btn_ind"):
+                c_btn_i1, c_btn_i2 = st.columns([1, 4])
+                
+                if c_btn_i1.button("💾 Gravar Prêmio", type="primary", key="btn_ind"):
                     if hp_ind_float <= 0: st.error("Insira horas válidas.")
                     else:
                         d_final = st.text_input("Especifique:") if desc_ind == "OUTRO (DIGITAR MANUALMENTE)" else desc_ind
@@ -735,7 +757,13 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                             with engine.begin() as conn:
                                 conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id_c, :comp, :tipo, :val, 'Lançado')"), {"id_c": dados_c['id'], "comp": comp_sel, "tipo": f"Prêmio: {d_final} (Horas: {hp_ind_float})", "val": val_final_ind})
                             st.success(f"✅ Prêmio de R$ {format_brl_number(val_final_ind)} gravado!")
+                            if 'k_hpi' in st.session_state: del st.session_state['k_hpi']
+                            st.rerun()
                         except Exception as e: st.error(f"Erro: {e}")
+                        
+                if c_btn_i2.button("❌ Cancelar / Limpar Tela", key="btn_ind_canc"):
+                    if 'k_hpi' in st.session_state: del st.session_state['k_hpi']
+                    st.rerun()
             
     except Exception as e:
         st.error(f"Erro operacional no filtro: {e}")
@@ -778,4 +806,4 @@ elif menu == "🔎 Auditoria CCT (IA)":
 
                 df_folha[['Salário Ideal (CCT)', 'Salário Atual', 'Status']] = df_folha.apply(calcular_auditoria, axis=1)
                 st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)
-            except Exception as e: st.error(f"Erro: {e}")    
+            except Exception as e: st.error(f"Erro: {e}")
