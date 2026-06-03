@@ -522,7 +522,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                         if cx2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
                     if st.session_state['status_acao'] == 'solicitou_lancamento_avulso':
-                        st.info("➕ **Inserção Avulsa (Com Validação Temporal):**")
+                        st.info("➕ **Inserção Avulsa (Com Validação Temporal e Anti-Duplicidade):**")
                         c_av1, c_av2, c_av3 = st.columns(3)
                         
                         val_sugestao = format_brl_number(val_atual_base) if val_atual_base > 0 else ""
@@ -558,6 +558,17 @@ elif menu == "🛠️ Gestão de Cadastros":
                                         if dt_comp > date(dt_d.year, dt_d.month, 1):
                                             bloqueado = True
                                             msg_bloqueio = f"Colaborador demitido em {dt_d.strftime('%d/%m/%Y')}. Não é possível lançar para a competência {c_clean}."
+                                            
+                                    # --- NOVA BARREIRA: ANTI-DUPLICIDADE ---
+                                    if not bloqueado:
+                                        with engine.connect() as conn_check:
+                                            ja_existe = conn_check.execute(
+                                                text("SELECT 1 FROM historico_premiacoes_e_folha WHERE id_colaborador = :id AND competencia = :comp AND tipo_lancamento = :tipo"),
+                                                {"id": str(colab_id), "comp": c_clean, "tipo": av_tipo}
+                                            ).fetchone()
+                                            if ja_existe:
+                                                bloqueado = True
+                                                msg_bloqueio = f"Já existe um '{av_tipo}' registrado para a competência {c_clean}."
                                             
                                     if bloqueado:
                                         st.error(f"🛑 **Lançamento Bloqueado:** {msg_bloqueio}")
@@ -640,21 +651,15 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 
                                 with engine.begin() as conn:
                                     conn.execute(text("UPDATE cadastro_geral_colaborador SET id=:nid, nome=:n, cpf=:c, cargo=:ca, admissao=:ad, demissao=:de, data_afastamento=:afast, data_retorno=:ret, chave_pix=:pix, salario_mes_12_24=:sm, salario_hora=:sh WHERE id=:oid"), {"nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf, "ca": edit_cargo, "ad": adm_str, "de": dem_str, "afast": af_str, "ret": ret_str, "pix": edit_pix, "sm": sm_val, "sh": sh_val, "oid": str(colab_id)})
-                                    
                                     if edit_id.strip() != str(colab_id):
                                         conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
                                     
-                                    # --- MOTOR DE ATUALIZAÇÃO DO HISTÓRICO (O NOVO "CÉREBRO") ---
                                     if sm_val:
-                                        # Verifica se já existe algum 'Salário Mensal' no histórico deste funcionário
                                         existe_hist = conn.execute(text("SELECT id FROM historico_premiacoes_e_folha WHERE id_colaborador = :id AND tipo_lancamento ILIKE '%Salário%' ORDER BY id DESC LIMIT 1"), {"id": edit_id.strip()}).fetchone()
-                                        
                                         if not existe_hist:
-                                            # Se não existe, CRIA O PRIMEIRO
                                             comp_str = dt_a.strftime('%m/%Y') if dt_a else (dt_d.strftime('%m/%Y') if dt_d else datetime.today().strftime('%m/%Y'))
                                             conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": edit_id.strip(), "comp": comp_str, "val": float(sm_val)})
                                         else:
-                                            # Se JÁ EXISTE, atualiza o valor desse recibo mais recente para ficar igual à Ficha
                                             conn.execute(text("UPDATE historico_premiacoes_e_folha SET valor_lancamento = :val WHERE id = :id_hist"), {"val": float(sm_val), "id_hist": existe_hist[0]})
                                             
                                 st.success("Salvo com Sucesso!"); st.session_state['busca_selecionada_id'] = edit_id.strip(); st.session_state['status_acao'] = None; st.rerun()
@@ -911,4 +916,4 @@ elif menu == "🔎 Auditoria CCT (IA)":
 
                 df_folha[['Salário Ideal (CCT)', 'Salário Atual', 'Status']] = df_folha.apply(calcular_auditoria, axis=1)
                 st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)
-            except Exception as e: st.error(f"Erro: {e}")    
+            except Exception as e: st.error(f"Erro: {e}")
