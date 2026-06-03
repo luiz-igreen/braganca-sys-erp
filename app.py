@@ -203,12 +203,20 @@ def format_date_br(d_val):
     except: return ""
 
 def format_competencia_smart(val):
+    """Motor robusto: Converte qualquer tentativa (1/25, 012025) no padrão universal MM/AAAA"""
     if not val or str(val).strip() == "" or str(val).lower() in ["none", "nan"]: return ""
     s = str(val).strip()
-    if '/' in s: return s
+    if '/' in s:
+        p = s.split('/')
+        if len(p) == 2:
+            m = p[0].zfill(2)
+            y = p[1]
+            if len(y) == 2: y = "20" + y
+            return f"{m}/{y}"
+        return s
     digitos = re.sub(r'[^\d]', '', s)
-    if len(digitos) == 6: return f"{digitos[:2]}/{digitos[2:]}"
-    elif len(digitos) == 4: return f"{digitos[:2]}/20{digitos[2:]}"
+    if len(digitos) == 6: return f"{digitos[:2].zfill(2)}/{digitos[2:]}"
+    elif len(digitos) == 4: return f"{digitos[:2].zfill(2)}/20{digitos[2:]}"
     return s
 
 # --- BARRA LATERAL DE NAVEGAÇÃO CENTRAL ---
@@ -484,15 +492,28 @@ elif menu == "🛠️ Gestão de Cadastros":
                     st.markdown('</div>', unsafe_allow_html=True)
 
                     st.markdown("### 💰 Histórico Mensal de Prêmios e Folha")
+                    
+                    # --- NOVO: RADAR DE AUDITORIA (ALERTA DE DUPLICIDADE VISUAL) ---
+                    if not df_hist.empty:
+                        df_hist['competencia'] = df_hist['competencia'].apply(format_competencia_smart)
+                        
+                        duplicatas = df_hist.groupby(['competencia', 'tipo_lancamento']).size().reset_index(name='contagem')
+                        duplicatas = duplicatas[duplicatas['contagem'] > 1]
+                        
+                        if not duplicatas.empty:
+                            st.markdown('<div style="background-color: rgba(220, 38, 38, 0.15); border: 1px solid #ef4444; padding: 15px; border-radius: 8px; margin-bottom: 20px;">', unsafe_allow_html=True)
+                            st.markdown("🛑 **ALERTA DE AUDITORIA INTERNA: DUPLICIDADE DETETADA!**")
+                            st.markdown("O sistema encontrou **lançamentos repetidos** para o mesmo mês. Isto causa furos na folha. Por favor, utilize o botão **'Corrigir Hist.'** para apagar o registo duplicado:")
+                            for _, dup in duplicatas.iterrows():
+                                st.markdown(f"- **{dup['tipo_lancamento']}** na competência **{dup['competencia']}** ({dup['contagem']} registos encontrados)")
+                            st.markdown('</div>', unsafe_allow_html=True)
+
                     st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                     if not df_hist.empty:
                         cols_desejadas = ['competencia', 'tipo_lancamento', 'valor_lancamento', 'status_pagamento', 'retroativo_pago', 'data_pagamento']
                         cols_existentes = [c for c in cols_desejadas if c in df_hist.columns]
                         df_view = df_hist[cols_existentes].copy()
                         df_view['valor_lancamento'] = df_view['valor_lancamento'].apply(format_brl_number)
-                        
-                        if 'competencia' in df_view.columns:
-                            df_view['competencia'] = df_view['competencia'].apply(format_competencia_smart)
                         
                         rename_dict = {'competencia': 'Competência', 'tipo_lancamento': 'Tipo', 'valor_lancamento': 'Valor (R$)', 'status_pagamento': 'Status', 'retroativo_pago': 'Foi Retroativo?', 'data_pagamento': 'Data Pagamento'}
                         df_view.rename(columns={k: v for k, v in rename_dict.items() if k in df_view.columns}, inplace=True)
@@ -559,16 +580,15 @@ elif menu == "🛠️ Gestão de Cadastros":
                                             bloqueado = True
                                             msg_bloqueio = f"Colaborador demitido em {dt_d.strftime('%d/%m/%Y')}. Não é possível lançar para a competência {c_clean}."
                                             
-                                    # --- NOVA BARREIRA: ANTI-DUPLICIDADE ---
+                                    # --- NOVA BARREIRA DEFINITIVA: ANTI-DUPLICIDADE DE BANCO ---
                                     if not bloqueado:
                                         with engine.connect() as conn_check:
-                                            ja_existe = conn_check.execute(
-                                                text("SELECT 1 FROM historico_premiacoes_e_folha WHERE id_colaborador = :id AND competencia = :comp AND tipo_lancamento = :tipo"),
-                                                {"id": str(colab_id), "comp": c_clean, "tipo": av_tipo}
-                                            ).fetchone()
-                                            if ja_existe:
-                                                bloqueado = True
-                                                msg_bloqueio = f"Já existe um '{av_tipo}' registrado para a competência {c_clean}."
+                                            df_check = pd.read_sql(text("SELECT competencia, tipo_lancamento FROM historico_premiacoes_e_folha WHERE id_colaborador = :id"), conn_check, params={"id": str(colab_id)})
+                                            if not df_check.empty:
+                                                df_check['competencia'] = df_check['competencia'].apply(format_competencia_smart)
+                                                if not df_check[(df_check['competencia'] == c_clean) & (df_check['tipo_lancamento'].str.lower() == av_tipo.lower())].empty:
+                                                    bloqueado = True
+                                                    msg_bloqueio = f"Já existe um '{av_tipo}' registrado para a competência {c_clean}. Operação Recusada."
                                             
                                     if bloqueado:
                                         st.error(f"🛑 **Lançamento Bloqueado:** {msg_bloqueio}")
@@ -585,23 +605,24 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.info("🛠️ **Editor de Histórico:**")
                         if not df_hist.empty:
                             try:
-                                opcoes_hist = {f"Comp: {format_competencia_smart(row['competencia'])} | Tipo: {row['tipo_lancamento']} | Val: R$ {format_brl_number(row['valor_lancamento'])}": row['id'] for _, row in df_hist.iterrows()}
-                                id_alvo = opcoes_hist[st.selectbox("Selecione:", list(opcoes_hist.keys()))]
+                                # Adicionada a identificação precisa (ID) para conseguir apagar duplicidades perfeitas
+                                opcoes_hist = {f"ID: {row['id']} | Comp: {row['competencia']} | Tipo: {row['tipo_lancamento']} | Val: R$ {format_brl_number(row['valor_lancamento'])}": row['id'] for _, row in df_hist.iterrows()}
+                                id_alvo = opcoes_hist[st.selectbox("Selecione qual deseja alterar/apagar:", list(opcoes_hist.keys()))]
                                 novo_val = st.text_input("Novo Valor", placeholder="Ex: 2354,90")
                                 ch1, ch2, ch3 = st.columns(3)
-                                if ch1.button("💾 Salvar"):
+                                if ch1.button("💾 Salvar Novo Valor"):
                                     vc = clean_money_to_db(novo_val)
                                     if vc:
                                         with engine.begin() as conn: conn.execute(text("UPDATE historico_premiacoes_e_folha SET valor_lancamento = :v WHERE id = :id"), {"v": float(vc), "id": id_alvo})
                                         st.success("Corrigido!"); st.session_state['status_acao'] = None; st.rerun()
                                     else:
                                         st.error("⚠️ O campo de novo valor está vazio ou inválido.")
-                                if ch2.button("🗑️ Apagar"):
+                                if ch2.button("🗑️ Apagar Registo Inteiro"):
                                     with engine.begin() as conn: conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id = :id"), {"id": id_alvo})
                                     st.success("Apagado!"); st.session_state['status_acao'] = None; st.rerun()
                                 if ch3.button("⬅️ Voltar / Cancelar"): st.session_state['status_acao'] = None; st.rerun()
                             except Exception as e:
-                                st.error(f"Erro ao carregar lista de histórico. Os nomes das colunas podem não corresponder. ({e})")
+                                st.error(f"Erro ao carregar lista de histórico. ({e})")
                                 if st.button("⬅️ Voltar / Cancelar (Modo de Segurança)"): st.session_state['status_acao'] = None; st.rerun()
                         else: 
                             st.warning("Nenhum histórico para corrigir.")
