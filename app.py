@@ -524,9 +524,13 @@ elif menu == "🛠️ Gestão de Cadastros":
                     if st.session_state['status_acao'] == 'solicitou_lancamento_avulso':
                         st.info("➕ **Inserção Avulsa (Com Validação Temporal):**")
                         c_av1, c_av2, c_av3 = st.columns(3)
+                        
+                        # SUGESTÃO INTELIGENTE DE VALOR (UX OTIMIZADO)
+                        val_sugestao = format_brl_number(val_atual_base) if val_atual_base > 0 else ""
+                        
                         with c_av1: av_comp = st.text_input("Competência (MM/AAAA)", placeholder="Ex: 092025 ou 09/2025")
                         with c_av2: av_tipo = st.selectbox("Tipo", ["Salário Mensal", "Prêmio ZAUT", "Férias", "Outros"])
-                        with c_av3: av_valor = st.text_input("Valor (R$)", placeholder="Digite o valor aqui")
+                        with c_av3: av_valor = st.text_input("Valor (R$)", value=val_sugestao, placeholder="Digite o valor aqui")
                         c_bt1, c_bt2 = st.columns([1, 4])
                         
                         if c_bt1.button("💾 Salvar Lançamento"):
@@ -587,7 +591,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     st.success("Apagado!"); st.session_state['status_acao'] = None; st.rerun()
                                 if ch3.button("⬅️ Voltar / Cancelar"): st.session_state['status_acao'] = None; st.rerun()
                             except Exception as e:
-                                st.error(f"Erro ao carregar lista de histórico. ({e})")
+                                st.error(f"Erro ao carregar lista de histórico. Os nomes das colunas podem não corresponder. ({e})")
                                 if st.button("⬅️ Voltar / Cancelar (Modo de Segurança)"): st.session_state['status_acao'] = None; st.rerun()
                         else: 
                             st.warning("Nenhum histórico para corrigir.")
