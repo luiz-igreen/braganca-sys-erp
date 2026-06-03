@@ -13,7 +13,7 @@ st.set_page_config(page_title="BRAGANÇA SYS", page_icon="🏗️", layout="wide
 # Conexão segura com o Banco de Dados
 engine = create_engine(st.secrets["DATABASE_URL"])
 
-# --- MIGRAÇÃO AUTOMÁTICA DE BANCO DE DADOS (INSS E HISTÓRICOS) ---
+# --- MIGRAÇÃO AUTOMÁTICA DE BANCO DE DADOS (INSS, HISTÓRICOS E SITUAÇÃO) ---
 try:
     with engine.begin() as conn:
         conn.execute(text("""
@@ -26,19 +26,24 @@ try:
                 novo_salario VARCHAR(50)
             )
         """))
-except Exception as e:
-    st.error(f"Erro ao inicializar tabelas de sistema: {e}")
+except Exception as e: st.error(f"Erro ao inicializar tabelas: {e}")
 
 try:
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN data_afastamento VARCHAR(50);"))
-except:
-    pass 
+except: pass 
 try:
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN data_retorno VARCHAR(50);"))
-except:
-    pass 
+except: pass 
+try:
+    with engine.begin() as conn:
+        # Adiciona a nova coluna de Situação para o eSocial
+        conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN situacao VARCHAR(100) DEFAULT '1 - Trabalhando';"))
+        # Auto-preencher base legada para não dar erro
+        conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = '8 - Demitido' WHERE demissao IS NOT NULL AND (situacao IS NULL OR situacao = '');"))
+        conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = '1 - Trabalhando' WHERE demissao IS NULL AND (situacao IS NULL OR situacao = '');"))
+except: pass
 
 # --- ESTILIZAÇÃO VISUAL AVANÇADA (DARK PREMIUM GLASSMORPHISM) ---
 st.markdown("""
@@ -105,9 +110,7 @@ if (!window.parent.EnterToTabInjected) {
     window.parent.EnterToTabInjected = true;
     doc.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
-            if (e.target.tagName === 'BUTTON') return;
-            if (e.target.tagName === 'TEXTAREA') return;
-            if (e.target.getAttribute('aria-expanded') === 'true') return;
+            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'TEXTAREA' || e.target.getAttribute('aria-expanded') === 'true') return;
 
             e.preventDefault();
             e.stopPropagation();
@@ -146,6 +149,36 @@ LISTA_SERVICOS_PREMIO = [
     "216 PRÊMIO REVESTIMENTO INTERNO",
     "225 PREMIO ESTRUTURA",
     "OUTRO (DIGITAR MANUALMENTE)"
+]
+
+# --- LISTA OFICIAL DO ESOCIAL (DOMÍNIO) ---
+LISTA_SITUACOES_ESOCIAL = [
+    "1 - Trabalhando",
+    "2 - Afastado Direitos Integrais",
+    "3 - Acid. Trabalho periodo superior a 15 dias",
+    "4 - Servico Militar",
+    "5 - Licenca maternidade",
+    "6 - Doenca periodo superior a 15 dias",
+    "7 - Licenca sem Vencimento",
+    "8 - Demitido",
+    "9 - Ferias",
+    "10 - Novo afast. mesmo acid. trabalho",
+    "11 - Antecipacao e/ou prorrogacao Licenca Maternidade",
+    "12 - Novo afast. mesma doenca",
+    "13 - Exercicio de mandato sindical",
+    "14 - Aposent. por invalid. acidente de trabalho",
+    "15 - Aposent. por invalid. doenca profissional",
+    "16 - Aposent. por invalid. exceto acid. trabalho",
+    "17 - Acid. Trabalho periodo igual ou inferior a 15 dias",
+    "18 - Doenca periodo igual ou inferior a 15 dias",
+    "19 - Aborto nao criminoso",
+    "20 - Licenca maternidade adocao 1 ano",
+    "21 - Licenca maternidade adocao 1 a 4 anos",
+    "22 - Licenca maternidade adocao 4 a 8 anos",
+    "23 - Transferido",
+    "24 - Outros motivos de afastamento",
+    "90 - Suspensão contratual decorrente de forca maior",
+    "91 - Suspensão contratual para inquerito falta grave"
 ]
 
 # --- GERENCIADOR DE SESSÃO E ROTEAMENTO SPA ---
@@ -205,10 +238,17 @@ def format_date_br(d_val):
 def format_competencia_smart(val):
     if not val or str(val).strip() == "" or str(val).lower() in ["none", "nan"]: return ""
     s = str(val).strip()
-    if '/' in s: return s
+    if '/' in s:
+        p = s.split('/')
+        if len(p) == 2:
+            m = p[0].zfill(2)
+            y = p[1]
+            if len(y) == 2: y = "20" + y
+            return f"{m}/{y}"
+        return s
     digitos = re.sub(r'[^\d]', '', s)
-    if len(digitos) == 6: return f"{digitos[:2]}/{digitos[2:]}"
-    elif len(digitos) == 4: return f"{digitos[:2]}/20{digitos[2:]}"
+    if len(digitos) == 6: return f"{digitos[:2].zfill(2)}/{digitos[2:]}"
+    elif len(digitos) == 4: return f"{digitos[:2].zfill(2)}/20{digitos[2:]}"
     return s
 
 # --- BARRA LATERAL DE NAVEGAÇÃO CENTRAL ---
@@ -227,7 +267,7 @@ if menu == "👥 Visão Geral":
     st.title("📊 Painel Corporativo")
     try:
         df = pd.read_sql("""
-            SELECT id, nome, cpf, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora 
+            SELECT id, nome, cpf, cargo, situacao, admissao, demissao, salario_mes_12_24, salario_hora 
             FROM cadastro_geral_colaborador 
             ORDER BY nome ASC
         """, engine)
@@ -236,8 +276,7 @@ if menu == "👥 Visão Geral":
         df['salario_hora'] = df['salario_hora'].apply(format_currency_brl)
         
         df.rename(columns={
-            'data_afastamento': 'Afastamento (INSS)',
-            'data_retorno': 'Retorno (INSS)'
+            'situacao': 'Status (eSocial)'
         }, inplace=True)
         
         st.dataframe(df, use_container_width=True, hide_index=True)
@@ -401,7 +440,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                     df_fin = pd.read_sql(text("SELECT * FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), conn, params={"id": str(colab_id)})
                     fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None
                     df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
-                    df_evo_salarial = pd.read_sql(text("SELECT data_alteracao, motivo, salario_anterior, novo_salario FROM historico_salarial WHERE id_colaborador = :id ORDER BY data_alteracao DESC, id DESC"), conn, params={"id": str(colab_id)})
                 
                 if colab:
                     sal_mestra_vazio = not colab.salario_mes_12_24 or str(colab.salario_mes_12_24).strip() == "" or str(colab.salario_mes_12_24).lower() in ["nan", "none"]
@@ -457,21 +495,22 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.markdown('<p class="field-label">SALÁRIO-MÊS ATUAL</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{salario_mes_display}</p>', unsafe_allow_html=True)
                     with c2:
                         st.markdown('<p class="field-label">NOME COMPLETO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{colab.nome}</p>', unsafe_allow_html=True)
-                        st.markdown('<p class="field-label">DATA DE ADMISSÃO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{format_date_br(colab.admissao) or "Não Informada"}</p>', unsafe_allow_html=True)
+                        st.markdown('<p class="field-label">SITUAÇÃO (eSocial)</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{getattr(colab, "situacao", "1 - Trabalhando") or "1 - Trabalhando"}</p>', unsafe_allow_html=True)
                         st.markdown('<p class="field-label">SALÁRIO-HORA ATUAL</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{salario_hora_display}</p>', unsafe_allow_html=True)
                     with c3:
                         st.markdown('<p class="field-label">CPF</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{colab.cpf if colab.cpf else "Não Informado"}</p>', unsafe_allow_html=True)
-                        st.markdown('<p class="field-label">DATA DE DEMISSÃO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{format_date_br(colab.demissao) or "Ativo / Em Aberto"}</p>', unsafe_allow_html=True)
+                        st.markdown('<p class="field-label">DATA DE ADMISSÃO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{format_date_br(colab.admissao) or "Não Informada"}</p>', unsafe_allow_html=True)
+                        st.markdown('<p class="field-label">DATA DE DEMISSÃO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value" style="color: #ef4444;">{format_date_br(colab.demissao) or "Ativo / Sem Demissão"}</p>', unsafe_allow_html=True)
                     st.markdown('</div>', unsafe_allow_html=True)
 
                     v_afast = getattr(colab, 'data_afastamento', None)
                     v_ret = getattr(colab, 'data_retorno', None)
-                    if v_afast:
-                        st.markdown("### 🏥 Status de Afastamento (INSS)")
+                    if v_afast or getattr(colab, "situacao", "").startswith(("2", "3", "5", "6", "9")):
+                        st.markdown("### 🏥 Afastamentos (INSS / Férias / Outros)")
                         st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                         ca1, ca2 = st.columns(2)
-                        with ca1: st.markdown('<p class="field-label">AFASTAMENTO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value" style="color:#facc15;">{format_date_br(v_afast)}</p>', unsafe_allow_html=True)
-                        with ca2: st.markdown('<p class="field-label">RETORNO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{format_date_br(v_ret) or "Ainda Afastado"}</p>', unsafe_allow_html=True)
+                        with ca1: st.markdown('<p class="field-label">DATA DE INÍCIO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value" style="color:#facc15;">{format_date_br(v_afast) or "Pendente"}</p>', unsafe_allow_html=True)
+                        with ca2: st.markdown('<p class="field-label">RETORNO PREVISTO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{format_date_br(v_ret) or "Em Aberto"}</p>', unsafe_allow_html=True)
                         st.markdown('</div>', unsafe_allow_html=True)
 
                     st.markdown("### 🏦 Dados Bancários (PIX Principal)")
@@ -487,7 +526,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                     
                     if not df_hist.empty:
                         df_hist['competencia'] = df_hist['competencia'].apply(format_competencia_smart)
-                        
                         duplicatas = df_hist.groupby(['competencia', 'tipo_lancamento']).size().reset_index(name='contagem')
                         duplicatas = duplicatas[duplicatas['contagem'] > 1]
                         
@@ -525,8 +563,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                     # --- NOVO MÓDULO EXCLUSIVO DE DEMISSÃO ---
                     if st.session_state['status_acao'] == 'solicitou_demissao':
                         st.info("🛑 **Módulo de Desligamento e Correção de Demissão:**")
-                        st.markdown("Altere a data de saída do colaborador ou anule a demissão para torná-lo ativo novamente.")
-                        
                         c_dem1, c_dem2 = st.columns(2)
                         with c_dem1:
                             ja_demitido = pd.notna(colab.demissao)
@@ -540,22 +576,18 @@ elif menu == "🛠️ Gestão de Cadastros":
                         c_bt1, c_bt2 = st.columns([1, 4])
                         if c_bt1.button("💾 Gravar Demissão", type="primary"):
                             dt_nova = None if reverter else parse_br_date_smart(nova_dem)
-                            
                             if not reverter and not dt_nova:
                                 st.error("⚠️ Data de demissão inválida. Por favor, corrija o formato.")
                             else:
                                 try:
                                     dem_str = dt_nova.strftime('%Y-%m-%d') if dt_nova else None
+                                    novo_status = '1 - Trabalhando' if reverter else '8 - Demitido'
                                     with engine.begin() as conn:
-                                        conn.execute(text("UPDATE cadastro_geral_colaborador SET demissao = :d WHERE id = :id"), {"d": dem_str, "id": str(colab_id)})
-                                    st.success("✅ Status de Demissão atualizado com sucesso!")
-                                    st.session_state['status_acao'] = None
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Erro ao salvar: {e}")
-                        if c_bt2.button("Cancelar"):
-                            st.session_state['status_acao'] = None
-                            st.rerun()
+                                        conn.execute(text("UPDATE cadastro_geral_colaborador SET demissao = :d, situacao = :sit WHERE id = :id"), {"d": dem_str, "sit": novo_status, "id": str(colab_id)})
+                                    st.success("✅ Status atualizado com sucesso!")
+                                    st.session_state['status_acao'] = None; st.rerun()
+                                except Exception as e: st.error(f"Erro ao salvar: {e}")
+                        if c_bt2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
                     if st.session_state['status_acao'] == 'solicitou_excluir':
                         st.warning(f"⚠️ Deseja excluir {colab.nome}?")
@@ -584,28 +616,19 @@ elif menu == "🛠️ Gestão de Cadastros":
                             v_clean = clean_money_to_db(av_valor)
                             c_clean = format_competencia_smart(av_comp)
                             
-                            if not c_clean or len(c_clean) < 6:
-                                st.error("⚠️ A competência é inválida. Digite no formato MMAAAA ou MM/AAAA.")
-                            elif not v_clean:
-                                st.error("⚠️ O campo 'Valor' está vazio. Você precisa digitar um número.")
+                            if not c_clean or len(c_clean) < 6: st.error("⚠️ A competência é inválida. Digite no formato MMAAAA ou MM/AAAA.")
+                            elif not v_clean: st.error("⚠️ O campo 'Valor' está vazio. Você precisa digitar um número.")
                             else:
                                 try:
                                     m_c, y_c = map(int, c_clean.split('/'))
                                     dt_comp = date(y_c, m_c, 1)
-                                    bloqueado = False
-                                    msg_bloqueio = ""
+                                    bloqueado, msg_bloqueio = False, ""
                                     
-                                    if pd.notna(colab.admissao):
-                                        dt_a = pd.to_datetime(colab.admissao).date()
-                                        if dt_comp < date(dt_a.year, dt_a.month, 1):
-                                            bloqueado = True
-                                            msg_bloqueio = f"Competência ({c_clean}) é anterior ao mês de admissão ({dt_a.strftime('%m/%Y')})."
+                                    if pd.notna(colab.admissao) and dt_comp < date(pd.to_datetime(colab.admissao).year, pd.to_datetime(colab.admissao).month, 1):
+                                        bloqueado, msg_bloqueio = True, f"Competência ({c_clean}) é anterior ao mês de admissão ({pd.to_datetime(colab.admissao).strftime('%m/%Y')})."
                                             
-                                    if not bloqueado and pd.notna(colab.demissao):
-                                        dt_d = pd.to_datetime(colab.demissao).date()
-                                        if dt_comp > date(dt_d.year, dt_d.month, 1):
-                                            bloqueado = True
-                                            msg_bloqueio = f"Colaborador demitido em {dt_d.strftime('%d/%m/%Y')}. Não é possível lançar para a competência {c_clean}."
+                                    if not bloqueado and pd.notna(colab.demissao) and dt_comp > date(pd.to_datetime(colab.demissao).year, pd.to_datetime(colab.demissao).month, 1):
+                                        bloqueado, msg_bloqueio = True, f"Colaborador demitido em {pd.to_datetime(colab.demissao).strftime('%d/%m/%Y')}. Não é possível lançar para a competência {c_clean}."
                                             
                                     if not bloqueado:
                                         with engine.connect() as conn_check:
@@ -613,17 +636,13 @@ elif menu == "🛠️ Gestão de Cadastros":
                                             if not df_check.empty:
                                                 df_check['competencia'] = df_check['competencia'].apply(format_competencia_smart)
                                                 if not df_check[(df_check['competencia'] == c_clean) & (df_check['tipo_lancamento'].str.lower() == av_tipo.lower())].empty:
-                                                    bloqueado = True
-                                                    msg_bloqueio = f"Já existe um '{av_tipo}' registrado para a competência {c_clean}. Operação Recusada."
+                                                    bloqueado, msg_bloqueio = True, f"Já existe um '{av_tipo}' registrado para a competência {c_clean}. Operação Recusada."
                                             
-                                    if bloqueado:
-                                        st.error(f"🛑 **Lançamento Bloqueado:** {msg_bloqueio}")
+                                    if bloqueado: st.error(f"🛑 **Lançamento Bloqueado:** {msg_bloqueio}")
                                     else:
-                                        with engine.begin() as conn:
-                                            conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, :tipo, :valor, 'Pago')"), {"id": str(colab_id), "comp": c_clean, "tipo": av_tipo, "valor": float(v_clean)})
+                                        with engine.begin() as conn: conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, :tipo, :valor, 'Pago')"), {"id": str(colab_id), "comp": c_clean, "tipo": av_tipo, "valor": float(v_clean)})
                                         st.success(f"Mês {c_clean} salvo com sucesso!"); st.session_state['status_acao'] = None; st.rerun()
-                                except Exception as e:
-                                    st.error("Erro ao validar datas. Verifique se o mês digitado existe.")
+                                except Exception as e: st.error("Erro ao validar datas. Verifique se o mês digitado existe.")
                             
                         if c_bt2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
@@ -659,6 +678,8 @@ elif menu == "🛠️ Gestão de Cadastros":
                     if st.session_state['status_acao'] == 'solicitou_alterar':
                         st.info("📝 Modo de Edição Ativo")
                         cargo_idx = LISTA_CARGOS.index(str(colab.cargo).upper().strip()) if str(colab.cargo).upper().strip() in LISTA_CARGOS else (len(LISTA_CARGOS)-1)
+                        v_sit = getattr(colab, 'situacao', '1 - Trabalhando') or '1 - Trabalhando'
+                        sit_idx = LISTA_SITUACOES_ESOCIAL.index(v_sit) if v_sit in LISTA_SITUACOES_ESOCIAL else 0
                         
                         ce1, ce2 = st.columns(2)
                         with ce1:
@@ -671,13 +692,15 @@ elif menu == "🛠️ Gestão de Cadastros":
                             sel_cargo = st.selectbox("Cargo", LISTA_CARGOS, index=cargo_idx)
                             edit_cargo = st.text_input("Digite o Cargo", value=str(colab.cargo) if cargo_idx == len(LISTA_CARGOS)-1 else "") if sel_cargo == "OUTRO (DIGITAR MANUALMENTE)" else sel_cargo
                             
+                            sel_sit = st.selectbox("Situação (eSocial)", LISTA_SITUACOES_ESOCIAL, index=sit_idx)
+                            
                             edit_pix = st.text_input("Chave PIX", value=str(colab.chave_pix) if colab.chave_pix else "", key="k_epix")
                             edit_sal_hora = st.text_input("Salário-Hora Base (Calculado Pela IA)", value="Automático (Base / 220)", disabled=True, key="k_esal_hora")
                             
-                        st.markdown("##### 🏥 INSS")
+                        st.markdown("##### 🏥 Afastamentos (INSS / Férias / Outros)")
                         ci1, ci2 = st.columns(2)
-                        with ci1: edit_afast = st.text_input("Afastamento (Deixe vazio se OK)", value=format_date_br(v_afast), placeholder="Ex: 01072025")
-                        with ci2: edit_ret = st.text_input("Retorno (Deixe vazio se não voltou)", value=format_date_br(v_ret), placeholder="Ex: 01072025")
+                        with ci1: edit_afast = st.text_input("Data Início (Férias/INSS)", value=format_date_br(v_afast), placeholder="Ex: 01072025")
+                        with ci2: edit_ret = st.text_input("Retorno Previsto", value=format_date_br(v_ret), placeholder="Ex: 01072025")
                         
                         if st.button("Confirmar e Salvar Alterações", key="k_ebtn_salvar"):
                             if not edit_id.strip() or not edit_nome.strip(): st.error("O ID/Matrícula e o Nome do colaborador não podem ficar vazios.")
@@ -694,7 +717,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 sh_val = str(float(sm_val)/220.0) if sm_val is not None else None
                                 
                                 with engine.begin() as conn:
-                                    conn.execute(text("UPDATE cadastro_geral_colaborador SET id=:nid, nome=:n, cpf=:c, cargo=:ca, admissao=:ad, data_afastamento=:afast, data_retorno=:ret, chave_pix=:pix, salario_mes_12_24=:sm, salario_hora=:sh WHERE id=:oid"), {"nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf, "ca": edit_cargo, "ad": adm_str, "afast": af_str, "ret": ret_str, "pix": edit_pix, "sm": sm_val, "sh": sh_val, "oid": str(colab_id)})
+                                    conn.execute(text("UPDATE cadastro_geral_colaborador SET id=:nid, nome=:n, cpf=:c, cargo=:ca, admissao=:ad, data_afastamento=:afast, data_retorno=:ret, chave_pix=:pix, salario_mes_12_24=:sm, salario_hora=:sh, situacao=:sit WHERE id=:oid"), {"nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf, "ca": edit_cargo, "ad": adm_str, "afast": af_str, "ret": ret_str, "pix": edit_pix, "sm": sm_val, "sh": sh_val, "sit": sel_sit, "oid": str(colab_id)})
                                     if edit_id.strip() != str(colab_id):
                                         conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
                                     
@@ -719,19 +742,17 @@ elif menu == "🛠️ Gestão de Cadastros":
             n_cpf = st.text_input("CPF")
             n_adm_str = st.text_input("Admissão (Pode digitar sem barras)", placeholder="Ex: 01072025")
             n_sal_mes = st.text_input("Salário-Mês")
-            n_afast_str = st.text_input("Afastamento INSS (Opcional)", placeholder="Ex: 01072025")
+            n_afast_str = st.text_input("Afastamento (Opcional)", placeholder="Ex: 01072025")
         with cn2:
             n_nome = st.text_input("Nome Completo")
             s_c = st.selectbox("Cargo", LISTA_CARGOS)
             n_cargo = st.text_input("Digite o Cargo") if s_c == "OUTRO (DIGITAR MANUALMENTE)" else s_c
-            a_nc = st.checkbox("✅ Colaborador Ativo", value=True)
-            n_dem_str = st.text_input("Demissão (Sem barras)", placeholder="Ex: 01072025", disabled=a_nc)
-            n_sal_hora = st.text_input("Salário-Hora Atual (Calculado pela IA)", value="Automático (Base / 220)", disabled=True)
-            n_ret_str = st.text_input("Retorno INSS (Opcional)", placeholder="Ex: 01072025")
+            n_sit = st.selectbox("Situação Inicial", LISTA_SITUACOES_ESOCIAL, index=0)
+            n_sal_hora = st.text_input("Salário-Hora", value="Automático (Base / 220)", disabled=True)
+            n_ret_str = st.text_input("Retorno (Opcional)", placeholder="Ex: 01072025")
         st.markdown('</div>', unsafe_allow_html=True)
         if st.button("💾 Salvar Registro no Sistema"):
             dt_a = parse_br_date_smart(n_adm_str)
-            dt_d = parse_br_date_smart(n_dem_str) if not a_nc else None
             dt_af = parse_br_date_smart(n_afast_str)
             dt_r = parse_br_date_smart(n_ret_str)
             
@@ -739,16 +760,16 @@ elif menu == "🛠️ Gestão de Cadastros":
             sh_val = str(float(sm_val)/220.0) if sm_val is not None else None
             
             with engine.begin() as conn:
-                conn.execute(text("INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora) VALUES (:id, :n, :c, :ca, :ad, :de, :afast, :ret, :sm, :sh)"), {"id": str(n_id), "n": str(n_nome), "c": str(n_cpf), "ca": str(n_cargo), "ad": dt_a.strftime('%Y-%m-%d') if dt_a else None, "de": dt_d.strftime('%Y-%m-%d') if dt_d else None, "afast": dt_af.strftime('%Y-%m-%d') if dt_af else None, "ret": dt_r.strftime('%Y-%m-%d') if dt_r else None, "sm": sm_val, "sh": sh_val})
+                conn.execute(text("INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora, situacao) VALUES (:id, :n, :c, :ca, :ad, :afast, :ret, :sm, :sh, :sit)"), {"id": str(n_id), "n": str(n_nome), "c": str(n_cpf), "ca": str(n_cargo), "ad": dt_a.strftime('%Y-%m-%d') if dt_a else None, "afast": dt_af.strftime('%Y-%m-%d') if dt_af else None, "ret": dt_r.strftime('%Y-%m-%d') if dt_r else None, "sm": sm_val, "sh": sh_val, "sit": n_sit})
                 
                 if sm_val:
-                    comp_str = dt_a.strftime('%m/%Y') if dt_a else (dt_d.strftime('%m/%Y') if dt_d else datetime.today().strftime('%m/%Y'))
+                    comp_str = dt_a.strftime('%m/%Y') if dt_a else datetime.today().strftime('%m/%Y')
                     conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": str(n_id), "comp": comp_str, "val": float(sm_val)})
                     
             st.success("Salvo!"); st.session_state['redirect_to_consulta'] = True; st.rerun()
 
 # ==========================================
-# 4. GESTÃO DE PRÊMIOS (ZAUT) - NOVO MÓDULO
+# 4. GESTÃO DE PRÊMIOS (ZAUT)
 # ==========================================
 elif menu == "🏆 Gestão de Prêmios (ZAUT)":
     st.title("🏆 Lançamento de Prêmios (ZAUT)")
@@ -763,7 +784,7 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
     st.markdown("---")
     
     try:
-        df_colabs = pd.read_sql("SELECT id, nome, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24 FROM cadastro_geral_colaborador ORDER BY nome ASC", engine)
+        df_colabs = pd.read_sql("SELECT id, nome, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24, situacao FROM cadastro_geral_colaborador ORDER BY nome ASC", engine)
         
         mes_comp = int(comp_sel.split('/')[0])
         ano_comp = int(comp_sel.split('/')[1])
@@ -931,7 +952,7 @@ elif menu == "🔎 Auditoria CCT (IA)":
     if st.button("🚀 Executar Varredura Completa na Folha", type="primary"):
         with st.spinner("A cruzar salários atuais com as normas..."):
             try:
-                df_folha = pd.read_sql("SELECT id, nome, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24 FROM cadastro_geral_colaborador", engine)
+                df_folha = pd.read_sql("SELECT id, nome, cargo, admissao, demissao, situacao, salario_mes_12_24 FROM cadastro_geral_colaborador", engine)
                 hoje = pd.Timestamp.today()
                 
                 def calcular_auditoria(row):
@@ -939,7 +960,8 @@ elif menu == "🔎 Auditoria CCT (IA)":
                     sal_atual = float(clean_money_to_db(row['salario_mes_12_24']) or 0.0)
                     
                     if pd.notna(row['demissao']) and str(row['demissao']).strip() != "": return pd.Series(["Demitido", "-", "Ok"])
-                    if pd.notna(row['data_afastamento']) and str(row['data_afastamento']).strip() != "" and pd.isna(row['data_retorno']): return pd.Series(["Afastado INSS", "-", "Ok"])
+                    v_sit = str(row['situacao']) if pd.notna(row['situacao']) else ""
+                    if v_sit.startswith(("2", "3", "5", "6", "9", "12", "14", "15", "16", "17", "18")): return pd.Series(["Afastado", "-", "Ok"])
                     if "ESTAGIÁR" in cargo or "APRENDIZ" in cargo: return pd.Series(["N/A", "-", "Ok"])
                     
                     piso = 1518.00
@@ -959,5 +981,5 @@ elif menu == "🔎 Auditoria CCT (IA)":
                     return pd.Series([f"R$ {format_brl_number(salario_ideal)}", f"R$ {format_brl_number(sal_atual)}", st_aud])
 
                 df_folha[['Salário Ideal (CCT)', 'Salário Atual', 'Status']] = df_folha.apply(calcular_auditoria, axis=1)
-                st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)
+                st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'situacao', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)
             except Exception as e: st.error(f"Erro: {e}")
