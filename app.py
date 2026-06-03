@@ -203,20 +203,12 @@ def format_date_br(d_val):
     except: return ""
 
 def format_competencia_smart(val):
-    """Motor robusto: Converte qualquer tentativa (1/25, 012025) no padrão universal MM/AAAA"""
     if not val or str(val).strip() == "" or str(val).lower() in ["none", "nan"]: return ""
     s = str(val).strip()
-    if '/' in s:
-        p = s.split('/')
-        if len(p) == 2:
-            m = p[0].zfill(2)
-            y = p[1]
-            if len(y) == 2: y = "20" + y
-            return f"{m}/{y}"
-        return s
+    if '/' in s: return s
     digitos = re.sub(r'[^\d]', '', s)
-    if len(digitos) == 6: return f"{digitos[:2].zfill(2)}/{digitos[2:]}"
-    elif len(digitos) == 4: return f"{digitos[:2].zfill(2)}/20{digitos[2:]}"
+    if len(digitos) == 6: return f"{digitos[:2]}/{digitos[2:]}"
+    elif len(digitos) == 4: return f"{digitos[:2]}/20{digitos[2:]}"
     return s
 
 # --- BARRA LATERAL DE NAVEGAÇÃO CENTRAL ---
@@ -493,7 +485,6 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     st.markdown("### 💰 Histórico Mensal de Prêmios e Folha")
                     
-                    # --- NOVO: RADAR DE AUDITORIA (ALERTA DE DUPLICIDADE VISUAL) ---
                     if not df_hist.empty:
                         df_hist['competencia'] = df_hist['competencia'].apply(format_competencia_smart)
                         
@@ -580,7 +571,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                                             bloqueado = True
                                             msg_bloqueio = f"Colaborador demitido em {dt_d.strftime('%d/%m/%Y')}. Não é possível lançar para a competência {c_clean}."
                                             
-                                    # --- NOVA BARREIRA DEFINITIVA: ANTI-DUPLICIDADE DE BANCO ---
                                     if not bloqueado:
                                         with engine.connect() as conn_check:
                                             df_check = pd.read_sql(text("SELECT competencia, tipo_lancamento FROM historico_premiacoes_e_folha WHERE id_colaborador = :id"), conn_check, params={"id": str(colab_id)})
@@ -605,18 +595,21 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.info("🛠️ **Editor de Histórico:**")
                         if not df_hist.empty:
                             try:
-                                # Adicionada a identificação precisa (ID) para conseguir apagar duplicidades perfeitas
                                 opcoes_hist = {f"ID: {row['id']} | Comp: {row['competencia']} | Tipo: {row['tipo_lancamento']} | Val: R$ {format_brl_number(row['valor_lancamento'])}": row['id'] for _, row in df_hist.iterrows()}
                                 id_alvo = opcoes_hist[st.selectbox("Selecione qual deseja alterar/apagar:", list(opcoes_hist.keys()))]
-                                novo_val = st.text_input("Novo Valor", placeholder="Ex: 2354,90")
+                                novo_val = st.text_input("Novo Valor (Deixe vazio ou 0 para apagar o registo)", placeholder="Ex: 2354,90")
                                 ch1, ch2, ch3 = st.columns(3)
+                                
+                                # A NOVA INTELIGÊNCIA DE EXCLUSÃO
                                 if ch1.button("💾 Salvar Novo Valor"):
                                     vc = clean_money_to_db(novo_val)
-                                    if vc:
+                                    if not vc or float(vc) == 0:
+                                        with engine.begin() as conn: conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id = :id"), {"id": id_alvo})
+                                        st.success("Registo zerado e removido do histórico com sucesso!"); st.session_state['status_acao'] = None; st.rerun()
+                                    else:
                                         with engine.begin() as conn: conn.execute(text("UPDATE historico_premiacoes_e_folha SET valor_lancamento = :v WHERE id = :id"), {"v": float(vc), "id": id_alvo})
                                         st.success("Corrigido!"); st.session_state['status_acao'] = None; st.rerun()
-                                    else:
-                                        st.error("⚠️ O campo de novo valor está vazio ou inválido.")
+                                        
                                 if ch2.button("🗑️ Apagar Registo Inteiro"):
                                     with engine.begin() as conn: conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id = :id"), {"id": id_alvo})
                                     st.success("Apagado!"); st.session_state['status_acao'] = None; st.rerun()
@@ -937,4 +930,4 @@ elif menu == "🔎 Auditoria CCT (IA)":
 
                 df_folha[['Salário Ideal (CCT)', 'Salário Atual', 'Status']] = df_folha.apply(calcular_auditoria, axis=1)
                 st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)
-            except Exception as e: st.error(f"Erro: {e}")
+            except Exception as e: st.error(f"Erro: {e}")    
