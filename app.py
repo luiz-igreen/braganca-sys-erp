@@ -38,9 +38,7 @@ try:
 except: pass 
 try:
     with engine.begin() as conn:
-        # Adiciona a nova coluna de Situação para o eSocial
         conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN situacao VARCHAR(100) DEFAULT '1 - Trabalhando';"))
-        # Auto-preencher base legada para não dar erro
         conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = '8 - Demitido' WHERE demissao IS NOT NULL AND (situacao IS NULL OR situacao = '');"))
         conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = '1 - Trabalhando' WHERE demissao IS NULL AND (situacao IS NULL OR situacao = '');"))
 except: pass
@@ -486,6 +484,14 @@ elif menu == "🛠️ Gestão de Cadastros":
                             salario_mes_display = "Não Informado"
                             salario_hora_display = "Não Informado"
                     
+                    # --- LÓGICA DE CORES DA SITUAÇÃO ESOCIAL ---
+                    v_sit_atual = getattr(colab, "situacao", "1 - Trabalhando") or "1 - Trabalhando"
+                    sit_color = "#f8fafc" # Fundo padrão (Branco/Cinza)
+                    if v_sit_atual.startswith("8"): sit_color = "#ef4444" # Vermelho
+                    elif v_sit_atual.startswith("1"): sit_color = "#10b981" # Verde
+                    elif v_sit_atual.startswith("9"): sit_color = "#3b82f6" # Azul Férias
+                    else: sit_color = "#facc15" # Amarelo (Outros Afastamentos)
+
                     st.markdown("### 📋 Ficha Completa do Colaborador")
                     st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                     c1, c2, c3 = st.columns(3)
@@ -495,7 +501,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.markdown('<p class="field-label">SALÁRIO-MÊS ATUAL</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{salario_mes_display}</p>', unsafe_allow_html=True)
                     with c2:
                         st.markdown('<p class="field-label">NOME COMPLETO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{colab.nome}</p>', unsafe_allow_html=True)
-                        st.markdown('<p class="field-label">SITUAÇÃO (eSocial)</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{getattr(colab, "situacao", "1 - Trabalhando") or "1 - Trabalhando"}</p>', unsafe_allow_html=True)
+                        st.markdown('<p class="field-label">SITUAÇÃO (eSocial)</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value" style="color: {sit_color}; font-weight: bold;">{v_sit_atual}</p>', unsafe_allow_html=True)
                         st.markdown('<p class="field-label">SALÁRIO-HORA ATUAL</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{salario_hora_display}</p>', unsafe_allow_html=True)
                     with c3:
                         st.markdown('<p class="field-label">CPF</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{colab.cpf if colab.cpf else "Não Informado"}</p>', unsafe_allow_html=True)
@@ -505,7 +511,7 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     v_afast = getattr(colab, 'data_afastamento', None)
                     v_ret = getattr(colab, 'data_retorno', None)
-                    if v_afast or getattr(colab, "situacao", "").startswith(("2", "3", "5", "6", "9")):
+                    if v_afast or v_sit_atual.startswith(("2", "3", "5", "6", "9")):
                         st.markdown("### 🏥 Afastamentos (INSS / Férias / Outros)")
                         st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                         ca1, ca2 = st.columns(2)
