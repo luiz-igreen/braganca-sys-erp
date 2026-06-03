@@ -85,7 +85,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- INJEÇÃO DE JAVASCRIPT PROFISSIONAL (AUTOFILL + NAVEGAÇÃO ENTER CONTÍNUA) ---
+# --- INJEÇÃO DE JAVASCRIPT PROFISSIONAL (AUTOFILL + ENTER COM SELEÇÃO TOTAL) ---
 components.html("""
 <script>
 const doc = window.parent.document;
@@ -404,7 +404,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                     df_evo_salarial = pd.read_sql(text("SELECT data_alteracao, motivo, salario_anterior, novo_salario FROM historico_salarial WHERE id_colaborador = :id ORDER BY data_alteracao DESC, id DESC"), conn, params={"id": str(colab_id)})
                 
                 if colab:
-                    # O MOTOR DE AUTO-SINCRONIZAÇÃO APRIMORADO
                     sal_mestra_vazio = not colab.salario_mes_12_24 or str(colab.salario_mes_12_24).strip() == "" or str(colab.salario_mes_12_24).lower() in ["nan", "none"]
                     hist_salario = df_hist[df_hist['tipo_lancamento'].str.contains('Salário', na=False, case=False)] if not df_hist.empty else pd.DataFrame()
                     tem_hist = not hist_salario.empty
@@ -423,16 +422,18 @@ elif menu == "🛠️ Gestão de Cadastros":
                     elif not sal_mestra_vazio and not tem_hist:
                         sm_val = clean_money_to_db(str(colab.salario_mes_12_24))
                         if sm_val:
-                            # AQUI ESTAVA O BLOQUEIO! Usamos a Data de Admissão para criar a base, assim não trava na Demissão.
-                            if pd.notna(colab.admissao): comp_atual = pd.to_datetime(colab.admissao).strftime('%m/%Y')
-                            elif pd.notna(colab.demissao): comp_atual = pd.to_datetime(colab.demissao).strftime('%m/%Y')
-                            else: comp_atual = datetime.today().strftime('%m/%Y')
+                            comp_atual_dt = datetime.today()
+                            pode_sincronizar = True
+                            if pd.notna(colab.demissao):
+                                dt_dem = pd.to_datetime(colab.demissao).date()
+                                if date(comp_atual_dt.year, comp_atual_dt.month, 1) > date(dt_dem.year, dt_dem.month, 1):
+                                    pode_sincronizar = False
                             
-                            try:
+                            if pode_sincronizar:
+                                comp_atual = comp_atual_dt.strftime('%m/%Y')
                                 with engine.begin() as conn_sync:
                                     conn_sync.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": str(colab_id), "comp": comp_atual, "val": float(sm_val)})
                                 df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), engine, params={"id": str(colab_id)})
-                            except: pass
                                 
                             val_atual_base = float(sm_val)
                             salario_mes_display = format_currency_brl(val_atual_base)
@@ -589,7 +590,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     st.success("Apagado!"); st.session_state['status_acao'] = None; st.rerun()
                                 if ch3.button("⬅️ Voltar / Cancelar"): st.session_state['status_acao'] = None; st.rerun()
                             except Exception as e:
-                                st.error(f"Erro ao carregar lista de histórico. ({e})")
+                                st.error(f"Erro ao carregar lista de histórico. Os nomes das colunas podem não corresponder. ({e})")
                                 if st.button("⬅️ Voltar / Cancelar (Modo de Segurança)"): st.session_state['status_acao'] = None; st.rerun()
                         else: 
                             st.warning("Nenhum histórico para corrigir.")
@@ -639,15 +640,22 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 
                                 with engine.begin() as conn:
                                     conn.execute(text("UPDATE cadastro_geral_colaborador SET id=:nid, nome=:n, cpf=:c, cargo=:ca, admissao=:ad, demissao=:de, data_afastamento=:afast, data_retorno=:ret, chave_pix=:pix, salario_mes_12_24=:sm, salario_hora=:sh WHERE id=:oid"), {"nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf, "ca": edit_cargo, "ad": adm_str, "de": dem_str, "afast": af_str, "ret": ret_str, "pix": edit_pix, "sm": sm_val, "sh": sh_val, "oid": str(colab_id)})
+                                    
                                     if edit_id.strip() != str(colab_id):
                                         conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
                                     
-                                    # CRIAR O PRIMEIRO HISTÓRICO CASO ELE ESTEJA VAZIO
+                                    # --- MOTOR DE ATUALIZAÇÃO DO HISTÓRICO (O NOVO "CÉREBRO") ---
                                     if sm_val:
-                                        existe_hist = conn.execute(text("SELECT 1 FROM historico_premiacoes_e_folha WHERE id_colaborador = :id AND tipo_lancamento ILIKE '%Salário%'"), {"id": edit_id.strip()}).fetchone()
+                                        # Verifica se já existe algum 'Salário Mensal' no histórico deste funcionário
+                                        existe_hist = conn.execute(text("SELECT id FROM historico_premiacoes_e_folha WHERE id_colaborador = :id AND tipo_lancamento ILIKE '%Salário%' ORDER BY id DESC LIMIT 1"), {"id": edit_id.strip()}).fetchone()
+                                        
                                         if not existe_hist:
+                                            # Se não existe, CRIA O PRIMEIRO
                                             comp_str = dt_a.strftime('%m/%Y') if dt_a else (dt_d.strftime('%m/%Y') if dt_d else datetime.today().strftime('%m/%Y'))
                                             conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": edit_id.strip(), "comp": comp_str, "val": float(sm_val)})
+                                        else:
+                                            # Se JÁ EXISTE, atualiza o valor desse recibo mais recente para ficar igual à Ficha
+                                            conn.execute(text("UPDATE historico_premiacoes_e_folha SET valor_lancamento = :val WHERE id = :id_hist"), {"val": float(sm_val), "id_hist": existe_hist[0]})
                                             
                                 st.success("Salvo com Sucesso!"); st.session_state['busca_selecionada_id'] = edit_id.strip(); st.session_state['status_acao'] = None; st.rerun()
                         if st.button("Cancelar", key="k_ebtn_abandonar"): st.session_state['status_acao'] = None; st.rerun()
@@ -684,7 +692,6 @@ elif menu == "🛠️ Gestão de Cadastros":
             with engine.begin() as conn:
                 conn.execute(text("INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora) VALUES (:id, :n, :c, :ca, :ad, :de, :afast, :ret, :sm, :sh)"), {"id": str(n_id), "n": str(n_nome), "c": str(n_cpf), "ca": str(n_cargo), "ad": dt_a.strftime('%Y-%m-%d') if dt_a else None, "de": dt_d.strftime('%Y-%m-%d') if dt_d else None, "afast": dt_af.strftime('%Y-%m-%d') if dt_af else None, "ret": dt_r.strftime('%Y-%m-%d') if dt_r else None, "sm": sm_val, "sh": sh_val})
                 
-                # CRIA O PRIMEIRO HISTÓRICO AUTOMATICAMENTE NA GRAVAÇÃO
                 if sm_val:
                     comp_str = dt_a.strftime('%m/%Y') if dt_a else (dt_d.strftime('%m/%Y') if dt_d else datetime.today().strftime('%m/%Y'))
                     conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": str(n_id), "comp": comp_str, "val": float(sm_val)})
