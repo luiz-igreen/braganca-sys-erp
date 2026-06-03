@@ -623,6 +623,7 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                 if dt_ret is None or dt_ret > data_fim_comp:
                     continue 
             
+            # MOTOR INTELIGENTE: Puxa o salário base e tenta recuperar do histórico se estiver zerado
             sal_base_db = row['salario_mes_12_24']
             try:
                 s_val = str(sal_base_db).upper().replace('R$', '').strip()
@@ -630,6 +631,14 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                 sal_base_float = float(s_val)
             except:
                 sal_base_float = 0.0
+                
+            if sal_base_float == 0.0:
+                try:
+                    with engine.connect() as conn2:
+                        hs = conn2.execute(text("SELECT valor_lancamento FROM historico_premiacoes_e_folha WHERE id_colaborador = :id AND tipo_lancamento ILIKE '%Salário%' ORDER BY id DESC LIMIT 1"), {"id": str(row['id'])}).fetchone()
+                        if hs: sal_base_float = float(hs[0])
+                except:
+                    pass
                 
             colabs_elegiveis.append({
                 "id": str(row['id']),
@@ -728,9 +737,15 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                 st.markdown("---")
                 st.markdown(f"**Valor Hora Calculado da Ficha Mestra:** R$ {format_brl_number(dados_c['sal_hora'])}")
                 
-                cli1, cli2, cli3 = st.columns(3)
-                with cli1: hp_ind = st.text_input("Quantidade de Horas (Ex: 47,00)", value="0,00", key="k_hpi")
-                with cli2: desc_ind = st.selectbox("Descrição do Serviço", LISTA_SERVICOS_PREMIO, key="k_di")
+                cli1, cli2 = st.columns(2)
+                with cli1: 
+                    hp_ind = st.text_input("Quantidade de Horas (Pressione ENTER para calcular)", key="k_hpi", placeholder="Ex: 47,00")
+                with cli2: 
+                    desc_ind = st.selectbox("Descrição do Serviço", LISTA_SERVICOS_PREMIO, key="k_di")
+                    if desc_ind == "OUTRO (DIGITAR MANUALMENTE)":
+                        desc_final_str = st.text_input("Especifique a Descrição:", key="k_d_outro")
+                    else:
+                        desc_final_str = desc_ind
                 
                 hp_ind_float = 0.0
                 try: hp_ind_float = float(clean_money_to_db(hp_ind)) if clean_money_to_db(hp_ind) else 0.0
@@ -739,30 +754,33 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                 val_bruto_ind = dados_c['sal_hora'] * hp_ind_float
                 val_final_ind = val_bruto_ind + 1.00 if hp_ind_float > 0 else 0.00
                 
-                with cli3:
-                    st.markdown('<p class="field-label">RECIBO FINAL</p>', unsafe_allow_html=True)
-                    if hp_ind_float > 0:
-                        st.markdown(f'<p class="field-highlight">R$ {format_brl_number(val_final_ind)}</p>', unsafe_allow_html=True)
-                        st.caption(f"(Inclui R$ 1,00 Taxa ZAUT)")
-                    else:
-                        st.markdown(f'<p class="field-value">Aguardando...</p>', unsafe_allow_html=True)
+                st.markdown('<p class="field-label">RECIBO FINAL</p>', unsafe_allow_html=True)
+                if hp_ind_float > 0:
+                    st.markdown(f'<p class="field-highlight">R$ {format_brl_number(val_final_ind)}</p>', unsafe_allow_html=True)
+                    st.caption(f"(Inclui R$ 1,00 Taxa ZAUT)")
+                else:
+                    st.markdown(f'<p class="field-value">Aguardando Horas...</p>', unsafe_allow_html=True)
                 
                 c_btn_i1, c_btn_i2 = st.columns([1, 4])
                 
                 if c_btn_i1.button("💾 Gravar Prêmio", type="primary", key="btn_ind"):
-                    if hp_ind_float <= 0: st.error("Insira horas válidas.")
+                    if hp_ind_float <= 0: 
+                        st.error("⚠️ As horas devem ser maiores que zero. Lembre-se de pressionar ENTER após digitar!")
+                    elif not desc_final_str.strip():
+                        st.error("⚠️ Especifique o serviço antes de gravar.")
                     else:
-                        d_final = st.text_input("Especifique:") if desc_ind == "OUTRO (DIGITAR MANUALMENTE)" else desc_ind
                         try:
                             with engine.begin() as conn:
-                                conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id_c, :comp, :tipo, :val, 'Lançado')"), {"id_c": dados_c['id'], "comp": comp_sel, "tipo": f"Prêmio: {d_final} (Horas: {hp_ind_float})", "val": val_final_ind})
+                                conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id_c, :comp, :tipo, :val, 'Lançado')"), {"id_c": dados_c['id'], "comp": comp_sel, "tipo": f"Prêmio: {desc_final_str} (Horas: {hp_ind_float})", "val": val_final_ind})
                             st.success(f"✅ Prêmio de R$ {format_brl_number(val_final_ind)} gravado!")
                             if 'k_hpi' in st.session_state: del st.session_state['k_hpi']
+                            if 'k_d_outro' in st.session_state: del st.session_state['k_d_outro']
                             st.rerun()
-                        except Exception as e: st.error(f"Erro: {e}")
+                        except Exception as e: st.error(f"Erro ao salvar: {e}")
                         
                 if c_btn_i2.button("❌ Cancelar / Limpar Tela", key="btn_ind_canc"):
                     if 'k_hpi' in st.session_state: del st.session_state['k_hpi']
+                    if 'k_d_outro' in st.session_state: del st.session_state['k_d_outro']
                     st.rerun()
             
     except Exception as e:
@@ -806,4 +824,4 @@ elif menu == "🔎 Auditoria CCT (IA)":
 
                 df_folha[['Salário Ideal (CCT)', 'Salário Atual', 'Status']] = df_folha.apply(calcular_auditoria, axis=1)
                 st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)
-            except Exception as e: st.error(f"Erro: {e}")
+            except Exception as e: st.error(f"Erro: {e}")    
