@@ -156,28 +156,49 @@ if st.session_state['redirect_to_consulta']:
     st.session_state['redirect_to_consulta'] = False
     st.rerun()
 
-# --- FUNÇÕES DE FORMATAÇÃO E LIMPEZA ---
+# --- FUNÇÕES INTELIGENTES DE FORMATAÇÃO E PARSING ---
 def clean_money_to_db(val):
     if not val or str(val).strip() == "" or str(val).strip().lower() == "none": return None
     s = str(val).upper().replace('R$', '').strip()
-    if '.' in s and ',' in s: 
-        s = s.replace('.', '').replace(',', '.')
-    elif ',' in s: 
-        s = s.replace(',', '.')
+    if '.' in s and ',' in s: s = s.replace('.', '').replace(',', '.')
+    elif ',' in s: s = s.replace(',', '.')
     try: return str(float(s))
     except: return None
 
 def format_brl_number(val):
     try:
-        if val is None or str(val).strip() == "" or str(val).lower() == "nan" or str(val).lower() == "none": return ""
+        if val is None or str(val).strip() == "" or str(val).lower() in ["nan", "none"]: return ""
         return f"{float(val):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     except: return val
 
 def format_currency_brl(val):
     try:
-        if val is None or str(val).strip() == "" or str(val).lower() == "nan" or str(val).lower() == "none": return ""
+        if val is None or str(val).strip() == "" or str(val).lower() in ["nan", "none"]: return ""
         return f"R$ {float(val):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     except: return val
+
+def parse_br_date_smart(d_input):
+    """Lê DDMMAAAA sem barras e converte para Data de Banco de Dados"""
+    if not d_input or str(d_input).strip() == "" or str(d_input).lower() in ["none", "nat", "nan"]: return None
+    s = str(d_input).strip()
+    if re.match(r'^\d{4}-\d{2}-\d{2}$', s): 
+        try: return pd.to_datetime(s).date()
+        except: return None
+    digitos = re.sub(r'[^\d]', '', s)
+    if len(digitos) == 8:
+        try: return date(int(digitos[4:8]), int(digitos[2:4]), int(digitos[0:2]))
+        except: pass
+    elif len(digitos) == 6:
+        try: return date(2000 + int(digitos[4:6]), int(digitos[2:4]), int(digitos[0:2]))
+        except: pass
+    try: return pd.to_datetime(s, dayfirst=True).date()
+    except: return None
+
+def format_date_br(d_val):
+    """Exibe a data formatada e com as barras na interface"""
+    if not d_val or pd.isna(d_val) or str(d_val).lower() in ["none", "nat", "nan"]: return ""
+    try: return pd.to_datetime(d_val).strftime("%d/%m/%Y")
+    except: return ""
 
 # --- BARRA LATERAL DE NAVEGAÇÃO CENTRAL ---
 menu = st.sidebar.radio("Navegação", [
@@ -278,7 +299,7 @@ elif menu == "📥 Importação Inteligente":
                         match = re.search(r'(\d{2})/(\d{2})', str(col_name))
                         if match: return pd.Timestamp(year=2000 + int(match.group(2)), month=int(match.group(1)), day=1)
                         return None
-                    def parse_str_date(d_str):
+                    def parse_str_date_old(d_str):
                         try: return pd.Timestamp(year=pd.to_datetime(d_str).year, month=pd.to_datetime(d_str).month, day=1)
                         except: return None
 
@@ -299,8 +320,8 @@ elif menu == "📥 Importação Inteligente":
                                 recuperados_ia += 1
 
                             colab = db_dict[nome_xls]
-                            dt_adm = parse_str_date(colab['admissao'])
-                            dt_dem = parse_str_date(colab['demissao'])
+                            dt_adm = parse_str_date_old(colab['admissao'])
+                            dt_dem = parse_str_date_old(colab['demissao'])
                             
                             for col in df_excel.columns:
                                 col_str = str(col).strip().upper()
@@ -368,7 +389,8 @@ elif menu == "🛠️ Gestão de Cadastros":
                     colab = conn.execute(text("SELECT * FROM cadastro_geral_colaborador WHERE id = :id"), {"id": str(colab_id)}).fetchone()
                     df_fin = pd.read_sql(text("SELECT * FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), conn, params={"id": str(colab_id)})
                     fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None
-                    df_hist = pd.read_sql(text("SELECT id as id_lancamento, competencia, tipo_lancamento, valor_lancamento, status_pagamento, retroativo_pago, data_pagamento FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
+                    # BUG RESOLVIDO: O SELECT * impede erros caso alguma coluna falte!
+                    df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
                     df_evo_salarial = pd.read_sql(text("SELECT data_alteracao, motivo, salario_anterior, novo_salario FROM historico_salarial WHERE id_colaborador = :id ORDER BY data_alteracao DESC, id DESC"), conn, params={"id": str(colab_id)})
                 
                 if colab:
@@ -396,11 +418,11 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.markdown('<p class="field-label">SALÁRIO-MÊS ATUAL</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{salario_mes_display}</p>', unsafe_allow_html=True)
                     with c2:
                         st.markdown('<p class="field-label">NOME COMPLETO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{colab.nome}</p>', unsafe_allow_html=True)
-                        st.markdown('<p class="field-label">DATA DE ADMISSÃO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{pd.to_datetime(colab.admissao).strftime("%d/%m/%Y") if colab.admissao else "Não Informada"}</p>', unsafe_allow_html=True)
+                        st.markdown('<p class="field-label">DATA DE ADMISSÃO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{format_date_br(colab.admissao) or "Não Informada"}</p>', unsafe_allow_html=True)
                         st.markdown('<p class="field-label">SALÁRIO-HORA ATUAL</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{salario_hora_display}</p>', unsafe_allow_html=True)
                     with c3:
                         st.markdown('<p class="field-label">CPF</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{colab.cpf if colab.cpf else "Não Informado"}</p>', unsafe_allow_html=True)
-                        st.markdown('<p class="field-label">DATA DE DEMISSÃO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{pd.to_datetime(colab.demissao).strftime("%d/%m/%Y") if colab.demissao else "Ativo / Em Aberto"}</p>', unsafe_allow_html=True)
+                        st.markdown('<p class="field-label">DATA DE DEMISSÃO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{format_date_br(colab.demissao) or "Ativo / Em Aberto"}</p>', unsafe_allow_html=True)
                     st.markdown('</div>', unsafe_allow_html=True)
 
                     v_afast = getattr(colab, 'data_afastamento', None)
@@ -409,10 +431,8 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.markdown("### 🏥 Status de Afastamento (INSS)")
                         st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                         ca1, ca2 = st.columns(2)
-                        with ca1:
-                            st.markdown('<p class="field-label">AFASTAMENTO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value" style="color:#facc15;">{pd.to_datetime(v_afast).strftime("%d/%m/%Y")}</p>', unsafe_allow_html=True)
-                        with ca2:
-                            st.markdown('<p class="field-label">RETORNO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{pd.to_datetime(v_ret).strftime("%d/%m/%Y") if v_ret else "Ainda Afastado"}</p>', unsafe_allow_html=True)
+                        with ca1: st.markdown('<p class="field-label">AFASTAMENTO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value" style="color:#facc15;">{format_date_br(v_afast)}</p>', unsafe_allow_html=True)
+                        with ca2: st.markdown('<p class="field-label">RETORNO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{format_date_br(v_ret) or "Ainda Afastado"}</p>', unsafe_allow_html=True)
                         st.markdown('</div>', unsafe_allow_html=True)
 
                     st.markdown("### 🏦 Dados Bancários (PIX Principal)")
@@ -422,6 +442,20 @@ elif menu == "🛠️ Gestão de Cadastros":
                         with cf1: st.markdown('<p class="field-label">BANCO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{(fin_data.get("banco") if fin_data else "") or "Não Informado"}</p>', unsafe_allow_html=True)
                         with cf2: st.markdown('<p class="field-label">CHAVE PIX</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{colab.chave_pix or (fin_data.get("chave_pix") if fin_data else "Não Informado")}</p>', unsafe_allow_html=True)
                     else: st.info("Nenhum dado bancário registrado.")
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+                    st.markdown("### 💰 Histórico Mensal de Prêmios e Folha")
+                    st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
+                    if not df_hist.empty:
+                        cols_desejadas = ['competencia', 'tipo_lancamento', 'valor_lancamento', 'status_pagamento', 'retroativo_pago', 'data_pagamento']
+                        cols_existentes = [c for c in cols_desejadas if c in df_hist.columns]
+                        df_view = df_hist[cols_existentes].copy()
+                        df_view['valor_lancamento'] = df_view['valor_lancamento'].apply(format_brl_number)
+                        
+                        rename_dict = {'competencia': 'Competência', 'tipo_lancamento': 'Tipo', 'valor_lancamento': 'Valor (R$)', 'status_pagamento': 'Status', 'retroativo_pago': 'Foi Retroativo?', 'data_pagamento': 'Data Pagamento'}
+                        df_view.rename(columns={k: v for k, v in rename_dict.items() if k in df_view.columns}, inplace=True)
+                        st.dataframe(df_view, use_container_width=True, hide_index=True)
+                    else: st.info("Nenhum histórico registrado na base de dados para este colaborador.")
                     st.markdown('</div>', unsafe_allow_html=True)
 
                     # --- BOTÕES DE AÇÃO ---
@@ -479,15 +513,6 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     if st.session_state['status_acao'] == 'solicitou_alterar':
                         st.info("📝 Modo de Edição Ativo")
-                        try: dt_adm_val = pd.to_datetime(colab.admissao).date() if colab.admissao else None
-                        except: dt_adm_val = None
-                        try: dt_dem_val = pd.to_datetime(colab.demissao).date() if colab.demissao else None
-                        except: dt_dem_val = None
-                        try: dt_afast_val = pd.to_datetime(v_afast).date() if v_afast else None
-                        except: dt_afast_val = None
-                        try: dt_ret_val = pd.to_datetime(v_ret).date() if v_ret else None
-                        except: dt_ret_val = None
-                        
                         cargo_idx = LISTA_CARGOS.index(str(colab.cargo).upper().strip()) if str(colab.cargo).upper().strip() in LISTA_CARGOS else (len(LISTA_CARGOS)-1)
                         
                         ce1, ce2 = st.columns(2)
@@ -495,31 +520,42 @@ elif menu == "🛠️ Gestão de Cadastros":
                             edit_id = st.text_input("ID / Matrícula", value=str(colab.id), key="k_eid")
                             edit_nome = st.text_input("Nome Completo", value=str(colab.nome), key="k_enome")
                             edit_cpf = st.text_input("CPF", value=str(colab.cpf) if colab.cpf else "", key="k_ecpf")
-                            edit_adm = st.date_input("Data de Admissão", value=dt_adm_val, format="DD/MM/YYYY")
+                            # NOVO PADRÃO DE DATAS - MODO DESKTOP
+                            edit_adm = st.text_input("Data de Admissão (Pode digitar sem barras)", value=format_date_br(colab.admissao), placeholder="Ex: 01072025")
                             edit_sal_mes = st.text_input("Salário-Mês Base", value=str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "", key="k_esal_mes")
                         with ce2:
                             sel_cargo = st.selectbox("Cargo", LISTA_CARGOS, index=cargo_idx)
                             edit_cargo = st.text_input("Digite o Cargo", value=str(colab.cargo) if cargo_idx == len(LISTA_CARGOS)-1 else "") if sel_cargo == "OUTRO (DIGITAR MANUALMENTE)" else sel_cargo
-                            ativo_ed = st.checkbox("✅ Colaborador Ativo (Remove Demissão)", value=(dt_dem_val is None))
-                            edit_dem = None if ativo_ed else st.date_input("Data de Demissão", value=dt_dem_val if dt_dem_val else datetime.today().date(), format="DD/MM/YYYY")
+                            
+                            ativo_ed = st.checkbox("✅ Colaborador Ativo (Ignorar Demissão)", value=(colab.demissao is None or pd.isna(colab.demissao)))
+                            edit_dem = st.text_input("Data de Demissão (Sem barras)", value=format_date_br(colab.demissao), placeholder="Ex: 01072025", disabled=ativo_ed)
+                            
                             edit_pix = st.text_input("Chave PIX", value=str(colab.chave_pix) if colab.chave_pix else "", key="k_epix")
                             edit_sal_hora = st.text_input("Salário-Hora Base", value=str(colab.salario_hora) if colab.salario_hora else "", key="k_esal_hora")
                             
                         st.markdown("##### 🏥 INSS")
                         ci1, ci2 = st.columns(2)
-                        with ci1: edit_afast = st.date_input("Afastamento (vazio=OK)", value=dt_afast_val, format="DD/MM/YYYY", key="k_eafast")
-                        with ci2: edit_ret = st.date_input("Retorno (vazio=Não voltou)", value=dt_ret_val, format="DD/MM/YYYY", key="k_eret")
+                        with ci1: edit_afast = st.text_input("Afastamento (Deixe vazio se OK)", value=format_date_br(v_afast), placeholder="Ex: 01072025")
+                        with ci2: edit_ret = st.text_input("Retorno (Deixe vazio se não voltou)", value=format_date_br(v_ret), placeholder="Ex: 01072025")
                         
                         if st.button("Confirmar e Salvar Alterações", key="k_ebtn_salvar"):
-                            adm_str = edit_adm.strftime('%Y-%m-%d') if edit_adm else None
-                            dem_str = edit_dem.strftime('%Y-%m-%d') if edit_dem else None
-                            af_str = edit_afast.strftime('%Y-%m-%d') if edit_afast else None
-                            ret_str = edit_ret.strftime('%Y-%m-%d') if edit_ret else None
-                            with engine.begin() as conn:
-                                conn.execute(text("UPDATE cadastro_geral_colaborador SET id=:nid, nome=:n, cpf=:c, cargo=:ca, admissao=:ad, demissao=:de, data_afastamento=:afast, data_retorno=:ret, chave_pix=:pix, salario_mes_12_24=:sm, salario_hora=:sh WHERE id=:oid"), {"nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf, "ca": edit_cargo, "ad": adm_str, "de": dem_str, "afast": af_str, "ret": ret_str, "pix": edit_pix, "sm": clean_money_to_db(edit_sal_mes), "sh": clean_money_to_db(edit_sal_hora), "oid": str(colab_id)})
-                                if edit_id.strip() != str(colab_id):
-                                    conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
-                            st.success("Salvo!"); st.session_state['busca_selecionada_id'] = edit_id.strip(); st.session_state['status_acao'] = None; st.rerun()
+                            if not edit_id.strip() or not edit_nome.strip(): st.error("O ID/Matrícula e o Nome do colaborador não podem ficar vazios.")
+                            else:
+                                dt_a = parse_br_date_smart(edit_adm)
+                                dt_d = parse_br_date_smart(edit_dem) if not ativo_ed else None
+                                dt_af = parse_br_date_smart(edit_afast)
+                                dt_r = parse_br_date_smart(edit_ret)
+                                
+                                adm_str = dt_a.strftime('%Y-%m-%d') if dt_a else None
+                                dem_str = dt_d.strftime('%Y-%m-%d') if dt_d else None
+                                af_str = dt_af.strftime('%Y-%m-%d') if dt_af else None
+                                ret_str = dt_r.strftime('%Y-%m-%d') if dt_r else None
+                                
+                                with engine.begin() as conn:
+                                    conn.execute(text("UPDATE cadastro_geral_colaborador SET id=:nid, nome=:n, cpf=:c, cargo=:ca, admissao=:ad, demissao=:de, data_afastamento=:afast, data_retorno=:ret, chave_pix=:pix, salario_mes_12_24=:sm, salario_hora=:sh WHERE id=:oid"), {"nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf, "ca": edit_cargo, "ad": adm_str, "de": dem_str, "afast": af_str, "ret": ret_str, "pix": edit_pix, "sm": clean_money_to_db(edit_sal_mes), "sh": clean_money_to_db(edit_sal_hora), "oid": str(colab_id)})
+                                    if edit_id.strip() != str(colab_id):
+                                        conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
+                                st.success("Salvo com Sucesso!"); st.session_state['busca_selecionada_id'] = edit_id.strip(); st.session_state['status_acao'] = None; st.rerun()
                         if st.button("Cancelar", key="k_ebtn_abandonar"): st.session_state['status_acao'] = None; st.rerun()
             except Exception as e: st.error(f"Erro: {e}")
 
@@ -530,21 +566,26 @@ elif menu == "🛠️ Gestão de Cadastros":
         with cn1:
             n_id = st.text_input("ID / Matrícula")
             n_cpf = st.text_input("CPF")
-            n_adm = st.date_input("Admissão", value=None, format="DD/MM/YYYY")
+            n_adm_str = st.text_input("Admissão (Pode digitar sem barras)", placeholder="Ex: 01072025")
             n_sal_mes = st.text_input("Salário-Mês")
-            n_afast = st.date_input("Afastamento INSS (Opcional)", value=None, format="DD/MM/YYYY")
+            n_afast_str = st.text_input("Afastamento INSS (Opcional)", placeholder="Ex: 01072025")
         with cn2:
             n_nome = st.text_input("Nome Completo")
             s_c = st.selectbox("Cargo", LISTA_CARGOS)
             n_cargo = st.text_input("Digite o Cargo") if s_c == "OUTRO (DIGITAR MANUALMENTE)" else s_c
             a_nc = st.checkbox("✅ Colaborador Ativo", value=True)
-            n_dem = None if a_nc else st.date_input("Demissão", value=datetime.today().date(), format="DD/MM/YYYY")
+            n_dem_str = st.text_input("Demissão", placeholder="Ex: 01072025", disabled=a_nc)
             n_sal_hora = st.text_input("Salário-Hora")
-            n_ret = st.date_input("Retorno INSS (Opcional)", value=None, format="DD/MM/YYYY")
+            n_ret_str = st.text_input("Retorno INSS (Opcional)", placeholder="Ex: 01072025")
         st.markdown('</div>', unsafe_allow_html=True)
         if st.button("💾 Salvar Registro no Sistema"):
+            dt_a = parse_br_date_smart(n_adm_str)
+            dt_d = parse_br_date_smart(n_dem_str) if not a_nc else None
+            dt_af = parse_br_date_smart(n_afast_str)
+            dt_r = parse_br_date_smart(n_ret_str)
+            
             with engine.begin() as conn:
-                conn.execute(text("INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora) VALUES (:id, :n, :c, :ca, :ad, :de, :afast, :ret, :sm, :sh)"), {"id": str(n_id), "n": str(n_nome), "c": str(n_cpf), "ca": str(n_cargo), "ad": n_adm.strftime('%Y-%m-%d') if n_adm else None, "de": n_dem.strftime('%Y-%m-%d') if n_dem else None, "afast": n_afast.strftime('%Y-%m-%d') if n_afast else None, "ret": n_ret.strftime('%Y-%m-%d') if n_ret else None, "sm": clean_money_to_db(n_sal_mes), "sh": clean_money_to_db(n_sal_hora)})
+                conn.execute(text("INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora) VALUES (:id, :n, :c, :ca, :ad, :de, :afast, :ret, :sm, :sh)"), {"id": str(n_id), "n": str(n_nome), "c": str(n_cpf), "ca": str(n_cargo), "ad": dt_a.strftime('%Y-%m-%d') if dt_a else None, "de": dt_d.strftime('%Y-%m-%d') if dt_d else None, "afast": dt_af.strftime('%Y-%m-%d') if dt_af else None, "ret": dt_r.strftime('%Y-%m-%d') if dt_r else None, "sm": clean_money_to_db(n_sal_mes), "sh": clean_money_to_db(n_sal_hora)})
             st.success("Salvo!"); st.session_state['redirect_to_consulta'] = True; st.rerun()
 
 # ==========================================
@@ -664,22 +705,23 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                 except: pass
                 st.markdown("---")
                 
+                # BUG RESOLVIDO: O painel de Lançamento abre e fecha sob comando!
                 if st.session_state.get('zaut_acao') != 'lancando':
                     if st.button(f"➕ Iniciar Lançamento para {dados_c['nome']}", type="primary"):
                         st.session_state['zaut_acao'] = 'lancando'
                         st.rerun()
                 else:
-                    st.markdown("#### 📝 Lançamento Aberto")
+                    st.markdown("#### 📝 Painel de Lançamento Ativo")
                     st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                     
                     sal_hora_base = dados_c['sal_hora']
                     if sal_hora_base == 0.0:
-                        st.warning("⚠️ Valor Hora Base zerado. Digite manualmente para prosseguir:")
+                        st.warning("⚠️ Valor Hora Base zerado na Ficha e no Histórico. Digite o valor manualmente para prosseguir:")
                         sal_hora_manual = st.text_input("Valor Hora (R$)", key="k_sh_manual", placeholder="Ex: 9,38")
                         try: sal_hora_base = float(clean_money_to_db(sal_hora_manual)) if clean_money_to_db(sal_hora_manual) else 0.0
                         except: sal_hora_base = 0.0
                     else:
-                        st.markdown(f"**Valor Hora Calculado da Ficha Mestra:** R$ {format_brl_number(sal_hora_base)}")
+                        st.markdown(f"**Valor Hora Calculado pelo Sistema:** R$ {format_brl_number(sal_hora_base)}")
                     
                     cli1, cli2 = st.columns(2)
                     with cli1: hp_ind = st.text_input("Quantidade de Horas (Pressione ENTER)", key="k_hpi", placeholder="Ex: 47,00")
@@ -693,7 +735,7 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                     
                     val_final_ind = (sal_hora_base * hp_ind_float) + 1.00 if hp_ind_float > 0 else 0.00
                     
-                    st.markdown('<p class="field-label">RECIBO FINAL</p>', unsafe_allow_html=True)
+                    st.markdown('<p class="field-label">RECIBO FINAL A GRAVAR</p>', unsafe_allow_html=True)
                     if hp_ind_float > 0 and sal_hora_base > 0:
                         st.markdown(f'<p class="field-highlight">R$ {format_brl_number(val_final_ind)}</p>', unsafe_allow_html=True)
                         st.caption(f"(Inclui R$ 1,00 Taxa ZAUT)")
@@ -701,13 +743,13 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                     
                     c_btn_i1, c_btn_i2 = st.columns([1, 4])
                     if c_btn_i1.button("💾 Gravar Prêmio", type="primary", key="btn_ind_gravar"):
-                        if hp_ind_float <= 0: st.error("⚠️ Digite horas válidas (pressione ENTER).")
+                        if hp_ind_float <= 0: st.error("⚠️ Digite horas válidas (pressione ENTER primeiro para calcular).")
                         elif sal_hora_base <= 0: st.error("⚠️ O valor da hora não pode ser zero.")
                         elif not desc_final_str.strip(): st.error("⚠️ Especifique o serviço.")
                         else:
                             try:
                                 with engine.begin() as conn: conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id_c, :comp, :tipo, :val, 'Lançado')"), {"id_c": dados_c['id'], "comp": comp_sel, "tipo": f"Prêmio: {desc_final_str} (Horas: {hp_ind_float})", "val": val_final_ind})
-                                st.success("✅ Gravado!")
+                                st.success("✅ Gravado com sucesso!")
                                 for k in ['k_hpi', 'k_sh_manual', 'k_d_outro', 'zaut_acao']:
                                     if k in st.session_state: del st.session_state[k]
                                 st.rerun()
@@ -760,4 +802,4 @@ elif menu == "🔎 Auditoria CCT (IA)":
 
                 df_folha[['Salário Ideal (CCT)', 'Salário Atual', 'Status']] = df_folha.apply(calcular_auditoria, axis=1)
                 st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)
-            except Exception as e: st.error(f"Erro: {e}")
+            except Exception as e: st.error(f"Erro: {e}")    
