@@ -572,4 +572,210 @@ elif menu == "🛠️ Gestão de Cadastros":
             n_afast = st.date_input("Afastamento INSS (Opcional)", value=None, format="DD/MM/YYYY")
         with cn2:
             n_nome = st.text_input("Nome Completo")
-            s_c =
+            s_c = st.selectbox("Cargo", LISTA_CARGOS)
+            n_cargo = st.text_input("Digite o Cargo") if s_c == "OUTRO (DIGITAR MANUALMENTE)" else s_c
+            a_nc = st.checkbox("✅ Colaborador Ativo", value=True)
+            n_dem = None if a_nc else st.date_input("Demissão", value=datetime.today().date(), format="DD/MM/YYYY")
+            n_sal_hora = st.text_input("Salário-Hora")
+            n_ret = st.date_input("Retorno INSS (Opcional)", value=None, format="DD/MM/YYYY")
+        st.markdown('</div>', unsafe_allow_html=True)
+        if st.button("💾 Salvar Registro no Sistema"):
+            with engine.begin() as conn:
+                conn.execute(text("INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora) VALUES (:id, :n, :c, :ca, :ad, :de, :afast, :ret, :sm, :sh)"), {"id": str(n_id), "n": str(n_nome), "c": str(n_cpf), "ca": str(n_cargo), "ad": n_adm.strftime('%Y-%m-%d') if n_adm else None, "de": n_dem.strftime('%Y-%m-%d') if n_dem else None, "afast": n_afast.strftime('%Y-%m-%d') if n_afast else None, "ret": n_ret.strftime('%Y-%m-%d') if n_ret else None, "sm": clean_money_to_db(n_sal_mes), "sh": clean_money_to_db(n_sal_hora)})
+            st.success("Salvo!"); st.session_state['redirect_to_consulta'] = True; st.rerun()
+
+# ==========================================
+# 4. GESTÃO DE PRÊMIOS (ZAUT) - NOVO MÓDULO
+# ==========================================
+elif menu == "🏆 Gestão de Prêmios (ZAUT)":
+    st.title("🏆 Lançamento de Prêmios (ZAUT)")
+    st.markdown("Aponte as horas trabalhadas diretamente na grelha. O sistema aplica o cálculo (Hora * HP + R$ 1,00) de forma automática.")
+    
+    col_comp1, col_comp2 = st.columns([1, 3])
+    with col_comp1:
+        hoje = datetime.today()
+        meses = [f"{str(m).zfill(2)}/{hoje.year}" for m in range(1, 13)] + [f"{str(m).zfill(2)}/{hoje.year+1}" for m in range(1, 13)]
+        comp_sel = st.selectbox("Selecione a Competência:", meses, index=(hoje.month - 1))
+    
+    st.markdown("---")
+    
+    try:
+        df_colabs = pd.read_sql("SELECT id, nome, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24 FROM cadastro_geral_colaborador ORDER BY nome ASC", engine)
+        
+        mes_comp = int(comp_sel.split('/')[0])
+        ano_comp = int(comp_sel.split('/')[1])
+        data_inicio_comp = pd.Timestamp(year=ano_comp, month=mes_comp, day=1)
+        ultimo_dia = calendar.monthrange(ano_comp, mes_comp)[1]
+        data_fim_comp = pd.Timestamp(year=ano_comp, month=mes_comp, day=ultimo_dia)
+        
+        colabs_elegiveis = []
+        
+        for _, row in df_colabs.iterrows():
+            # Filtro 1: Demissão
+            dt_dem = pd.to_datetime(row['demissao']) if pd.notna(row['demissao']) else None
+            if dt_dem and dt_dem < data_inicio_comp:
+                continue 
+            
+            # Filtro 2: INSS
+            dt_afast = pd.to_datetime(row['data_afastamento']) if pd.notna(row['data_afastamento']) else None
+            dt_ret = pd.to_datetime(row['data_retorno']) if pd.notna(row['data_retorno']) else None
+            if dt_afast and dt_afast < data_inicio_comp:
+                if dt_ret is None or dt_ret > data_fim_comp:
+                    continue 
+            
+            sal_base_db = row['salario_mes_12_24']
+            try:
+                s_val = str(sal_base_db).upper().replace('R$', '').strip()
+                s_val = s_val.replace('.', '').replace(',', '.') if '.' in s_val and ',' in s_val else s_val.replace(',', '.')
+                sal_base_float = float(s_val)
+            except:
+                sal_base_float = 0.0
+                
+            colabs_elegiveis.append({
+                "id": str(row['id']),
+                "nome": str(row['nome']),
+                "sal_hora": sal_base_float / 220.0 if sal_base_float > 0 else 0.0
+            })
+            
+        if not colabs_elegiveis:
+            st.warning("Nenhum colaborador elegível (ativo) encontrado para esta competência.")
+        else:
+            aba_lote, aba_ind = st.tabs(["📊 Planilha de Lote Rápido", "👤 Lançamento Individual"])
+            
+            with aba_lote:
+                st.markdown("Preencha as horas e selecione o serviço. Colaboradores deixados com **0.00** serão ignorados na gravação.")
+                
+                df_lote = pd.DataFrame(colabs_elegiveis)
+                df_lote['Horas Prêmio (HP)'] = 0.00
+                df_lote['Descrição do Serviço'] = None
+                
+                edited_df = st.data_editor(
+                    df_lote,
+                    column_config={
+                        "id": st.column_config.TextColumn("Matrícula", disabled=True),
+                        "nome": st.column_config.TextColumn("Colaborador", disabled=True),
+                        "sal_hora": st.column_config.NumberColumn("Valor Hora", format="R$ %.2f", disabled=True),
+                        "Horas Prêmio (HP)": st.column_config.NumberColumn("Total HP", min_value=0.0, format="%.2f", step=1.0),
+                        "Descrição do Serviço": st.column_config.SelectboxColumn("Serviço", options=LISTA_SERVICOS_PREMIO)
+                    },
+                    disabled=["id", "nome", "sal_hora"],
+                    hide_index=True,
+                    use_container_width=True,
+                    key="editor_lote_zaut"
+                )
+                
+                if st.button("💾 Processar e Salvar Lote Inteiro", type="primary"):
+                    lancamentos = edited_df[edited_df['Horas Prêmio (HP)'] > 0]
+                    
+                    if lancamentos.empty:
+                        st.warning("Nenhuma hora prêmio preenchida na planilha.")
+                    else:
+                        sucessos, erros = 0, 0
+                        with engine.begin() as conn:
+                            for _, row_edit in lancamentos.iterrows():
+                                hp = float(row_edit['Horas Prêmio (HP)'])
+                                desc = row_edit['Descrição do Serviço']
+                                if not desc: desc = "PRÊMIO PRODUÇÃO (ZAUT)"
+                                    
+                                val_hora = float(row_edit['sal_hora'])
+                                val_final = (val_hora * hp) + 1.00  # O Segredo Matemático da ZAUT!
+                                
+                                tipo_lanc = f"Prêmio: {desc} (Horas: {hp})"
+                                
+                                try:
+                                    conn.execute(text("""
+                                        INSERT INTO historico_premiacoes_e_folha 
+                                        (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) 
+                                        VALUES (:id_c, :comp, :tipo, :val, 'Lançado')
+                                    """), {
+                                        "id_c": str(row_edit['id']),
+                                        "comp": comp_sel,
+                                        "tipo": tipo_lanc,
+                                        "val": val_final
+                                    })
+                                    sucessos += 1
+                                except:
+                                    erros += 1
+                        
+                        if sucessos > 0:
+                            st.success(f"✅ Lote processado! {sucessos} recibos de prêmio gerados com a taxa ZAUT aplicada.")
+                        if erros > 0:
+                            st.error(f"Ocorreram {erros} erros de gravação.")
+
+            with aba_ind:
+                opcoes_dropdown = {f"{c['nome']} (ID: {c['id']})": c for c in colabs_elegiveis}
+                colab_escolhido = st.selectbox("Selecione o Colaborador:", list(opcoes_dropdown.keys()))
+                dados_c = opcoes_dropdown[colab_escolhido]
+                
+                st.markdown(f"**Valor Hora Calculado:** R$ {format_brl_number(dados_c['sal_hora'])}")
+                
+                cli1, cli2, cli3 = st.columns(3)
+                with cli1: hp_ind = st.text_input("Quantidade de Horas (Ex: 47,00)", value="0,00", key="k_hpi")
+                with cli2: desc_ind = st.selectbox("Descrição do Serviço", LISTA_SERVICOS_PREMIO, key="k_di")
+                
+                hp_ind_float = 0.0
+                try: hp_ind_float = float(clean_money_to_db(hp_ind)) if clean_money_to_db(hp_ind) else 0.0
+                except: pass
+                
+                val_bruto_ind = dados_c['sal_hora'] * hp_ind_float
+                val_final_ind = val_bruto_ind + 1.00 if hp_ind_float > 0 else 0.00
+                
+                with cli3:
+                    st.markdown('<p class="field-label">RECIBO FINAL</p>', unsafe_allow_html=True)
+                    if hp_ind_float > 0:
+                        st.markdown(f'<p class="field-highlight">R$ {format_brl_number(val_final_ind)}</p>', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'<p class="field-value">Aguardando...</p>', unsafe_allow_html=True)
+                
+                if st.button("💾 Gravar Prêmio Individual", type="primary", key="btn_ind"):
+                    if hp_ind_float <= 0: st.error("Insira horas válidas.")
+                    else:
+                        d_final = st.text_input("Especifique:") if desc_ind == "OUTRO (DIGITAR MANUALMENTE)" else desc_ind
+                        try:
+                            with engine.begin() as conn:
+                                conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id_c, :comp, :tipo, :val, 'Lançado')"), {"id_c": dados_c['id'], "comp": comp_sel, "tipo": f"Prêmio: {d_final} (Horas: {hp_ind_float})", "val": val_final_ind})
+                            st.success(f"✅ Prêmio de R$ {format_brl_number(val_final_ind)} gravado!")
+                        except Exception as e: st.error(f"Erro: {e}")
+            
+    except Exception as e:
+        st.error(f"Erro operacional no filtro: {e}")
+
+# ==========================================
+# 5. AUDITORIA CCT (IA)
+# ==========================================
+elif menu == "🔎 Auditoria CCT (IA)":
+    st.title("🔎 Auditoria Automatizada da Folha")
+    
+    if st.button("🚀 Executar Varredura Completa na Folha", type="primary"):
+        with st.spinner("A cruzar salários atuais com as normas..."):
+            try:
+                df_folha = pd.read_sql("SELECT id, nome, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24 FROM cadastro_geral_colaborador", engine)
+                hoje = pd.Timestamp.today()
+                
+                def calcular_auditoria(row):
+                    cargo = str(row['cargo']).upper() if pd.notna(row['cargo']) else ""
+                    sal_atual = float(clean_money_to_db(row['salario_mes_12_24']) or 0.0)
+                    
+                    if pd.notna(row['demissao']) and str(row['demissao']).strip() != "": return pd.Series(["Demitido", "-", "Ok"])
+                    if pd.notna(row['data_afastamento']) and str(row['data_afastamento']).strip() != "" and pd.isna(row['data_retorno']): return pd.Series(["Afastado INSS", "-", "Ok"])
+                    if "ESTAGIÁR" in cargo or "APRENDIZ" in cargo: return pd.Series(["N/A", "-", "Ok"])
+                    
+                    piso = 1518.00
+                    if any(x in cargo for x in ["PEDREIRO", "CARPINTEIRO", "PINTOR", "ENCANADOR"]): piso = 2063.92
+                    elif any(x in cargo for x in ["SERVENTE", "AJUDANTE"]): piso = 1548.00
+                    elif "MESTRE" in cargo: piso = 4068.99
+                        
+                    try:
+                        adm_dt = pd.to_datetime(row['admissao'])
+                        ciclos = min(((hoje.year - adm_dt.year) * 12 + hoje.month - adm_dt.month) // 18, 3)
+                    except: return pd.Series(["Erro Data", "-", "Pendente"])
+                        
+                    if "SERVENTE" in cargo: ciclos = 0
+                    salario_ideal = piso * (1.05 ** ciclos)
+                    
+                    st_aud = "⚠️ Sem Salário" if sal_atual == 0.0 else ("❌ Abaixo CCT" if round(sal_atual, 2) < round(salario_ideal, 2) else "✅ Perfeito")
+                    return pd.Series([f"R$ {format_brl_number(salario_ideal)}", f"R$ {format_brl_number(sal_atual)}", st_aud])
+
+                df_folha[['Salário Ideal (CCT)', 'Salário Atual', 'Status']] = df_folha.apply(calcular_auditoria, axis=1)
+                st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)
+            except Exception as e: st.error(f"Erro: {e}")    
