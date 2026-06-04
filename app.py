@@ -97,17 +97,41 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- INJEÇÃO DE JAVASCRIPT PROFISSIONAL ---
+# --- INJEÇÃO DE JAVASCRIPT PROFISSIONAL (AUTOFILL, ENTER COM SELEÇÃO, MÁSCARAS) ---
 components.html("""
 <script>
 const doc = window.parent.document;
+const setNativeValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+
 setInterval(function(){
+    // Autofill Off
     doc.querySelectorAll('input').forEach(function(el){
         el.setAttribute('autocomplete', 'new-password');
         el.setAttribute('autofill', 'off');
         if (!el.hasAttribute('data-name-set')) { el.setAttribute('name', 'input_' + Math.random().toString(36).substring(7)); el.setAttribute('data-name-set', 'true'); }
     });
+    
+    // Máscara de CPF em Tempo Real
+    doc.querySelectorAll('input[aria-label="CPF"]').forEach(function(el){
+        if (!el.hasAttribute('data-cpf-mask')) {
+            el.setAttribute('data-cpf-mask', 'true');
+            el.addEventListener('input', function(e) {
+                let v = e.target.value.replace(/\\D/g, '');
+                if(v.length > 11) v = v.substring(0, 11);
+                let f = v;
+                if(v.length > 9) f = v.replace(/(\\d{3})(\\d{3})(\\d{3})(\\d{1,2})/, "$1.$2.$3-$4");
+                else if(v.length > 6) f = v.replace(/(\\d{3})(\\d{3})(\\d{1,3})/, "$1.$2.$3");
+                else if(v.length > 3) f = v.replace(/(\\d{3})(\\d{1,3})/, "$1.$2");
+                
+                if (e.target.value !== f) {
+                    setNativeValue.call(e.target, f);
+                    e.target.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            });
+        }
+    });
 }, 150);
+
 if (!window.parent.EnterToTabInjected) {
     window.parent.EnterToTabInjected = true;
     doc.addEventListener('keydown', function(e) {
@@ -222,6 +246,14 @@ def sort_historico_chronological(df):
         df = df.sort_values(by=['data_ordenacao', 'id'], ascending=[False, False]).drop(columns=['data_ordenacao'])
     return df
 
+def format_cpf(cpf_str):
+    """Corrige e adiciona pontos/traços em CPFs já existentes no banco de dados"""
+    if not cpf_str or str(cpf_str).strip().lower() in ["nan", "none", ""]: return ""
+    v = re.sub(r'\D', '', str(cpf_str))
+    if len(v) == 11:
+        return f"{v[:3]}.{v[3:6]}.{v[6:9]}-{v[9:]}"
+    return str(cpf_str)
+
 # ==========================================
 # MENU SUPERIOR HORIZONTAL EXCLUSIVO
 # ==========================================
@@ -263,6 +295,7 @@ if menu == "👥 Visão Geral":
         df['Alertas do Sistema'] = df.apply(verificar_alertas, axis=1)
         df['salario_mes_12_24'] = df['salario_mes_12_24'].apply(format_currency_brl)
         df['salario_hora'] = df['salario_hora'].apply(format_currency_brl)
+        df['cpf'] = df['cpf'].apply(format_cpf) # Aplica máscara na tabela visual
         df.rename(columns={'situacao': 'Status (eSocial)'}, inplace=True)
         
         cols_view = ['Alertas do Sistema', 'id', 'nome', 'Status (eSocial)', 'cpf', 'cargo', 'salario_mes_12_24']
@@ -358,14 +391,11 @@ elif menu == "📥 Importação Inteligente":
     with aba_imp3:
         st.subheader("🔄 Sincronização Automática de Afastamentos (eSocial)")
         st.info("Faça o upload do seu relatório da Domínio. O sistema vai ler a coluna **Código**, encontrar a coluna **S** (ou ST/Situação) e a **Data ST**, traduzir os códigos e atualizar todo o histórico num piscar de olhos!")
-        
         arquivo_st = st.file_uploader("Selecione a Relação de Empregados (.xlsx, .csv)", type=["xlsx", "csv"], key="up_st")
-        
         if arquivo_st and st.button("🚀 Processar Situações (Varredura Massiva)", type="primary"):
             with st.spinner("A mapear as colunas e a varrer os dados..."):
                 try:
                     df_st = pd.read_excel(arquivo_st, engine='openpyxl') if arquivo_st.name.endswith('.xlsx') else pd.read_csv(arquivo_st)
-                    
                     col_id = next((c for c in df_st.columns if str(c).strip().upper() in ['CÓDIGO', 'CODIGO', 'ID', 'MATRICULA']), None)
                     col_s = next((c for c in df_st.columns if str(c).strip().upper() in ['S', 'ST', 'SITUAÇÃO', 'SITUACAO']), None)
                     col_dt = next((c for c in df_st.columns if 'DATA ST' in str(c).strip().upper() or 'DATA' in str(c).strip().upper()), None)
@@ -375,22 +405,16 @@ elif menu == "📥 Importação Inteligente":
                     else:
                         mapa_st = {str(item.split(' - ')[0]).strip(): item for item in LISTA_SITUACOES_ESOCIAL}
                         sucessos = 0
-                        
                         with engine.begin() as conn:
                             for _, row in df_st.iterrows():
                                 v_id = str(row[col_id]).strip()
                                 v_s = str(row[col_s]).strip().replace('.0', '')
                                 v_dt_raw = row[col_dt]
-                                
                                 if not v_id or v_id == 'nan' or not v_s or v_s == 'nan': continue
-                                
                                 dt_st_obj = parse_br_date_smart(v_dt_raw)
                                 dt_str = dt_st_obj.strftime('%Y-%m-%d') if dt_st_obj else None
-                                
                                 sit_completa = mapa_st.get(v_s, "1 - Trabalhando")
-                                
                                 existe = conn.execute(text("SELECT id FROM cadastro_geral_colaborador WHERE id = :id"), {"id": v_id}).fetchone()
-                                
                                 if existe:
                                     if sit_completa.startswith('8'): 
                                         conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = :sit, demissao = :dt WHERE id = :id"), {"sit": sit_completa, "dt": dt_str, "id": v_id})
@@ -404,10 +428,8 @@ elif menu == "📥 Importação Inteligente":
                                         if not ja_tem:
                                             conn.execute(text("INSERT INTO historico_situacoes (id_colaborador, data_evento, descricao) VALUES (:id, :dt, :desc)"), {"id": v_id, "dt": dt_str, "desc": sit_completa})
                                             sucessos += 1
-                                            
                         st.success(f"✅ Missão Cumprida! A varredura analisou os dados e inseriu {sucessos} novos eventos na Linha do Tempo dos colaboradores.")
-                except Exception as e:
-                    st.error(f"Erro ao processar o ficheiro: {e}")
+                except Exception as e: st.error(f"Erro ao processar o ficheiro: {e}")
 
 # ==========================================
 # 3. GESTÃO DE CADASTROS
@@ -523,7 +545,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.markdown('<p class="field-label">SITUAÇÃO (eSocial)</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value" style="color: {sit_color}; font-weight: bold;">{v_sit_atual}</p>', unsafe_allow_html=True)
                         st.markdown('<p class="field-label">SALÁRIO-HORA ATUAL</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{salario_hora_display}</p>', unsafe_allow_html=True)
                     with c3:
-                        st.markdown('<p class="field-label">CPF</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{colab.cpf if colab.cpf else "Não Informado"}</p>', unsafe_allow_html=True)
+                        st.markdown('<p class="field-label">CPF</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{format_cpf(colab.cpf) if colab.cpf else "Não Informado"}</p>', unsafe_allow_html=True)
                         st.markdown('<p class="field-label">DATA DE ADMISSÃO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value">{format_date_br(colab.admissao) or "Não Informada"}</p>', unsafe_allow_html=True)
                         st.markdown('<p class="field-label">DATA DE DEMISSÃO</p>', unsafe_allow_html=True); st.markdown(f'<p class="field-value" style="color: #ef4444;">{format_date_br(colab.demissao) or "Ativo / Sem Demissão"}</p>', unsafe_allow_html=True)
                     st.markdown('</div>', unsafe_allow_html=True)
@@ -769,7 +791,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                         with ce1:
                             edit_id = st.text_input("ID / Matrícula", value=str(colab.id))
                             edit_nome = st.text_input("Nome Completo", value=str(colab.nome))
-                            edit_cpf = st.text_input("CPF", value=str(colab.cpf) if colab.cpf else "")
+                            edit_cpf = st.text_input("CPF", value=format_cpf(colab.cpf) if colab.cpf else "")
                             edit_adm = st.text_input("Data de Admissão (Sem barras)", value=format_date_br(colab.admissao))
                             edit_sal_mes = st.text_input("Salário-Mês Base", value=str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "")
                         with ce2:
@@ -826,7 +848,6 @@ elif menu == "🛠️ Gestão de Cadastros":
             except Exception as e:
                 st.error(f"Erro no processamento da ficha: {e}")
 
-    # ===== CORREÇÃO APLICADA AQUI (MÓDULO DE NOVO CADASTRO COMPLETO E INTACTO) =====
     elif sub_menu == "➕ Novo Cadastro":
         st.subheader("Inserir Novo Colaborador")
         st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
