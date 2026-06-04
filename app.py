@@ -761,6 +761,9 @@ elif menu == "🛠️ Gestão de Cadastros":
                             except Exception as e: st.error(f"Erro: {e}")
                         if st.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
+            except Exception as e:
+                st.error(f"Erro no processamento da ficha: {e}")
+
     elif sub_menu == "➕ Novo Cadastro":
         st.subheader("Inserir Novo Colaborador")
         st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
@@ -911,4 +914,4 @@ elif menu == "🔎 Auditoria CCT (IA)":
             st_aud = "⚠️ Sem Salário" if sal_atual == 0.0 else ("❌ Abaixo CCT" if round(sal_atual, 2) < round(piso, 2) else "✅ Perfeito")
             return pd.Series([f"R$ {format_brl_number(piso)}", f"R$ {format_brl_number(sal_atual)}", st_aud])
         df_folha[['Salário Ideal (CCT)', 'Salário Atual', 'Status']] = df_folha.apply(calcular_auditoria, axis=1)
-        st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'situacao', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)    
+        st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'situacao', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)
