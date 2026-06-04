@@ -1717,4 +1717,4 @@ elif menu == "🔎 Auditoria CCT (IA)":
 
                 df_folha[['Salário Ideal (CCT)', 'Salário Atual', 'Status']] = df_folha.apply(calcular_auditoria, axis=1)
                 st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'situacao', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)
-            except Exception as e: st.error(f"Erro: {e}")
+            except Exception as e: st.error(f"Erro: {e}")    
