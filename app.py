@@ -215,6 +215,14 @@ def format_competencia_smart(val):
     elif len(digitos) == 4: return f"{digitos[:2].zfill(2)}/20{digitos[2:]}"
     return s
 
+def sort_historico_chronological(df):
+    """Garante que a matriz salarial seja ordenada matematicamente por Ano e Mês decrescentes"""
+    if not df.empty and 'competencia' in df.columns:
+        df['competencia'] = df['competencia'].apply(format_competencia_smart)
+        df['data_ordenacao'] = pd.to_datetime(df['competencia'], format='%m/%Y', errors='coerce')
+        df = df.sort_values(by=['data_ordenacao', 'id'], ascending=[False, False]).drop(columns=['data_ordenacao'])
+    return df
+
 # ==========================================
 # MENU SUPERIOR HORIZONTAL EXCLUSIVO
 # ==========================================
@@ -386,6 +394,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     df_fin = pd.read_sql(text("SELECT * FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), conn, params={"id": str(colab_id)})
                     fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None
                     df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
+                    df_hist = sort_historico_chronological(df_hist) # Aplica a ordenação cronológica forte
                     df_hist_sit = pd.read_sql(text("SELECT id, data_evento, descricao FROM historico_situacoes WHERE id_colaborador = :id ORDER BY data_evento DESC, id DESC"), conn, params={"id": str(colab_id)})
                 
                 if colab:
@@ -415,6 +424,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 comp_atual = comp_atual_dt.strftime('%m/%Y')
                                 with engine.begin() as conn_sync: conn_sync.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": str(colab_id), "comp": comp_atual, "val": float(sm_val)})
                                 df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), engine, params={"id": str(colab_id)})
+                                df_hist = sort_historico_chronological(df_hist) # Reaplica a ordenação
                             val_atual_base = float(sm_val)
                             salario_mes_display = format_currency_brl(val_atual_base)
                             salario_hora_display = format_currency_brl(val_atual_base / 220.0)
@@ -523,7 +533,6 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     st.markdown("### 💰 Histórico Mensal de Prêmios e Folha")
                     if not df_hist.empty:
-                        df_hist['competencia'] = df_hist['competencia'].apply(format_competencia_smart)
                         duplicatas = df_hist.groupby(['competencia', 'tipo_lancamento']).size().reset_index(name='contagem')
                         duplicatas = duplicatas[duplicatas['contagem'] > 1]
                         if not duplicatas.empty:
@@ -677,7 +686,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.info("🛠️ **Editor de Histórico (Pagamentos):** Apague o valor (ou deixe 0) e clique em Salvar para deletar a linha.")
                         if not df_hist.empty:
                             try:
-                                opcoes_hist = {f"ID: {row['id']} | Comp: {format_competencia_smart(row['competencia'])} | Tipo: {row['tipo_lancamento']} | Val: R$ {format_brl_number(row['valor_lancamento'])}": row['id'] for _, row in df_hist.iterrows()}
+                                opcoes_hist = {f"ID: {row['id']} | Comp: {row['competencia']} | Tipo: {row['tipo_lancamento']} | Val: R$ {format_brl_number(row['valor_lancamento'])}": row['id'] for _, row in df_hist.iterrows()}
                                 id_alvo = opcoes_hist[st.selectbox("Selecione o registo:", list(opcoes_hist.keys()))]
                                 novo_val = st.text_input("Novo Valor", placeholder="Deixe vazio para deletar")
                                 ch1, ch2 = st.columns([1, 4])
