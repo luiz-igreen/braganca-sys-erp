@@ -224,7 +224,7 @@ menu = st.radio("Menu Principal", ["👥 Visão Geral", "📥 Importação Intel
 st.markdown("---")
 
 # ==========================================
-# 1. VISÃO GERAL (NOVO PAINEL DE AUDITORIA)
+# 1. VISÃO GERAL (PAINEL DE AUDITORIA)
 # ==========================================
 if menu == "👥 Visão Geral":
     st.title("📊 Painel Corporativo & Auditoria Cadastral")
@@ -241,40 +241,29 @@ if menu == "👥 Visão Geral":
             dt_afast = parse_br_date_smart(row['data_afastamento'])
             hoje = datetime.today().date()
             
-            # Validação 1: Retorno Vencido
             if sit not in ['1 - Trabalhando', '8 - Demitido'] and dt_ret and dt_ret <= hoje:
                 alertas.append("Retorno Vencido (Abra a ficha)")
-                
-            # Validação 2: Inconsistência de Afastamento
             if sit == '1 - Trabalhando' and dt_afast and not dt_ret:
                 alertas.append("Afastamento em Aberto")
-                
-            # Validação 3: Dados Críticos
             if pd.isna(row['cpf']) or str(row['cpf']).strip() == "":
                 alertas.append("Falta CPF")
-                
             sal = clean_money_to_db(row['salario_mes_12_24'])
             if not sal or float(sal) == 0:
                 alertas.append("Sem Salário Base")
                 
             return "⚠️ " + " / ".join(alertas) if alertas else "✅ Atualizado"
 
-        # Aplicar motor de alertas
         df['Alertas do Sistema'] = df.apply(verificar_alertas, axis=1)
-        
         df['salario_mes_12_24'] = df['salario_mes_12_24'].apply(format_currency_brl)
         df['salario_hora'] = df['salario_hora'].apply(format_currency_brl)
-        
         df.rename(columns={'situacao': 'Status (eSocial)'}, inplace=True)
         
-        # Ocultar colunas técnicas e mostrar alertas na frente
         cols_view = ['Alertas do Sistema', 'id', 'nome', 'Status (eSocial)', 'cpf', 'cargo', 'salario_mes_12_24']
         df_view = df[cols_view].copy()
         
         if mostrar_alertas:
             df_view = df_view[df_view['Alertas do Sistema'].str.contains('⚠️')]
-            if df_view.empty:
-                st.success("🎉 Parabéns! Todos os cadastros estão atualizados e sem pendências no momento.")
+            if df_view.empty: st.success("🎉 Parabéns! Todos os cadastros estão atualizados e sem pendências no momento.")
         
         st.dataframe(df_view, use_container_width=True, hide_index=True)
     except Exception as e: st.error(f"Erro ao carregar dados do painel: {e}")
@@ -615,16 +604,18 @@ elif menu == "🛠️ Gestão de Cadastros":
                             
                         c_bt1, c_bt2 = st.columns([1, 4])
                         if c_bt1.button("💾 Gravar Demissão", type="primary"):
-                            dt_nova = None if reverter else parse_br_date_smart(nova_dem)
-                            if not reverter and not dt_nova: st.error("⚠️ Data de demissão inválida.")
-                            else:
-                                dem_str = dt_nova.strftime('%Y-%m-%d') if dt_nova else None
-                                novo_status = '1 - Trabalhando' if reverter else '8 - Demitido'
-                                dt_hist_evento = dt_nova.strftime('%Y-%m-%d') if dt_nova else datetime.today().strftime('%Y-%m-%d')
-                                with engine.begin() as conn: 
-                                    conn.execute(text("UPDATE cadastro_geral_colaborador SET demissao = :d, situacao = :sit WHERE id = :id"), {"d": dem_str, "sit": novo_status, "id": str(colab_id)})
-                                    conn.execute(text("INSERT INTO historico_situacoes (id_colaborador, data_evento, descricao) VALUES (:id, :dt, :desc)"), {"id": str(colab_id), "dt": dt_hist_evento, "desc": novo_status})
-                                st.success("✅ Atualizado!"); st.session_state['status_acao'] = None; st.rerun()
+                            try:
+                                dt_nova = None if reverter else parse_br_date_smart(nova_dem)
+                                if not reverter and not dt_nova: st.error("⚠️ Data de demissão inválida.")
+                                else:
+                                    dem_str = dt_nova.strftime('%Y-%m-%d') if dt_nova else None
+                                    novo_status = '1 - Trabalhando' if reverter else '8 - Demitido'
+                                    dt_hist_evento = dt_nova.strftime('%Y-%m-%d') if dt_nova else datetime.today().strftime('%Y-%m-%d')
+                                    with engine.begin() as conn: 
+                                        conn.execute(text("UPDATE cadastro_geral_colaborador SET demissao = :d, situacao = :sit WHERE id = :id"), {"d": dem_str, "sit": novo_status, "id": str(colab_id)})
+                                        conn.execute(text("INSERT INTO historico_situacoes (id_colaborador, data_evento, descricao) VALUES (:id, :dt, :desc)"), {"id": str(colab_id), "dt": dt_hist_evento, "desc": novo_status})
+                                    st.success("✅ Atualizado!"); st.session_state['status_acao'] = None; st.rerun()
+                            except Exception as e: st.error(f"Erro ao salvar: {e}")
                         if c_bt2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
                     # --- EXCLUIR ---
@@ -632,13 +623,15 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.warning(f"⚠️ Deseja excluir {colab.nome}?")
                         cx1, cx2 = st.columns(2)
                         if cx1.button("🔥 Sim, Excluir"):
-                            with engine.begin() as conn:
-                                conn.execute(text("DELETE FROM historico_situacoes WHERE id_colaborador = :id"), {"id": str(colab_id)})
-                                conn.execute(text("DELETE FROM historico_salarial WHERE id_colaborador = :id"), {"id": str(colab_id)})
-                                conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador = :id"), {"id": str(colab_id)})
-                                conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": str(colab_id)})
-                                conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": str(colab_id)})
-                            st.success("Excluído!"); st.session_state['busca_selecionada_id'] = None; st.session_state['status_acao'] = None; st.rerun()
+                            try:
+                                with engine.begin() as conn:
+                                    conn.execute(text("DELETE FROM historico_situacoes WHERE id_colaborador = :id"), {"id": str(colab_id)})
+                                    conn.execute(text("DELETE FROM historico_salarial WHERE id_colaborador = :id"), {"id": str(colab_id)})
+                                    conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador = :id"), {"id": str(colab_id)})
+                                    conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": str(colab_id)})
+                                    conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": str(colab_id)})
+                                st.success("Excluído!"); st.session_state['busca_selecionada_id'] = None; st.session_state['status_acao'] = None; st.rerun()
+                            except Exception as e: st.error(f"Erro: {e}")
                         if cx2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
                     # --- LANÇAMENTO AVULSO ---
@@ -652,12 +645,12 @@ elif menu == "🛠️ Gestão de Cadastros":
                         c_bt1, c_bt2 = st.columns([1, 4])
                         
                         if c_bt1.button("💾 Salvar Lançamento"):
-                            v_clean = clean_money_to_db(av_valor)
-                            c_clean = format_competencia_smart(av_comp)
-                            if not c_clean or len(c_clean) < 6: st.error("⚠️ Competência inválida.")
-                            elif not v_clean: st.error("⚠️ O campo 'Valor' está vazio.")
-                            else:
-                                try:
+                            try:
+                                v_clean = clean_money_to_db(av_valor)
+                                c_clean = format_competencia_smart(av_comp)
+                                if not c_clean or len(c_clean) < 6: st.error("⚠️ Competência inválida.")
+                                elif not v_clean: st.error("⚠️ O campo 'Valor' está vazio.")
+                                else:
                                     m_c, y_c = map(int, c_clean.split('/'))
                                     dt_comp = date(y_c, m_c, 1)
                                     bloqueado, msg_bloqueio = False, ""
@@ -676,7 +669,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     else:
                                         with engine.begin() as conn: conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, :tipo, :valor, 'Pago')"), {"id": str(colab_id), "comp": c_clean, "tipo": av_tipo, "valor": float(v_clean)})
                                         st.success(f"Salvo!"); st.session_state['status_acao'] = None; st.rerun()
-                                except: st.error("Erro ao validar datas.")
+                            except Exception as e: st.error(f"Erro ao validar datas: {e}")
                         if c_bt2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
                     # --- CORRIGIR HISTÓRICO ---
@@ -689,17 +682,19 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 novo_val = st.text_input("Novo Valor", placeholder="Deixe vazio para deletar")
                                 ch1, ch2 = st.columns([1, 4])
                                 if ch1.button("💾 Salvar / Atualizar"):
-                                    vc = clean_money_to_db(novo_val)
-                                    with engine.begin() as conn:
-                                        if not vc or float(vc) == 0:
-                                            conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id = :id"), {"id": id_alvo})
-                                            st.success("Registo zerado e removido!")
-                                        else:
-                                            conn.execute(text("UPDATE historico_premiacoes_e_folha SET valor_lancamento = :v WHERE id = :id"), {"v": float(vc), "id": id_alvo})
-                                            st.success("Corrigido!")
-                                    st.session_state['status_acao'] = None; st.rerun()
+                                    try:
+                                        vc = clean_money_to_db(novo_val)
+                                        with engine.begin() as conn:
+                                            if not vc or float(vc) == 0:
+                                                conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id = :id"), {"id": id_alvo})
+                                                st.success("Registo zerado e removido!")
+                                            else:
+                                                conn.execute(text("UPDATE historico_premiacoes_e_folha SET valor_lancamento = :v WHERE id = :id"), {"v": float(vc), "id": id_alvo})
+                                                st.success("Corrigido!")
+                                        st.session_state['status_acao'] = None; st.rerun()
+                                    except Exception as e: st.error(f"Erro: {e}")
                                 if ch2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
-                            except: st.error("Erro ao carregar lista.")
+                            except Exception as e: st.error(f"Erro ao carregar lista: {e}")
                         else: st.warning("Nenhum histórico para corrigir.")
 
                     # --- EDITAR FICHA MESTRA ---
@@ -728,43 +723,43 @@ elif menu == "🛠️ Gestão de Cadastros":
                         with ci2: edit_ret = st.text_input("Retorno Previsto", value=format_date_br(v_ret))
                         
                         if st.button("Confirmar e Salvar Alterações"):
-                            if not edit_id.strip() or not edit_nome.strip(): st.error("ID e Nome são obrigatórios.")
-                            else:
-                                dt_a = parse_br_date_smart(edit_adm)
-                                dt_af = parse_br_date_smart(edit_afast)
-                                dt_r = parse_br_date_smart(edit_ret)
-                                
-                                adm_str = dt_a.strftime('%Y-%m-%d') if dt_a else None
-                                af_str = dt_af.strftime('%Y-%m-%d') if dt_af else None
-                                ret_str = dt_r.strftime('%Y-%m-%d') if dt_r else None
-                                
-                                sm_val = clean_money_to_db(edit_sal_mes)
-                                sh_val = str(float(sm_val)/220.0) if sm_val is not None else None
-                                
-                                with engine.begin() as conn:
-                                    conn.execute(text("UPDATE cadastro_geral_colaborador SET id=:nid, nome=:n, cpf=:c, cargo=:ca, admissao=:ad, data_afastamento=:afast, data_retorno=:ret, chave_pix=:pix, salario_mes_12_24=:sm, salario_hora=:sh, situacao=:sit WHERE id=:oid"), {"nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf, "ca": edit_cargo, "ad": adm_str, "afast": af_str, "ret": ret_str, "pix": edit_pix, "sm": sm_val, "sh": sh_val, "sit": sel_sit, "oid": str(colab_id)})
-                                    if edit_id.strip() != str(colab_id):
-                                        conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
-                                        conn.execute(text("UPDATE historico_situacoes SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
+                            try:
+                                if not edit_id.strip() or not edit_nome.strip(): st.error("ID e Nome são obrigatórios.")
+                                else:
+                                    dt_a = parse_br_date_smart(edit_adm)
+                                    dt_af = parse_br_date_smart(edit_afast)
+                                    dt_r = parse_br_date_smart(edit_ret)
                                     
-                                    # GRAVAÇÃO AUTOMÁTICA NO HISTÓRICO SE A SITUAÇÃO MUDOU
-                                    if sel_sit != v_sit_atual:
-                                        dt_hist_evento = dt_af if dt_af else datetime.today().date()
-                                        if sel_sit.startswith("1 - ") and dt_r: dt_hist_evento = dt_r
-                                        dt_str_final = dt_hist_evento.strftime('%Y-%m-%d') if isinstance(dt_hist_evento, date) else datetime.today().strftime('%Y-%m-%d')
-                                        conn.execute(text("INSERT INTO historico_situacoes (id_colaborador, data_evento, descricao) VALUES (:id, :dt, :desc)"), {"id": edit_id.strip(), "dt": dt_str_final, "desc": sel_sit})
+                                    adm_str = dt_a.strftime('%Y-%m-%d') if dt_a else None
+                                    af_str = dt_af.strftime('%Y-%m-%d') if dt_af else None
+                                    ret_str = dt_r.strftime('%Y-%m-%d') if dt_r else None
                                     
-                                    if sm_val:
-                                        existe_hist = conn.execute(text("SELECT id FROM historico_premiacoes_e_folha WHERE id_colaborador = :id AND tipo_lancamento ILIKE '%Salário%' ORDER BY id DESC LIMIT 1"), {"id": edit_id.strip()}).fetchone()
-                                        if not existe_hist:
-                                            comp_str = dt_a.strftime('%m/%Y') if dt_a else datetime.today().strftime('%m/%Y')
-                                            conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": edit_id.strip(), "comp": comp_str, "val": float(sm_val)})
-                                        else:
-                                            conn.execute(text("UPDATE historico_premiacoes_e_folha SET valor_lancamento = :val WHERE id = :id_hist"), {"val": float(sm_val), "id_hist": existe_hist[0]})
-                                            
-                                st.success("Salvo!"); st.session_state['busca_selecionada_id'] = edit_id.strip(); st.session_state['status_acao'] = None; st.rerun()
+                                    sm_val = clean_money_to_db(edit_sal_mes)
+                                    sh_val = str(float(sm_val)/220.0) if sm_val is not None else None
+                                    
+                                    with engine.begin() as conn:
+                                        conn.execute(text("UPDATE cadastro_geral_colaborador SET id=:nid, nome=:n, cpf=:c, cargo=:ca, admissao=:ad, data_afastamento=:afast, data_retorno=:ret, chave_pix=:pix, salario_mes_12_24=:sm, salario_hora=:sh, situacao=:sit WHERE id=:oid"), {"nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf, "ca": edit_cargo, "ad": adm_str, "afast": af_str, "ret": ret_str, "pix": edit_pix, "sm": sm_val, "sh": sh_val, "sit": sel_sit, "oid": str(colab_id)})
+                                        if edit_id.strip() != str(colab_id):
+                                            conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
+                                            conn.execute(text("UPDATE historico_situacoes SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
+                                        
+                                        if sel_sit != v_sit_atual:
+                                            dt_hist_evento = dt_af if dt_af else datetime.today().date()
+                                            if sel_sit.startswith("1 - ") and dt_r: dt_hist_evento = dt_r
+                                            dt_str_final = dt_hist_evento.strftime('%Y-%m-%d') if isinstance(dt_hist_evento, date) else datetime.today().strftime('%Y-%m-%d')
+                                            conn.execute(text("INSERT INTO historico_situacoes (id_colaborador, data_evento, descricao) VALUES (:id, :dt, :desc)"), {"id": edit_id.strip(), "dt": dt_str_final, "desc": sel_sit})
+                                        
+                                        if sm_val:
+                                            existe_hist = conn.execute(text("SELECT id FROM historico_premiacoes_e_folha WHERE id_colaborador = :id AND tipo_lancamento ILIKE '%Salário%' ORDER BY id DESC LIMIT 1"), {"id": edit_id.strip()}).fetchone()
+                                            if not existe_hist:
+                                                comp_str = dt_a.strftime('%m/%Y') if dt_a else datetime.today().strftime('%m/%Y')
+                                                conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": edit_id.strip(), "comp": comp_str, "val": float(sm_val)})
+                                            else:
+                                                conn.execute(text("UPDATE historico_premiacoes_e_folha SET valor_lancamento = :val WHERE id = :id_hist"), {"val": float(sm_val), "id_hist": existe_hist[0]})
+                                                
+                                    st.success("Salvo!"); st.session_state['busca_selecionada_id'] = edit_id.strip(); st.session_state['status_acao'] = None; st.rerun()
+                            except Exception as e: st.error(f"Erro: {e}")
                         if st.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
-            except Exception as e: st.error(f"Erro: {e}")
 
     elif sub_menu == "➕ Novo Cadastro":
         st.subheader("Inserir Novo Colaborador")
@@ -785,25 +780,26 @@ elif menu == "🛠️ Gestão de Cadastros":
             n_ret_str = st.text_input("Retorno Previsto", placeholder="Ex: 01072025")
         st.markdown('</div>', unsafe_allow_html=True)
         if st.button("💾 Salvar Registro no Sistema"):
-            dt_a = parse_br_date_smart(n_adm_str)
-            dt_af = parse_br_date_smart(n_afast_str)
-            dt_r = parse_br_date_smart(n_ret_str)
-            
-            sm_val = clean_money_to_db(n_sal_mes)
-            sh_val = str(float(sm_val)/220.0) if sm_val is not None else None
-            
-            with engine.begin() as conn:
-                conn.execute(text("INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora, situacao) VALUES (:id, :n, :c, :ca, :ad, :afast, :ret, :sm, :sh, :sit)"), {"id": str(n_id), "n": str(n_nome), "c": str(n_cpf), "ca": str(n_cargo), "ad": dt_a.strftime('%Y-%m-%d') if dt_a else None, "afast": dt_af.strftime('%Y-%m-%d') if dt_af else None, "ret": dt_r.strftime('%Y-%m-%d') if dt_r else None, "sm": sm_val, "sh": sh_val, "sit": n_sit})
+            try:
+                dt_a = parse_br_date_smart(n_adm_str)
+                dt_af = parse_br_date_smart(n_afast_str)
+                dt_r = parse_br_date_smart(n_ret_str)
                 
-                # INSERE O PRIMEIRO REGISTRO NA LINHA DO TEMPO (HISTÓRICO DE SITUAÇÕES)
-                dt_hist_evento = dt_a.strftime('%Y-%m-%d') if dt_a else datetime.today().strftime('%Y-%m-%d')
-                conn.execute(text("INSERT INTO historico_situacoes (id_colaborador, data_evento, descricao) VALUES (:id, :dt, :desc)"), {"id": str(n_id), "dt": dt_hist_evento, "desc": n_sit})
+                sm_val = clean_money_to_db(n_sal_mes)
+                sh_val = str(float(sm_val)/220.0) if sm_val is not None else None
                 
-                if sm_val:
-                    comp_str = dt_a.strftime('%m/%Y') if dt_a else datetime.today().strftime('%m/%Y')
-                    conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": str(n_id), "comp": comp_str, "val": float(sm_val)})
+                with engine.begin() as conn:
+                    conn.execute(text("INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora, situacao) VALUES (:id, :n, :c, :ca, :ad, :afast, :ret, :sm, :sh, :sit)"), {"id": str(n_id), "n": str(n_nome), "c": str(n_cpf), "ca": str(n_cargo), "ad": dt_a.strftime('%Y-%m-%d') if dt_a else None, "afast": dt_af.strftime('%Y-%m-%d') if dt_af else None, "ret": dt_r.strftime('%Y-%m-%d') if dt_r else None, "sm": sm_val, "sh": sh_val, "sit": n_sit})
                     
-            st.success("Salvo!"); st.session_state['redirect_to_consulta'] = True; st.rerun()
+                    dt_hist_evento = dt_a.strftime('%Y-%m-%d') if dt_a else datetime.today().strftime('%Y-%m-%d')
+                    conn.execute(text("INSERT INTO historico_situacoes (id_colaborador, data_evento, descricao) VALUES (:id, :dt, :desc)"), {"id": str(n_id), "dt": dt_hist_evento, "desc": n_sit})
+                    
+                    if sm_val:
+                        comp_str = dt_a.strftime('%m/%Y') if dt_a else datetime.today().strftime('%m/%Y')
+                        conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": str(n_id), "comp": comp_str, "val": float(sm_val)})
+                        
+                st.success("Salvo!"); st.session_state['redirect_to_consulta'] = True; st.rerun()
+            except Exception as e: st.error(f"Erro: {e}")
 
 # ==========================================
 # 4. GESTÃO DE PRÊMIOS (ZAUT) E 5. AUDITORIA
@@ -915,4 +911,4 @@ elif menu == "🔎 Auditoria CCT (IA)":
             st_aud = "⚠️ Sem Salário" if sal_atual == 0.0 else ("❌ Abaixo CCT" if round(sal_atual, 2) < round(piso, 2) else "✅ Perfeito")
             return pd.Series([f"R$ {format_brl_number(piso)}", f"R$ {format_brl_number(sal_atual)}", st_aud])
         df_folha[['Salário Ideal (CCT)', 'Salário Atual', 'Status']] = df_folha.apply(calcular_auditoria, axis=1)
-        st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'situacao', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)    
+        st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'situacao', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)
