@@ -224,16 +224,59 @@ menu = st.radio("Menu Principal", ["👥 Visão Geral", "📥 Importação Intel
 st.markdown("---")
 
 # ==========================================
-# 1. VISÃO GERAL
+# 1. VISÃO GERAL (NOVO PAINEL DE AUDITORIA)
 # ==========================================
 if menu == "👥 Visão Geral":
-    st.title("📊 Painel Corporativo")
+    st.title("📊 Painel Corporativo & Auditoria Cadastral")
+    
+    mostrar_alertas = st.checkbox("🚨 Mostrar Apenas Colaboradores com Alertas/Pendências", value=False)
+    
     try:
-        df = pd.read_sql("SELECT id, nome, cpf, cargo, situacao, admissao, demissao, salario_mes_12_24, salario_hora FROM cadastro_geral_colaborador ORDER BY nome ASC", engine)
+        df = pd.read_sql("SELECT id, nome, cpf, cargo, situacao, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora FROM cadastro_geral_colaborador ORDER BY nome ASC", engine)
+        
+        def verificar_alertas(row):
+            alertas = []
+            sit = str(row['situacao']) if pd.notna(row['situacao']) else ""
+            dt_ret = parse_br_date_smart(row['data_retorno'])
+            dt_afast = parse_br_date_smart(row['data_afastamento'])
+            hoje = datetime.today().date()
+            
+            # Validação 1: Retorno Vencido
+            if sit not in ['1 - Trabalhando', '8 - Demitido'] and dt_ret and dt_ret <= hoje:
+                alertas.append("Retorno Vencido (Abra a ficha)")
+                
+            # Validação 2: Inconsistência de Afastamento
+            if sit == '1 - Trabalhando' and dt_afast and not dt_ret:
+                alertas.append("Afastamento em Aberto")
+                
+            # Validação 3: Dados Críticos
+            if pd.isna(row['cpf']) or str(row['cpf']).strip() == "":
+                alertas.append("Falta CPF")
+                
+            sal = clean_money_to_db(row['salario_mes_12_24'])
+            if not sal or float(sal) == 0:
+                alertas.append("Sem Salário Base")
+                
+            return "⚠️ " + " / ".join(alertas) if alertas else "✅ Atualizado"
+
+        # Aplicar motor de alertas
+        df['Alertas do Sistema'] = df.apply(verificar_alertas, axis=1)
+        
         df['salario_mes_12_24'] = df['salario_mes_12_24'].apply(format_currency_brl)
         df['salario_hora'] = df['salario_hora'].apply(format_currency_brl)
+        
         df.rename(columns={'situacao': 'Status (eSocial)'}, inplace=True)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        
+        # Ocultar colunas técnicas e mostrar alertas na frente
+        cols_view = ['Alertas do Sistema', 'id', 'nome', 'Status (eSocial)', 'cpf', 'cargo', 'salario_mes_12_24']
+        df_view = df[cols_view].copy()
+        
+        if mostrar_alertas:
+            df_view = df_view[df_view['Alertas do Sistema'].str.contains('⚠️')]
+            if df_view.empty:
+                st.success("🎉 Parabéns! Todos os cadastros estão atualizados e sem pendências no momento.")
+        
+        st.dataframe(df_view, use_container_width=True, hide_index=True)
     except Exception as e: st.error(f"Erro ao carregar dados do painel: {e}")
 
 # ==========================================
@@ -401,7 +444,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                     v_ret = getattr(colab, 'data_retorno', None)
 
                     # --- MOTOR DE AUTO-RETORNO INTELIGENTE ---
-                    # Se há data de retorno, e o status não é "Trabalhando" ou "Demitido", e a data de retorno chegou/passou:
                     if v_ret and v_sit_atual not in ["1 - Trabalhando", "8 - Demitido"]:
                         dt_ret_obj = parse_br_date_smart(v_ret)
                         if dt_ret_obj and dt_ret_obj <= datetime.today().date():
@@ -449,7 +491,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                             else:
                                 icon_afast = "🕒"
                                 titulo_afast = f"{icon_afast} Último Afastamento Registado"
-                                alerta_color = "#94a3b8" # Cinza discreto
+                                alerta_color = "#94a3b8"
                         elif v_sit_atual == "8 - Demitido":
                             icon_afast = "🕒"
                             titulo_afast = f"{icon_afast} Último Afastamento Antes da Demissão"
@@ -764,7 +806,7 @@ elif menu == "🛠️ Gestão de Cadastros":
             st.success("Salvo!"); st.session_state['redirect_to_consulta'] = True; st.rerun()
 
 # ==========================================
-# 4. GESTÃO DE PRÊMIOS (ZAUT) E 5. AUDITORIA (Mantidos Otimizados)
+# 4. GESTÃO DE PRÊMIOS (ZAUT) E 5. AUDITORIA
 # ==========================================
 elif menu == "🏆 Gestão de Prêmios (ZAUT)":
     st.title("🏆 Lançamento de Prêmios (ZAUT)")
@@ -775,7 +817,7 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
         comp_sel = st.selectbox("Selecione a Competência:", meses, index=(hoje.month - 1))
     st.markdown("---")
     try:
-        df_colabs = pd.read_sql("SELECT id, nome, demissao, data_afastamento, data_retorno, salario_mes_12_24, situacao FROM cadastro_geral_colaborador ORDER BY nome ASC", engine)
+        df_colabs = pd.read_sql("SELECT id, nome, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24, situacao FROM cadastro_geral_colaborador ORDER BY nome ASC", engine)
         data_inicio_comp = pd.Timestamp(year=int(comp_sel.split('/')[1]), month=int(comp_sel.split('/')[0]), day=1)
         data_fim_comp = pd.Timestamp(year=int(comp_sel.split('/')[1]), month=int(comp_sel.split('/')[0]), day=calendar.monthrange(int(comp_sel.split('/')[1]), int(comp_sel.split('/')[0]))[1])
         
@@ -873,4 +915,4 @@ elif menu == "🔎 Auditoria CCT (IA)":
             st_aud = "⚠️ Sem Salário" if sal_atual == 0.0 else ("❌ Abaixo CCT" if round(sal_atual, 2) < round(piso, 2) else "✅ Perfeito")
             return pd.Series([f"R$ {format_brl_number(piso)}", f"R$ {format_brl_number(sal_atual)}", st_aud])
         df_folha[['Salário Ideal (CCT)', 'Salário Atual', 'Status']] = df_folha.apply(calcular_auditoria, axis=1)
-        st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'situacao', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)
+        st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'situacao', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)    
