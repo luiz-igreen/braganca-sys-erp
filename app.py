@@ -161,7 +161,7 @@ if (!window.parent.CustomKeyboardNav) {
 </script>
 """, height=0, width=0)
 
-# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO DE FORMA ESTÁVEL
+# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO
 def injetar_autofoco(pular_busca=False, painel=""):
     pular_js = "true" if pular_busca else "false"
     components.html(f"""
@@ -382,15 +382,13 @@ if menu == "👥 Visão Geral":
                     id_alvo = opcoes_fantasma[selecao_fantasma]
                     try:
                         with engine.begin() as conn:
-                            # Se o ID for literalmente "VAZIO", "None" ou "nan", aplicamos uma limpeza em massa de lixo
                             if id_alvo == "VAZIO" or id_alvo.lower() == "none" or id_alvo.lower() == "nan":
-                                conn.execute(text("DELETE FROM historico_situacoes WHERE id_colaborador IS NULL OR TRIM(id_colaborador) = '' OR id_colaborador ILIKE 'nan' OR id_colaborador ILIKE 'none'"))
-                                conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador IS NULL OR TRIM(id_colaborador) = '' OR id_colaborador ILIKE 'nan' OR id_colaborador ILIKE 'none'"))
-                                conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador IS NULL OR TRIM(id_colaborador) = '' OR id_colaborador ILIKE 'nan' OR id_colaborador ILIKE 'none'"))
-                                conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id IS NULL OR TRIM(id) = '' OR id ILIKE 'nan' OR id ILIKE 'none'"))
+                                conn.execute(text("DELETE FROM historico_situacoes WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
+                                conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
+                                conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
+                                conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id IS NULL OR TRIM(CAST(id AS TEXT)) = '' OR CAST(id AS TEXT) ILIKE 'nan' OR CAST(id AS TEXT) ILIKE 'none'"))
                                 st.success("🧹 Todos os Fantasmas sem ID foram exterminados da base de dados!")
                             else:
-                                # Apaga a matrícula exata escolhida
                                 conn.execute(text("DELETE FROM historico_situacoes WHERE id_colaborador = :id"), {"id": id_alvo})
                                 conn.execute(text("DELETE FROM historico_salarial WHERE id_colaborador = :id"), {"id": id_alvo})
                                 conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador = :id"), {"id": id_alvo})
@@ -589,6 +587,7 @@ elif menu == "🛠️ Gestão de Cadastros":
     st.markdown("<br>", unsafe_allow_html=True)
 
     if sub_menu == "🔍 Consultar & Gerenciar":
+        # Se NÃO tiver clicado em nenhum botão de ação E NÃO tiver ninguém selecionado -> Foca na Pesquisa
         if not st.session_state['busca_selecionada_id']: 
             injetar_autofoco(painel="busca")
         
