@@ -4,7 +4,7 @@ from sqlalchemy import create_engine, text
 import re
 from datetime import datetime, date
 import calendar
-from dateutil.relativedelta import relativedelta
+import uuid
 import streamlit.components.v1 as components
 
 # --- CONFIGURAÇÃO INICIAL DA APLICAÇÃO ---
@@ -97,7 +97,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- INJEÇÃO DE JAVASCRIPT PROFISSIONAL (AUTOFILL, ENTER COM SELEÇÃO, MÁSCARAS) ---
+# --- INJEÇÃO DE JAVASCRIPT PROFISSIONAL (AUTO-FOCO E "ENTER" GRAVAR DIRETO) ---
 components.html("""
 <script>
 const doc = window.parent.document;
@@ -111,7 +111,7 @@ setInterval(function(){
         if (!el.hasAttribute('data-name-set')) { el.setAttribute('name', 'input_' + Math.random().toString(36).substring(7)); el.setAttribute('data-name-set', 'true'); }
     });
     
-    // Máscara de CPF em Tempo Real
+    // Máscara de CPF
     doc.querySelectorAll('input[aria-label="CPF"]').forEach(function(el){
         if (!el.hasAttribute('data-cpf-mask')) {
             el.setAttribute('data-cpf-mask', 'true');
@@ -122,7 +122,6 @@ setInterval(function(){
                 if(v.length > 9) f = v.replace(/(\\d{3})(\\d{3})(\\d{3})(\\d{1,2})/, "$1.$2.$3-$4");
                 else if(v.length > 6) f = v.replace(/(\\d{3})(\\d{3})(\\d{1,3})/, "$1.$2.$3");
                 else if(v.length > 3) f = v.replace(/(\\d{3})(\\d{1,3})/, "$1.$2");
-                
                 if (e.target.value !== f) {
                     setNativeValue.call(e.target, f);
                     e.target.dispatchEvent(new Event('input', { bubbles: true }));
@@ -132,24 +131,41 @@ setInterval(function(){
     });
 }, 150);
 
-if (!window.parent.EnterToTabInjected) {
-    window.parent.EnterToTabInjected = true;
+if (!window.parent.CustomKeyboardNav) {
+    window.parent.CustomKeyboardNav = true;
     doc.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
-            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'TEXTAREA' || e.target.getAttribute('aria-expanded') === 'true') return;
+            if (e.target.tagName === 'TEXTAREA' || e.target.getAttribute('aria-expanded') === 'true') return;
             e.preventDefault(); e.stopPropagation();
-            var selectors = 'input:not([disabled]):not([type="hidden"]), button:not([disabled]), textarea:not([disabled]), [tabindex="0"]:not([disabled])';
-            var focusable = Array.from(doc.querySelectorAll(selectors)).filter(el => (el.offsetWidth > 0 || el.offsetHeight > 0) && el.style.display !== 'none' && el.style.visibility !== 'hidden');
-            var index = focusable.indexOf(e.target);
-            if (index > -1 && index < focusable.length - 1) {
-                var nextEl = focusable[index + 1]; nextEl.focus();
-                if (nextEl.tagName === 'INPUT' && (nextEl.type === 'text' || nextEl.type === 'number')) { setTimeout(() => nextEl.select(), 10); }
+            
+            // LÓGICA DO ENTER ASSASSINO: Procura e clica no botão Primário da tela!
+            var saveBtn = doc.querySelector('button[kind="primary"]');
+            if (saveBtn && !saveBtn.disabled) {
+                saveBtn.click();
             }
         }
     }, true); 
 }
 </script>
 """, height=0, width=0)
+
+# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO
+def injetar_autofoco():
+    uid = str(uuid.uuid4())
+    components.html(f"""
+    <script id="{uid}">
+    setTimeout(function() {{
+        var doc = window.parent.document;
+        var inputs = doc.querySelectorAll('input[type="text"]:not([disabled]), input[type="number"]:not([disabled])');
+        for(var i=0; i<inputs.length; i++) {{
+            if(inputs[i].offsetWidth > 0 && inputs[i].offsetHeight > 0) {{
+                inputs[i].focus();
+                break;
+            }}
+        }}
+    }}, 400);
+    </script>
+    """, height=0, width=0)
 
 # --- LISTAS PADRÃO ---
 LISTA_CARGOS = [
@@ -319,7 +335,7 @@ elif menu == "📥 Importação Inteligente":
     with aba_imp1:
         st.subheader("Importação de Cadastros Novos")
         arquivo = st.file_uploader("Selecione o arquivo de migração de colaboradores (.xlsx, .csv)", type=["xlsx", "csv"])
-        if arquivo and st.button("Executar Ingestão de Cadastros", key="btn_imp_cad"):
+        if arquivo and st.button("Executar Ingestão de Cadastros", key="btn_imp_cad", type="primary"):
             try:
                 df_bruto = pd.read_excel(arquivo, engine='openpyxl') if arquivo.name.endswith('.xlsx') else pd.read_csv(arquivo)
                 with engine.begin() as conn:
@@ -441,8 +457,11 @@ elif menu == "🛠️ Gestão de Cadastros":
     st.markdown("<br>", unsafe_allow_html=True)
 
     if sub_menu == "🔍 Consultar & Gerenciar":
+        # Dispara autofoco para a caixa de pesquisa ao carregar a tela
+        if not st.session_state['busca_selecionada_id']: injetar_autofoco()
+        
         termo = st.text_input("Digite o ID (Matrícula) ou parte do Nome:", key="k_term_busca")
-        btn_buscar = st.button("Buscar Registro")
+        btn_buscar = st.button("Buscar Registro", type="primary")
         
         if btn_buscar and termo:
             st.session_state['status_acao'] = None
@@ -459,7 +478,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                         st.info("Múltiplos registros encontrados:")
                         opcoes_lista = {f"ID: {r.id} | Nome: {r.nome}": str(r.id) for r in resultados}
                         escolha = st.selectbox("Selecione:", list(opcoes_lista.keys()))
-                        if st.button("Confirmar Seleção"): st.session_state['busca_selecionada_id'] = opcoes_lista[escolha]; st.rerun()
+                        if st.button("Confirmar Seleção", type="primary"): st.session_state['busca_selecionada_id'] = opcoes_lista[escolha]; st.rerun()
             except Exception as e: st.error(f"Erro: {e}")
 
         if st.session_state['busca_selecionada_id']:
@@ -637,6 +656,7 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- MÓDULO EXCLUSIVO DE LINHA DO TEMPO (ESOCIAL) ---
                     if st.session_state['status_acao'] == 'solicitou_hist_esocial':
+                        injetar_autofoco()
                         st.info("⏳ **Editor da Linha do Tempo (eSocial):** Adicione eventos passados para sincronizar o histórico com a Contabilidade.")
                         
                         aba_add, aba_del = st.tabs(["➕ Lançar Evento Retroativo", "🗑️ Apagar Evento"])
@@ -662,7 +682,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                             if not df_hist_sit.empty:
                                 opcoes_sit = {f"Data: {pd.to_datetime(row['data_evento']).strftime('%d/%m/%Y')} | {row['descricao']}": row['id'] for _, row in df_hist_sit.iterrows()}
                                 id_sit_alvo = opcoes_sit[st.selectbox("Selecione o evento a apagar:", list(opcoes_sit.keys()))]
-                                if st.button("🗑️ Apagar Evento Selecionado"):
+                                if st.button("🗑️ Apagar Evento Selecionado", type="primary"):
                                     with engine.begin() as conn:
                                         conn.execute(text("DELETE FROM historico_situacoes WHERE id = :id"), {"id": id_sit_alvo})
                                     st.success("Evento apagado da linha do tempo!")
@@ -675,6 +695,7 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- MÓDULO EXCLUSIVO DE DEMISSÃO ---
                     if st.session_state['status_acao'] == 'solicitou_demissao':
+                        injetar_autofoco()
                         st.info("🛑 **Módulo de Desligamento e Correção de Demissão:**")
                         c_dem1, c_dem2 = st.columns(2)
                         with c_dem1:
@@ -706,7 +727,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     if st.session_state['status_acao'] == 'solicitou_excluir':
                         st.warning(f"⚠️ Deseja excluir {colab.nome}?")
                         cx1, cx2 = st.columns(2)
-                        if cx1.button("🔥 Sim, Excluir"):
+                        if cx1.button("🔥 Sim, Excluir", type="primary"):
                             try:
                                 with engine.begin() as conn:
                                     conn.execute(text("DELETE FROM historico_situacoes WHERE id_colaborador = :id"), {"id": str(colab_id)})
@@ -720,6 +741,7 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- LANÇAMENTO AVULSO ---
                     if st.session_state['status_acao'] == 'solicitou_lancamento_avulso':
+                        injetar_autofoco()
                         st.info("➕ **Inserção Avulsa (Com Validação e Anti-Duplicidade):**")
                         c_av1, c_av2, c_av3 = st.columns(3)
                         val_sugestao = format_brl_number(val_atual_base) if val_atual_base > 0 else ""
@@ -728,7 +750,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                         with c_av3: av_valor = st.text_input("Valor (R$)", value=val_sugestao, placeholder="Digite o valor")
                         c_bt1, c_bt2 = st.columns([1, 4])
                         
-                        if c_bt1.button("💾 Salvar Lançamento"):
+                        if c_bt1.button("💾 Salvar Lançamento", type="primary"):
                             try:
                                 v_clean = clean_money_to_db(av_valor)
                                 c_clean = format_competencia_smart(av_comp)
@@ -758,6 +780,7 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- CORRIGIR HISTÓRICO ---
                     if st.session_state['status_acao'] == 'solicitou_corrigir_historico':
+                        injetar_autofoco()
                         st.info("🛠️ **Editor de Histórico (Pagamentos):** Apague o valor (ou deixe 0) e clique em Salvar para deletar a linha.")
                         if not df_hist.empty:
                             try:
@@ -765,7 +788,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 id_alvo = opcoes_hist[st.selectbox("Selecione o registo:", list(opcoes_hist.keys()))]
                                 novo_val = st.text_input("Novo Valor", placeholder="Deixe vazio para deletar")
                                 ch1, ch2 = st.columns([1, 4])
-                                if ch1.button("💾 Salvar / Atualizar"):
+                                if ch1.button("💾 Salvar / Atualizar", type="primary"):
                                     try:
                                         vc = clean_money_to_db(novo_val)
                                         with engine.begin() as conn:
@@ -783,6 +806,7 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- EDITAR FICHA MESTRA ---
                     if st.session_state['status_acao'] == 'solicitou_alterar':
+                        injetar_autofoco()
                         st.info("📝 Modo de Edição Ativo")
                         cargo_idx = LISTA_CARGOS.index(str(colab.cargo).upper().strip()) if str(colab.cargo).upper().strip() in LISTA_CARGOS else (len(LISTA_CARGOS)-1)
                         sit_idx = LISTA_SITUACOES_ESOCIAL.index(v_sit_atual) if v_sit_atual in LISTA_SITUACOES_ESOCIAL else 0
@@ -806,7 +830,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                         with ci1: edit_afast = st.text_input("Data de Início", value=format_date_br(v_afast))
                         with ci2: edit_ret = st.text_input("Retorno Previsto", value=format_date_br(v_ret))
                         
-                        if st.button("Confirmar e Salvar Alterações"):
+                        if st.button("Confirmar e Salvar Alterações", type="primary"):
                             try:
                                 if not edit_id.strip() or not edit_nome.strip(): st.error("ID e Nome são obrigatórios.")
                                 else:
@@ -849,6 +873,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                 st.error(f"Erro no processamento da ficha: {e}")
 
     elif sub_menu == "➕ Novo Cadastro":
+        injetar_autofoco()
         st.subheader("Inserir Novo Colaborador")
         st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
         cn1, cn2 = st.columns(2)
@@ -867,7 +892,7 @@ elif menu == "🛠️ Gestão de Cadastros":
             n_ret_str = st.text_input("Retorno Previsto", placeholder="Ex: 01072025")
         st.markdown('</div>', unsafe_allow_html=True)
         
-        if st.button("💾 Salvar Registro no Sistema"):
+        if st.button("💾 Salvar Registro no Sistema", type="primary"):
             try:
                 dt_a = parse_br_date_smart(n_adm_str)
                 dt_af = parse_br_date_smart(n_afast_str)
@@ -960,6 +985,7 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                 if st.session_state.get('zaut_acao') != 'lancando':
                     if st.button(f"➕ Iniciar Lançamento para {dados_c['nome']}", type="primary"): st.session_state['zaut_acao'] = 'lancando'; st.rerun()
                 else:
+                    injetar_autofoco()
                     st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                     sal_hora_base = dados_c['sal_hora']
                     if sal_hora_base == 0.0:
@@ -969,7 +995,7 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                     else: st.markdown(f"**Valor Hora Calculado:** R$ {format_brl_number(sal_hora_base)}")
                     
                     cli1, cli2 = st.columns(2)
-                    with cli1: hp_ind = st.text_input("Horas (ENTER para calcular)", key="k_hpi")
+                    with cli1: hp_ind = st.text_input("Horas", key="k_hpi")
                     with cli2: desc_final_str = st.text_input("Especificar:", key="k_d_outro") if (desc_ind := st.selectbox("Serviço", LISTA_SERVICOS_PREMIO, key="k_di")) == "OUTRO (DIGITAR MANUALMENTE)" else desc_ind
                     
                     try: hp_ind_float = float(clean_money_to_db(hp_ind)) if clean_money_to_db(hp_ind) else 0.0
