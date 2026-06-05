@@ -168,7 +168,7 @@ if (!window.parent.CustomKeyboardNav) {
 </script>
 """, height=0, width=0)
 
-# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO DE FORMA ESTÁVEL
+# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO
 def injetar_autofoco(pular_busca=False, painel=""):
     pular_js = "true" if pular_busca else "false"
     components.html(f"""
@@ -188,7 +188,7 @@ def injetar_autofoco(pular_busca=False, painel=""):
     </script>
     """, height=0, width=0)
 
-# LEITOR BLINDADO DE PLANILHAS (ANTI "FALSOS EXCELS" DA DOMÍNIO)
+# LEITOR BLINDADO DE PLANILHAS (AGORA COM FORÇA BRUTA PARA ARQUIVOS SUJOS)
 def ler_planilha_inteligente(arquivo, nrows=None, header=0):
     file_bytes = arquivo.getvalue()
     
@@ -197,17 +197,17 @@ def ler_planilha_inteligente(arquivo, nrows=None, header=0):
         return pd.read_excel(io.BytesIO(file_bytes), header=header, nrows=nrows)
     except: pass
     
-    # 2. Tenta como CSV padrão Brasil (Auto-detecta separador)
+    # 2. Tenta decodificar como CSV Sujo separado por Vírgulas (Padrão de Falha da Domínio)
     try:
-        return pd.read_csv(io.BytesIO(file_bytes), sep=None, engine='python', encoding='latin1', header=header, nrows=nrows)
+        return pd.read_csv(io.BytesIO(file_bytes), sep=',', encoding='latin1', header=header, nrows=nrows, on_bad_lines='skip', low_memory=False)
     except: pass
     
-    # 3. Tenta como CSV padrão EUA
+    # 3. Tenta decodificar como CSV Sujo separado por Ponto e Vírgula
     try:
-        return pd.read_csv(io.BytesIO(file_bytes), sep=None, engine='python', encoding='utf-8', header=header, nrows=nrows)
+        return pd.read_csv(io.BytesIO(file_bytes), sep=';', encoding='latin1', header=header, nrows=nrows, on_bad_lines='skip', low_memory=False)
     except: pass
     
-    # 4. Tenta como HTML disfarçado de XLS
+    # 4. Tenta decodificar como HTML disfarçado de XLS
     try:
         str_data = file_bytes.decode('latin1', errors='ignore')
         dfs = pd.read_html(io.StringIO(str_data), header=header)
@@ -217,7 +217,7 @@ def ler_planilha_inteligente(arquivo, nrows=None, header=0):
             return df
     except: pass
     
-    raise ValueError("Formato de arquivo não suportado ou corrompido.")
+    raise ValueError(f"O arquivo não pode ser lido. Solução rápida: Abra o arquivo no Excel e salve como '.xlsx', depois tente de novo!")
 
 # --- LISTAS PADRÃO ---
 LISTA_CARGOS = [
@@ -407,7 +407,7 @@ elif menu == "📥 Importação Inteligente":
                 with engine.begin() as conn: conn.execute(text("TRUNCATE TABLE historico_premiacoes_e_folha RESTART IDENTITY"))
                 st.success("💥 BANCO DE HISTÓRICO ZERADO!")
             except Exception as e: st.error(f"Erro ao limpar: {e}")
-        arquivo_hist = st.file_uploader("Selecione a matriz salarial (.xlsx, .xls)", type=["xlsx", "xls"], key="file_hist")
+        arquivo_hist = st.file_uploader("Selecione a matriz salarial (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="file_hist")
         if arquivo_hist and st.button("🚀 Processar e Injetar Histórico", type="primary"):
             with st.spinner("Analisando cruzamentos temporais..."):
                 try:
@@ -469,7 +469,7 @@ elif menu == "📥 Importação Inteligente":
                     col_dt = next((c for c in df_st.columns if 'DATA ST' in str(c).strip().upper() or 'DATA' in str(c).strip().upper()), None)
                     
                     if not col_id or not col_s or not col_dt:
-                        st.error(f"⚠️ As colunas exatas não foram encontradas. Colunas que o sistema viu: {list(df_st.columns)}.")
+                        st.error(f"⚠️ As colunas exatas não foram encontradas. Colunas que o sistema viu: {list(df_st.columns)}. Certifique-se de que a sua planilha tem as colunas 'Código', 'S' e 'Data ST'.")
                     else:
                         mapa_st = {str(item.split(' - ')[0]).strip(): item for item in LISTA_SITUACOES_ESOCIAL}
                         sucessos = 0
@@ -501,7 +501,7 @@ elif menu == "📥 Importação Inteligente":
 
     with aba_imp4:
         st.subheader("🪪 Injeção Automática de CPFs")
-        st.info("Envie a planilha (ex: `EmpregadosBragançaCPF.xls`). O robô vai ignorar as linhas de lixo (cabeçalhos sujos) da Domínio, achar a linha correta e fazer a mágica.")
+        st.info("Envie a planilha (ex: `EmpregadosBragançaCPF.xls`). O robô vai ignorar as linhas de lixo da Domínio, achar a linha correta e fazer a mágica.")
         
         arquivo_cpf = st.file_uploader("Selecione a Planilha (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="up_cpf")
         if arquivo_cpf and st.button("🚀 Iniciar Varredura de CPFs", type="primary"):
@@ -518,6 +518,7 @@ elif menu == "📥 Importação Inteligente":
                             break
                             
                     # Passo 2: Leitura oficial ignorando as linhas de lixo acima
+                    arquivo_cpf.seek(0)
                     df_cpf = ler_planilha_inteligente(arquivo_cpf, header=header_idx)
                     
                     # Motor caçador de colunas
@@ -525,7 +526,7 @@ elif menu == "📥 Importação Inteligente":
                     col_cpf = next((c for c in df_cpf.columns if 'CPF' in str(c).strip().upper()), None)
                     
                     if not col_id or not col_cpf:
-                        st.error(f"⚠️ Não consegui encontrar as colunas na linha {header_idx}. Tentei achar entre estas: {list(df_cpf.columns)}.")
+                        st.error(f"⚠️ Não consegui encontrar as colunas na linha {header_idx}. Tentei achar entre estas: {list(df_cpf.columns)}. Salve como .xlsx no Excel se o problema persistir.")
                     else:
                         atualizados = 0
                         ignorados = 0
