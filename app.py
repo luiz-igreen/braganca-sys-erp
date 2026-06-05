@@ -168,7 +168,7 @@ if (!window.parent.CustomKeyboardNav) {
 </script>
 """, height=0, width=0)
 
-# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO
+# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO DE FORMA ESTÁVEL
 def injetar_autofoco(pular_busca=False, painel=""):
     pular_js = "true" if pular_busca else "false"
     components.html(f"""
@@ -410,18 +410,25 @@ elif menu == "📥 Importação Inteligente":
             except Exception as e: st.error(f"Erro ao limpar: {e}")
         arquivo_hist = st.file_uploader("Selecione a matriz salarial (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="file_hist")
         if arquivo_hist and st.button("🚀 Processar e Injetar Histórico", type="primary"):
-            with st.spinner("Analisando cruzamentos temporais..."):
+            with st.spinner("Analisando cruzamentos temporais e bloqueando previsões futuras..."):
                 try:
                     df_excel = ler_planilha_inteligente(arquivo_hist)
                     with engine.connect() as conn: db_cols = conn.execute(text("SELECT id, nome, admissao, demissao FROM cadastro_geral_colaborador")).fetchall()
                     db_dict = {str(r.nome).strip().upper(): {'id': str(r.id), 'admissao': str(r.admissao) if r.admissao else None, 'demissao': str(r.demissao) if r.demissao else None} for r in db_cols if r.nome}
                     lista_ids_numericos = [int(r.id) for r in db_cols if str(r.id).isdigit()]
                     proximo_id_livre = max(lista_ids_numericos) + 1 if lista_ids_numericos else 1000
+                    
                     def get_comp_date(col_name):
                         match = re.search(r'(\d{2})/(\d{2})', str(col_name))
                         return pd.Timestamp(year=2000 + int(match.group(2)), month=int(match.group(1)), day=1) if match else None
+                    
                     inserts_pendentes, linhas_processadas = [], 0
                     coluna_nome = next((col for col in df_excel.columns if str(col).strip().upper() == 'NOME'), None)
+                    
+                    # Limite Temporal (O Robô não lê além do mês atual)
+                    hoje = datetime.today()
+                    limite_futuro = pd.Timestamp(year=hoje.year, month=hoje.month, day=calendar.monthrange(hoje.year, hoje.month)[1])
+
                     if not coluna_nome: st.error("Erro: A planilha não possui a coluna 'Nome'.")
                     else:
                         for _, row in df_excel.iterrows():
@@ -435,15 +442,20 @@ elif menu == "📥 Importação Inteligente":
                             colab = db_dict[nome_xls]
                             dt_adm = pd.Timestamp(year=pd.to_datetime(colab['admissao']).year, month=pd.to_datetime(colab['admissao']).month, day=1) if colab['admissao'] else None
                             dt_dem = pd.Timestamp(year=pd.to_datetime(colab['demissao']).year, month=pd.to_datetime(colab['demissao']).month, day=1) if colab['demissao'] else None
+                            
                             for col in df_excel.columns:
                                 col_str = str(col).strip().upper()
                                 if "SALÁRIO MÊS" in col_str or "SALARIO MES" in col_str:
                                     val = row[col]
                                     if pd.isna(val) or str(val).strip() == "": continue
                                     dt_coluna = get_comp_date(col_str)
+                                    
+                                    # VALIDAÇÕES DE TEMPO E ESPAÇO
                                     if not dt_coluna or dt_coluna < pd.Timestamp(year=2024, month=12, day=1): continue
+                                    if dt_coluna > limite_futuro: continue # BLOQUEIA O FUTURO AQUI!
                                     if dt_adm and dt_coluna < dt_adm: continue
                                     if dt_dem and dt_coluna > dt_dem: continue
+                                    
                                     try: val_float = float(val) if not isinstance(val, str) else float(val.upper().replace('R$', '').replace('.', '').replace(',', '.').strip())
                                     except: continue
                                     if val_float > 0: inserts_pendentes.append({"id_colab": colab['id'], "comp": f"{dt_coluna.month:02d}/{dt_coluna.year}", "tipo": "Salário Mensal", "valor": val_float})
@@ -453,7 +465,7 @@ elif menu == "📥 Importação Inteligente":
                                 for item in inserts_pendentes:
                                     if not conn.execute(text("SELECT 1 FROM historico_premiacoes_e_folha WHERE id_colaborador = :id_colab AND competencia = :comp AND tipo_lancamento = :tipo"), item).fetchone():
                                         conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id_colab, :comp, :tipo, :valor, 'Pago')"), item)
-                            st.success(f"✅ Lidos {linhas_processadas} colaboradores. Injetados {len(inserts_pendentes)} registros.")
+                            st.success(f"✅ Lidos {linhas_processadas} colaboradores. Injetados {len(inserts_pendentes)} registros reais.")
                         else: st.warning("Nenhum registro novo importado.")
                 except Exception as e: st.error(f"Falha: {e}")
 
@@ -599,16 +611,40 @@ elif menu == "🛠️ Gestão de Cadastros":
                     df_fin = pd.read_sql(text("SELECT * FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), conn, params={"id": str(colab_id)})
                     fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None
                     df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
-                    df_hist = sort_historico_chronological(df_hist)
                     df_hist_sit = pd.read_sql(text("SELECT id, data_evento, descricao FROM historico_situacoes WHERE id_colaborador = :id ORDER BY data_evento DESC, id DESC"), conn, params={"id": str(colab_id)})
                 
                 if colab:
+                    # -------------------------------------------------------------
+                    # LIMPEZA AUTOMÁTICA DE FOLHA FUTURA (A VASSOURA DO TEMPO)
+                    # -------------------------------------------------------------
+                    if not df_hist.empty:
+                        max_date_allowed = date(datetime.today().year, datetime.today().month, calendar.monthrange(datetime.today().year, datetime.today().month)[1])
+                        df_hist_clean = df_hist.copy()
+                        df_hist_clean['temp_date'] = pd.to_datetime(df_hist_clean['competencia'], format='%m/%Y', errors='coerce').dt.date
+                        df_future = df_hist_clean[df_hist_clean['temp_date'] > max_date_allowed]
+                        
+                        if not df_future.empty:
+                            ids_to_del = tuple(df_future['id'].tolist())
+                            with engine.begin() as conn_clean:
+                                if len(ids_to_del) == 1:
+                                    conn_clean.execute(text(f"DELETE FROM historico_premiacoes_e_folha WHERE id = {ids_to_del[0]}"))
+                                else:
+                                    conn_clean.execute(text(f"DELETE FROM historico_premiacoes_e_folha WHERE id IN {ids_to_del}"))
+                            st.toast("🧹 Lançamentos futuros foram detetados e excluídos automaticamente da base!")
+                            # Recarrega o histórico limpo
+                            df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), engine, params={"id": str(colab_id)})
+
+                    df_hist = sort_historico_chronological(df_hist)
+
                     sal_mestra_vazio = not colab.salario_mes_12_24 or str(colab.salario_mes_12_24).strip() == "" or str(colab.salario_mes_12_24).lower() in ["nan", "none"]
                     hist_salario = df_hist[df_hist['tipo_lancamento'].str.contains('Salário', na=False, case=False)] if not df_hist.empty else pd.DataFrame()
                     tem_hist = not hist_salario.empty
                     
                     val_atual_base = 0.0
                     
+                    # -------------------------------------------------------------
+                    # AUTO-GERADOR DA FOLHA (MÊS ATUAL)
+                    # -------------------------------------------------------------
                     if sal_mestra_vazio and tem_hist:
                         ultimo_salario_hist = hist_salario.iloc[0]['valor_lancamento']
                         val_hora_calc = float(ultimo_salario_hist) / 220.0
@@ -617,31 +653,36 @@ elif menu == "🛠️ Gestão de Cadastros":
                         salario_mes_display = format_currency_brl(val_atual_base)
                         salario_hora_display = format_currency_brl(val_hora_calc)
                         
-                    elif not sal_mestra_vazio and not tem_hist:
+                    elif not sal_mestra_vazio:
                         sm_val = clean_money_to_db(str(colab.salario_mes_12_24))
                         if sm_val:
+                            val_atual_base = float(sm_val)
+                            salario_mes_display = format_currency_brl(val_atual_base)
+                            salario_hora_display = format_currency_brl(val_atual_base / 220.0)
+                            
                             comp_atual_dt = datetime.today()
+                            comp_atual_str = comp_atual_dt.strftime('%m/%Y')
+                            
                             pode_sincronizar = True
                             if pd.notna(colab.demissao):
                                 dt_dem = pd.to_datetime(colab.demissao).date()
                                 if date(comp_atual_dt.year, comp_atual_dt.month, 1) > date(dt_dem.year, dt_dem.month, 1): pode_sincronizar = False
+                                
                             if pode_sincronizar:
-                                comp_atual = comp_atual_dt.strftime('%m/%Y')
-                                with engine.begin() as conn_sync: conn_sync.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": str(colab_id), "comp": comp_atual, "val": float(sm_val)})
-                                df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), engine, params={"id": str(colab_id)})
-                                df_hist = sort_historico_chronological(df_hist)
-                            val_atual_base = float(sm_val)
-                            salario_mes_display = format_currency_brl(val_atual_base)
-                            salario_hora_display = format_currency_brl(val_atual_base / 220.0)
+                                ja_tem_mes = False
+                                if not df_hist.empty:
+                                    df_hist_mensal = df_hist[(df_hist['competencia'] == comp_atual_str) & (df_hist['tipo_lancamento'].str.contains('Salário', case=False, na=False))]
+                                    if not df_hist_mensal.empty: ja_tem_mes = True
+                                    
+                                if not ja_tem_mes:
+                                    with engine.begin() as conn_sync: 
+                                        conn_sync.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": str(colab_id), "comp": comp_atual_str, "val": val_atual_base})
+                                    st.toast(f"🗓️ O mês de {comp_atual_str} virou e o salário foi gerado automaticamente!")
+                                    df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), engine, params={"id": str(colab_id)})
+                                    df_hist = sort_historico_chronological(df_hist)
                     else:
-                        if not sal_mestra_vazio:
-                            sm_val = clean_money_to_db(str(colab.salario_mes_12_24))
-                            val_atual_base = float(sm_val) if sm_val else 0.0
-                            salario_mes_display = format_currency_brl(val_atual_base)
-                            salario_hora_display = format_currency_brl(val_atual_base / 220.0)
-                        else:
-                            salario_mes_display = "Não Informado"
-                            salario_hora_display = "Não Informado"
+                        salario_mes_display = "Não Informado"
+                        salario_hora_display = "Não Informado"
                     
                     v_sit_atual = getattr(colab, "situacao", "1 - Trabalhando") or "1 - Trabalhando"
                     v_afast = getattr(colab, 'data_afastamento', None)
