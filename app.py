@@ -76,7 +76,7 @@ st.markdown("""
         margin-bottom: 20px;
         backdrop-filter: blur(10px);
     }
-    .stButton>button { width: 100%; border-radius: 8px; font-weight: 600; }
+    .stButton>button { width: 100%; border-radius: 8px; font-weight: 600; padding-left: 5px; padding-right: 5px; }
     .field-label { color: #94a3b8; font-size: 0.9rem; font-weight: bold; }
     .field-value { color: #f8fafc; font-size: 1.1rem; margin-bottom: 12px; background: rgba(15, 23, 42, 0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); }
     .field-highlight { color: #10b981; font-size: 1.4rem; font-weight: bold; margin-bottom: 12px; background: rgba(16, 185, 129, 0.1); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.3); }
@@ -168,7 +168,7 @@ if (!window.parent.CustomKeyboardNav) {
 </script>
 """, height=0, width=0)
 
-# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO DE FORMA ESTÁVEL
+# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO
 def injetar_autofoco(pular_busca=False, painel=""):
     pular_js = "true" if pular_busca else "false"
     components.html(f"""
@@ -198,7 +198,7 @@ def ler_planilha_inteligente(arquivo, nrows=None, header=0):
         return pd.read_excel(io.BytesIO(file_bytes), header=header, nrows=nrows)
     except: pass
     
-    # 2. Tenta decodificar como CSV Sujo separado por Vírgulas (Padrão de Falha da Domínio)
+    # 2. Tenta decodificar como CSV Sujo separado por Vírgulas
     try:
         return pd.read_csv(io.BytesIO(file_bytes), sep=',', encoding='latin1', header=header, nrows=nrows, on_bad_lines='skip', low_memory=False)
     except: pass
@@ -508,9 +508,7 @@ elif menu == "📥 Importação Inteligente":
         if arquivo_cpf and st.button("🚀 Iniciar Varredura de CPFs", type="primary"):
             with st.spinner("A caçar os cabeçalhos ocultos e a processar..."):
                 try:
-                    # Passo 1: Leitura preview robusta para achar a linha correta
                     df_preview = ler_planilha_inteligente(arquivo_cpf, nrows=15, header=None)
-                    
                     header_idx = 0
                     for idx, row in df_preview.iterrows():
                         row_str = ' '.join([str(v).upper() for v in row if pd.notna(v)])
@@ -518,11 +516,9 @@ elif menu == "📥 Importação Inteligente":
                             header_idx = idx
                             break
                             
-                    # Passo 2: Leitura oficial ignorando as linhas de lixo acima
                     arquivo_cpf.seek(0)
                     df_cpf = ler_planilha_inteligente(arquivo_cpf, header=header_idx)
                     
-                    # Motor caçador de colunas
                     col_id = next((c for c in df_cpf.columns if str(c).strip().upper() in ['CÓDIGO', 'CODIGO', 'ID', 'MATRÍCULA', 'MATRICULA', 'ID/MATRÍCULA']), None)
                     col_cpf = next((c for c in df_cpf.columns if 'CPF' in str(c).strip().upper()), None)
                     
@@ -759,14 +755,57 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- BOTÕES DE AÇÃO ---
                     if st.session_state['status_acao'] is None:
-                        cb1, cb2, cb3, cb4, cb5, cb6, cb7 = st.columns(7)
+                        cb1, cb2, cb3, cb4, cb5, cb6, cb7, cb8 = st.columns(8)
                         if cb1.button("✏️ Editar"): st.session_state['status_acao'] = 'solicitou_alterar'; st.rerun()
                         if cb2.button("➕ Pagamento"): st.session_state['status_acao'] = 'solicitou_lancamento_avulso'; st.rerun()
-                        if cb3.button("🛠️ Corrigir Pag."): st.session_state['status_acao'] = 'solicitou_corrigir_historico'; st.rerun()
+                        if cb3.button("🛠️ Corrigir"): st.session_state['status_acao'] = 'solicitou_corrigir_historico'; st.rerun()
                         if cb4.button("⏳ eSocial"): st.session_state['status_acao'] = 'solicitou_hist_esocial'; st.rerun()
                         if cb5.button("🛑 Demitir"): st.session_state['status_acao'] = 'solicitou_demissao'; st.rerun()
-                        if cb6.button("❌ Excluir"): st.session_state['status_acao'] = 'solicitou_excluir'; st.rerun()
-                        if cb7.button("🧹 Fechar"): st.session_state['busca_selecionada_id'] = None; st.session_state['status_acao'] = None; st.rerun()
+                        if cb6.button("🔄 Mesclar"): st.session_state['status_acao'] = 'solicitou_mesclar'; st.rerun()
+                        if cb7.button("❌ Excluir"): st.session_state['status_acao'] = 'solicitou_excluir'; st.rerun()
+                        if cb8.button("🧹 Fechar"): st.session_state['busca_selecionada_id'] = None; st.session_state['status_acao'] = None; st.rerun()
+
+                    # --- NOVO MÓDULO EXCLUSIVO DE FUSÃO (MESCLAR) ---
+                    if st.session_state['status_acao'] == 'solicitou_mesclar':
+                        injetar_autofoco(pular_busca=True, painel="mesclar")
+                        st.warning(f"🔄 **Motor de Fusão Ativado:** Todo o histórico de salários, eSocial, férias e dados deste cadastro ({colab.nome} - ID: {colab.id}) será injetado noutra matrícula. Após a transferência, **este cadastro será automaticamente apagado**.")
+                        
+                        id_destino = st.text_input("Digite o ID de Destino (Ex: 133)", placeholder="Para qual matrícula quer enviar estes dados?")
+                        
+                        c_bt1, c_bt2 = st.columns([1, 4])
+                        if c_bt1.button("💾 Executar Fusão", type="primary"):
+                            id_limpo = str(id_destino).strip()
+                            if not id_limpo or id_limpo == str(colab_id):
+                                st.error("⚠️ Digite um ID válido e diferente da matrícula atual.")
+                            else:
+                                try:
+                                    with engine.begin() as conn:
+                                        # 1. Verifica se o destino existe
+                                        existe = conn.execute(text("SELECT id, nome FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_limpo}).fetchone()
+                                        if not existe:
+                                            st.error(f"⚠️ O ID/Matrícula {id_limpo} não existe no sistema! Crie-o primeiro ou verifique a numeração.")
+                                        else:
+                                            # 2. Transfere todo o histórico de folha
+                                            conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :novo WHERE id_colaborador = :antigo"), {"novo": id_limpo, "antigo": str(colab_id)})
+                                            # 3. Transfere todo o histórico de eSocial
+                                            conn.execute(text("UPDATE historico_situacoes SET id_colaborador = :novo WHERE id_colaborador = :antigo"), {"novo": id_limpo, "antigo": str(colab_id)})
+                                            # 4. Transfere histórico salarial antigo (se houver)
+                                            conn.execute(text("UPDATE historico_salarial SET id_colaborador = :novo WHERE id_colaborador = :antigo"), {"novo": id_limpo, "antigo": str(colab_id)})
+                                            
+                                            # 5. Destrói o cadastro antigo
+                                            conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": str(colab_id)})
+                                            conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": str(colab_id)})
+                                            
+                                    st.success(f"🎉 FUSÃO CONCLUÍDA! O histórico foi movido para o colaborador '{existe.nome}' (ID: {id_limpo}) e este fantasma foi apagado.")
+                                    # Pula automaticamente para o ID oficial para o utilizador conferir
+                                    st.session_state['busca_selecionada_id'] = id_limpo
+                                    st.session_state['status_acao'] = None
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Erro Crítico durante a fusão: {e}")
+                        if c_bt2.button("Cancelar"):
+                            st.session_state['status_acao'] = None
+                            st.rerun()
 
                     # --- MÓDULO EXCLUSIVO DE LINHA DO TEMPO (ESOCIAL) ---
                     if st.session_state['status_acao'] == 'solicitou_hist_esocial':
@@ -841,9 +880,9 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- EXCLUIR ---
                     if st.session_state['status_acao'] == 'solicitou_excluir':
-                        st.warning(f"⚠️ Deseja excluir {colab.nome}?")
+                        st.warning(f"⚠️ Deseja excluir definitivamente {colab.nome} e todo o seu histórico?")
                         cx1, cx2 = st.columns(2)
-                        if cx1.button("🔥 Sim, Excluir", type="primary"):
+                        if cx1.button("🔥 Sim, Excluir Tudo", type="primary"):
                             try:
                                 with engine.begin() as conn:
                                     conn.execute(text("DELETE FROM historico_situacoes WHERE id_colaborador = :id"), {"id": str(colab_id)})
@@ -988,7 +1027,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                             except Exception as e:
                                 error_msg = str(e).lower()
                                 if "unique constraint" in error_msg or "duplicate key" in error_msg:
-                                    st.error(f"⚠️ AÇÃO BLOQUEADA (DUPLICIDADE): O ID/Matrícula '{edit_id.strip()}' já pertence a outro colaborador no sistema! Como medida de segurança, não é possível ter duas pessoas com a mesma matrícula. Se está a tentar fundir cadastros, atualize a ficha original (ID {edit_id.strip()}) e apague esta.")
+                                    st.error(f"⚠️ AÇÃO BLOQUEADA (DUPLICIDADE): O ID/Matrícula '{edit_id.strip()}' já pertence a outro colaborador no sistema! Como medida de segurança, não é possível ter duas pessoas com a mesma matrícula. Se está a tentar fundir cadastros, utilize o botão 'Mesclar'.")
                                 else:
                                     st.error(f"Erro no banco de dados: {e}")
                         if st.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
