@@ -5,6 +5,7 @@ import re
 from datetime import datetime, date
 import calendar
 import uuid
+import io
 import streamlit.components.v1 as components
 
 # --- CONFIGURAÇÃO INICIAL DA APLICAÇÃO ---
@@ -187,6 +188,37 @@ def injetar_autofoco(pular_busca=False, painel=""):
     </script>
     """, height=0, width=0)
 
+# LEITOR BLINDADO DE PLANILHAS (ANTI "FALSOS EXCELS" DA DOMÍNIO)
+def ler_planilha_inteligente(arquivo, nrows=None, header=0):
+    file_bytes = arquivo.getvalue()
+    
+    # 1. Tenta como Excel nativo
+    try:
+        return pd.read_excel(io.BytesIO(file_bytes), header=header, nrows=nrows)
+    except: pass
+    
+    # 2. Tenta como CSV padrão Brasil (Auto-detecta separador)
+    try:
+        return pd.read_csv(io.BytesIO(file_bytes), sep=None, engine='python', encoding='latin1', header=header, nrows=nrows)
+    except: pass
+    
+    # 3. Tenta como CSV padrão EUA
+    try:
+        return pd.read_csv(io.BytesIO(file_bytes), sep=None, engine='python', encoding='utf-8', header=header, nrows=nrows)
+    except: pass
+    
+    # 4. Tenta como HTML disfarçado de XLS
+    try:
+        str_data = file_bytes.decode('latin1', errors='ignore')
+        dfs = pd.read_html(io.StringIO(str_data), header=header)
+        if dfs: 
+            df = dfs[0]
+            if nrows is not None: df = df.head(nrows)
+            return df
+    except: pass
+    
+    raise ValueError("Formato de arquivo não suportado ou corrompido.")
+
 # --- LISTAS PADRÃO ---
 LISTA_CARGOS = [
     "PEDREIRO", "SERVENTE", "AJUDANTE PRATICO", "CARPINTEIRO", "PINTOR", "ELETRICISTA", 
@@ -350,15 +382,14 @@ if menu == "👥 Visão Geral":
 elif menu == "📥 Importação Inteligente":
     st.title("📥 Central de Ingestão de Dados")
     
-    # 4 ABAS AGORA!
     aba_imp1, aba_imp2, aba_imp3, aba_imp4 = st.tabs(["📋 Carga Base (Cadastros)", "💰 Motor ETL (Histórico Salarial)", "🔄 Sincronizar eSocial (ST)", "🪪 Injeção de CPFs"])
     
     with aba_imp1:
         st.subheader("Importação de Cadastros Novos")
-        arquivo = st.file_uploader("Selecione o arquivo de migração de colaboradores (.xlsx, .csv)", type=["xlsx", "csv"])
+        arquivo = st.file_uploader("Selecione o arquivo de migração de colaboradores (.xlsx, .csv)", type=["xlsx", "csv"], key="up_cad_base")
         if arquivo and st.button("Executar Ingestão de Cadastros", key="btn_imp_cad", type="primary"):
             try:
-                df_bruto = pd.read_excel(arquivo, engine='openpyxl') if arquivo.name.endswith('.xlsx') else pd.read_csv(arquivo)
+                df_bruto = ler_planilha_inteligente(arquivo)
                 with engine.begin() as conn:
                     for _, row in df_bruto.iterrows():
                         try:
@@ -376,11 +407,11 @@ elif menu == "📥 Importação Inteligente":
                 with engine.begin() as conn: conn.execute(text("TRUNCATE TABLE historico_premiacoes_e_folha RESTART IDENTITY"))
                 st.success("💥 BANCO DE HISTÓRICO ZERADO!")
             except Exception as e: st.error(f"Erro ao limpar: {e}")
-        arquivo_hist = st.file_uploader("Selecione a matriz salarial (.xlsx)", type=["xlsx"], key="file_hist")
+        arquivo_hist = st.file_uploader("Selecione a matriz salarial (.xlsx, .xls)", type=["xlsx", "xls"], key="file_hist")
         if arquivo_hist and st.button("🚀 Processar e Injetar Histórico", type="primary"):
             with st.spinner("Analisando cruzamentos temporais..."):
                 try:
-                    df_excel = pd.read_excel(arquivo_hist, engine='openpyxl')
+                    df_excel = ler_planilha_inteligente(arquivo_hist)
                     with engine.connect() as conn: db_cols = conn.execute(text("SELECT id, nome, admissao, demissao FROM cadastro_geral_colaborador")).fetchall()
                     db_dict = {str(r.nome).strip().upper(): {'id': str(r.id), 'admissao': str(r.admissao) if r.admissao else None, 'demissao': str(r.demissao) if r.demissao else None} for r in db_cols if r.nome}
                     lista_ids_numericos = [int(r.id) for r in db_cols if str(r.id).isdigit()]
@@ -427,18 +458,18 @@ elif menu == "📥 Importação Inteligente":
 
     with aba_imp3:
         st.subheader("🔄 Sincronização Automática de Afastamentos (eSocial)")
-        st.info("Faça o upload do seu relatório da Domínio. O sistema vai ler a coluna **Código**, encontrar a coluna **S** (ou ST/Situação) e a **Data ST**, traduzir os códigos e atualizar todo o histórico num piscar de olhos!")
-        arquivo_st = st.file_uploader("Selecione a Relação de Empregados (.xlsx, .csv)", type=["xlsx", "csv"], key="up_st")
+        st.info("Faça o upload do seu relatório da Domínio. O sistema vai ignorar falsos-excels, achar o cabeçalho e atualizar todo o histórico num piscar de olhos!")
+        arquivo_st = st.file_uploader("Selecione a Relação de Empregados (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="up_st")
         if arquivo_st and st.button("🚀 Processar Situações (Varredura Massiva)", type="primary"):
             with st.spinner("A mapear as colunas e a varrer os dados..."):
                 try:
-                    df_st = pd.read_excel(arquivo_st, engine='openpyxl') if arquivo_st.name.endswith('.xlsx') else pd.read_csv(arquivo_st)
-                    col_id = next((c for c in df_st.columns if str(c).strip().upper() in ['CÓDIGO', 'CODIGO', 'ID', 'MATRICULA']), None)
+                    df_st = ler_planilha_inteligente(arquivo_st)
+                    col_id = next((c for c in df_st.columns if str(c).strip().upper() in ['CÓDIGO', 'CODIGO', 'ID', 'MATRICULA', 'ID/MATRÍCULA']), None)
                     col_s = next((c for c in df_st.columns if str(c).strip().upper() in ['S', 'ST', 'SITUAÇÃO', 'SITUACAO']), None)
                     col_dt = next((c for c in df_st.columns if 'DATA ST' in str(c).strip().upper() or 'DATA' in str(c).strip().upper()), None)
                     
                     if not col_id or not col_s or not col_dt:
-                        st.error(f"⚠️ As colunas exatas não foram encontradas. Colunas que o sistema viu: {list(df_st.columns)}. Certifique-se de que a sua planilha tem as colunas 'Código', 'S' e 'Data ST'.")
+                        st.error(f"⚠️ As colunas exatas não foram encontradas. Colunas que o sistema viu: {list(df_st.columns)}.")
                     else:
                         mapa_st = {str(item.split(' - ')[0]).strip(): item for item in LISTA_SITUACOES_ESOCIAL}
                         sucessos = 0
@@ -468,29 +499,38 @@ elif menu == "📥 Importação Inteligente":
                         st.success(f"✅ Missão Cumprida! A varredura analisou os dados e inseriu {sucessos} novos eventos na Linha do Tempo dos colaboradores.")
                 except Exception as e: st.error(f"Erro ao processar o ficheiro: {e}")
 
-    # ABA NOVA: INJEÇÃO DE CPFS COM "UPSERT INTELIGENTE"
     with aba_imp4:
         st.subheader("🪪 Injeção Automática de CPFs")
-        st.info("Envie a planilha contendo a coluna de **Código/Matrícula** e a coluna de **CPF**. O robô fará o cruzamento. Se o CPF do sistema for idêntico ao da planilha, ele pula para poupar tempo. Se for diferente ou estiver vazio, ele atualiza automaticamente!")
+        st.info("Envie a planilha (ex: `EmpregadosBragançaCPF.xls`). O robô vai ignorar as linhas de lixo (cabeçalhos sujos) da Domínio, achar a linha correta e fazer a mágica.")
         
-        arquivo_cpf = st.file_uploader("Selecione a Planilha (.xlsx, .csv)", type=["xlsx", "csv"], key="up_cpf")
+        arquivo_cpf = st.file_uploader("Selecione a Planilha (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="up_cpf")
         if arquivo_cpf and st.button("🚀 Iniciar Varredura de CPFs", type="primary"):
-            with st.spinner("Analisando CPFs e cruzando com o Banco de Dados..."):
+            with st.spinner("A caçar os cabeçalhos ocultos e a processar..."):
                 try:
-                    df_cpf = pd.read_excel(arquivo_cpf, engine='openpyxl') if arquivo_cpf.name.endswith('.xlsx') else pd.read_csv(arquivo_cpf)
+                    # Passo 1: Leitura preview robusta para achar a linha correta
+                    df_preview = ler_planilha_inteligente(arquivo_cpf, nrows=15, header=None)
+                    
+                    header_idx = 0
+                    for idx, row in df_preview.iterrows():
+                        row_str = ' '.join([str(v).upper() for v in row if pd.notna(v)])
+                        if 'CPF' in row_str and ('MATR' in row_str or 'ID' in row_str or 'CÓD' in row_str or 'COD' in row_str):
+                            header_idx = idx
+                            break
+                            
+                    # Passo 2: Leitura oficial ignorando as linhas de lixo acima
+                    df_cpf = ler_planilha_inteligente(arquivo_cpf, header=header_idx)
                     
                     # Motor caçador de colunas
-                    col_id = next((c for c in df_cpf.columns if str(c).strip().upper() in ['CÓDIGO', 'CODIGO', 'ID', 'MATRÍCULA', 'MATRICULA']), None)
+                    col_id = next((c for c in df_cpf.columns if str(c).strip().upper() in ['CÓDIGO', 'CODIGO', 'ID', 'MATRÍCULA', 'MATRICULA', 'ID/MATRÍCULA']), None)
                     col_cpf = next((c for c in df_cpf.columns if 'CPF' in str(c).strip().upper()), None)
                     
                     if not col_id or not col_cpf:
-                        st.error(f"⚠️ Colunas necessárias não encontradas. Achei: {list(df_cpf.columns)}. Preciso de uma coluna de ID e uma de CPF.")
+                        st.error(f"⚠️ Não consegui encontrar as colunas na linha {header_idx}. Tentei achar entre estas: {list(df_cpf.columns)}.")
                     else:
                         atualizados = 0
                         ignorados = 0
                         
                         with engine.begin() as conn:
-                            # 1. Trazemos todos os CPFs atuais do banco para memória (ultra rápido)
                             atuais = conn.execute(text("SELECT id, cpf FROM cadastro_geral_colaborador")).fetchall()
                             mapa_atuais = {str(r.id).strip(): format_cpf(str(r.cpf)) if r.cpf else "" for r in atuais}
                             
@@ -498,25 +538,23 @@ elif menu == "📥 Importação Inteligente":
                                 v_id = str(row[col_id]).strip().replace('.0', '')
                                 raw_cpf = str(row[col_cpf]).strip()
                                 
-                                # Pula linhas vazias ou de totais
                                 if not v_id or v_id == 'nan' or raw_cpf.lower() == 'nan' or not raw_cpf:
                                     continue
                                     
                                 cpf_planilha_formatado = format_cpf(raw_cpf)
-                                if not cpf_planilha_formatado: # Se não for um CPF válido após a limpeza, pula
+                                if not cpf_planilha_formatado:
                                     continue
                                 
                                 cpf_banco = mapa_atuais.get(v_id)
                                 
-                                # Se o colaborador existe no sistema
                                 if cpf_banco is not None: 
                                     if cpf_banco == cpf_planilha_formatado:
-                                        ignorados += 1 # Já é exatamente igual, não fazemos nada!
+                                        ignorados += 1
                                     else:
                                         conn.execute(text("UPDATE cadastro_geral_colaborador SET cpf = :cpf WHERE id = :id"), {"cpf": cpf_planilha_formatado, "id": v_id})
                                         atualizados += 1
                                         
-                        st.success(f"✅ Varredura Concluída! **{atualizados}** CPFs foram atualizados/inseridos. **{ignorados}** CPFs já estavam perfeitos e foram pulados.")
+                        st.success(f"✅ Varredura Concluída com Sucesso! **{atualizados}** CPFs foram atualizados/inseridos. **{ignorados}** CPFs já estavam perfeitos e o sistema não perdeu tempo com eles.")
                 except Exception as e:
                     st.error(f"Erro ao ler os CPFs: {e}")
 
