@@ -64,6 +64,15 @@ try:
             """))
 except: pass
 
+# --- AUTO-LIMPEZA DE FANTASMAS (HIGIENE DE BASE DE DADOS) ---
+try:
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM historico_situacoes WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
+        conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
+        conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
+        conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id IS NULL OR TRIM(CAST(id AS TEXT)) = '' OR CAST(id AS TEXT) ILIKE 'nan' OR CAST(id AS TEXT) ILIKE 'none'"))
+except: pass
+
 # --- ESTILIZAÇÃO VISUAL AVANÇADA (MENU HORIZONTAL E GLASSMORPHISM) ---
 st.markdown("""
 <style>
@@ -161,7 +170,7 @@ if (!window.parent.CustomKeyboardNav) {
 </script>
 """, height=0, width=0)
 
-# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO
+# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO DE FORMA ESTÁVEL
 def injetar_autofoco(pular_busca=False, painel=""):
     pular_js = "true" if pular_busca else "false"
     components.html(f"""
@@ -232,7 +241,7 @@ if 'redirect_to_consulta' not in st.session_state: st.session_state['redirect_to
 if st.session_state['redirect_to_consulta']:
     st.session_state['sub_menu_index'] = 0; st.session_state['redirect_to_consulta'] = False; st.rerun()
 
-# --- FUNÇÕES INTELIGENTES ---
+# --- FUNÇÕES INTELIGENTES E CORREÇÃO MESTRA DO CPF ---
 def clean_money_to_db(val):
     if not val or str(val).strip() == "" or str(val).strip().lower() == "none": return None
     s = str(val).upper().replace('R$', '').strip()
@@ -293,11 +302,26 @@ def sort_historico_chronological(df):
         df = df.sort_values(by=['data_ordenacao', 'id'], ascending=[False, False]).drop(columns=['data_ordenacao'])
     return df
 
+# O NOVO RESTAURADOR DE DNA DO CPF
 def format_cpf(cpf_str):
     if not cpf_str or str(cpf_str).strip().lower() in ["nan", "none", ""]: return ""
-    v = re.sub(r'\D', '', str(cpf_str))
+    s = str(cpf_str).strip()
+    
+    # 1. Arranca o falso decimal que o Pandas/Excel injeta
+    if s.endswith('.0'):
+        s = s[:-2]
+        
+    # 2. Mantém só os números puros
+    v = re.sub(r'\D', '', s)
+    if not v: return ""
+    
+    # 3. Injeta o zero à esquerda perdido pela matemática do Excel
+    v = v.zfill(11)
+    
+    # 4. Formata de forma perfeita
     if len(v) == 11:
         return f"{v[:3]}.{v[3:6]}.{v[6:9]}-{v[9:]}"
+        
     return str(cpf_str)
 
 # ==========================================
@@ -331,7 +355,6 @@ if menu == "👥 Visão Geral":
             if sit == '1 - Trabalhando' and dt_afast and not dt_ret:
                 alertas.append("Afastamento em Aberto")
             
-            # Ajuste extra para fantasmas
             v_id_check = str(row['id']).strip()
             if not v_id_check or v_id_check.lower() == 'none' or v_id_check.lower() == 'nan':
                 alertas.append("FANTASMA (Exclua este registo)")
@@ -533,7 +556,7 @@ elif menu == "📥 Importação Inteligente":
 
     with aba_imp4:
         st.subheader("🪪 Injeção Automática de CPFs")
-        st.info("Envie a planilha (ex: `EmpregadosBragançaCPF.xls`). O robô vai ignorar as linhas de lixo da Domínio, achar a linha correta e fazer a mágica.")
+        st.info("Envie a planilha. O robô vai formatar e corrigir os CPFs que perderam o zero à esquerda devido a falhas do Excel.")
         
         arquivo_cpf = st.file_uploader("Selecione a Planilha (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="up_cpf")
         if arquivo_cpf and st.button("🚀 Iniciar Varredura de CPFs", type="primary"):
@@ -565,15 +588,19 @@ elif menu == "📥 Importação Inteligente":
                                 v_id = str(row[col_id]).strip().replace('.0', '')
                                 raw_cpf = str(row[col_cpf]).strip()
                                 if not v_id or v_id == 'nan' or raw_cpf.lower() == 'nan' or not raw_cpf: continue
+                                
                                 cpf_planilha_formatado = format_cpf(raw_cpf)
                                 if not cpf_planilha_formatado: continue
+                                
                                 cpf_banco = mapa_atuais.get(v_id)
                                 if cpf_banco is not None: 
+                                    # O robô compara o formatado perfeitamente com o do banco
                                     if cpf_banco == cpf_planilha_formatado: ignorados += 1
                                     else:
+                                        # Se o do banco estiver sujo ou sem zero, ele sobrescreve!
                                         conn.execute(text("UPDATE cadastro_geral_colaborador SET cpf = :cpf WHERE id = :id"), {"cpf": cpf_planilha_formatado, "id": v_id})
                                         atualizados += 1
-                        st.success(f"✅ Varredura Concluída com Sucesso! **{atualizados}** CPFs foram atualizados/inseridos. **{ignorados}** CPFs já estavam perfeitos e o sistema não perdeu tempo com eles.")
+                        st.success(f"✅ Varredura Concluída com Sucesso! **{atualizados}** CPFs corrigidos/atualizados. **{ignorados}** CPFs já estavam perfeitos.")
                 except Exception as e:
                     st.error(f"Erro ao ler os CPFs: {e}")
 
