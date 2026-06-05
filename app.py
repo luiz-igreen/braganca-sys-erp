@@ -4,7 +4,6 @@ from sqlalchemy import create_engine, text
 import re
 from datetime import datetime, date
 import calendar
-import uuid
 import streamlit.components.v1 as components
 
 # --- CONFIGURAÇÃO INICIAL DA APLICAÇÃO ---
@@ -167,22 +166,21 @@ if (!window.parent.CustomKeyboardNav) {
 </script>
 """, height=0, width=0)
 
-# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO (AGORA INTELIGENTE)
-def injetar_autofoco(pular_busca=False):
-    uid = str(uuid.uuid4())
+# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO DE FORMA ESTÁVEL
+def injetar_autofoco(pular_busca=False, painel=""):
     pular_js = "true" if pular_busca else "false"
+    # A string HTML é fixa por painel. O Streamlit NÃO vai recarregar o iframe
+    # a cada clique nos menus suspensos, evitando o roubo de foco.
     components.html(f"""
-    <script id="{uid}">
+    <script>
     setTimeout(function() {{
         var doc = window.parent.document;
         var inputs = Array.from(doc.querySelectorAll('input[type="text"]:not([disabled]), input[type="number"]:not([disabled])')).filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
         
         if(inputs.length > 0) {{
             if({pular_js} && inputs.length > 1) {{
-                // Pula a barra de pesquisa no topo e vai direto para a ação
                 inputs[1].focus();
             }} else {{
-                // Foca no primeiro campo normal (ex: Barra de pesquisa ou Novo Cadastro)
                 inputs[0].focus();
             }}
         }}
@@ -482,7 +480,7 @@ elif menu == "🛠️ Gestão de Cadastros":
     if sub_menu == "🔍 Consultar & Gerenciar":
         # Se NÃO tiver clicado em nenhum botão de ação E NÃO tiver ninguém selecionado -> Foca na Pesquisa
         if not st.session_state['busca_selecionada_id']: 
-            injetar_autofoco()
+            injetar_autofoco(painel="busca")
         
         termo = st.text_input("Digite o ID (Matrícula) ou parte do Nome:", key="k_term_busca")
         btn_buscar = st.button("Buscar Registro", type="primary")
@@ -681,7 +679,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     # --- MÓDULO EXCLUSIVO DE LINHA DO TEMPO (ESOCIAL) ---
                     if st.session_state['status_acao'] == 'solicitou_hist_esocial':
                         # PULA A CAIXA DE PESQUISA E FOCA NA DATA DO EVENTO
-                        injetar_autofoco(pular_busca=True)
+                        injetar_autofoco(pular_busca=True, painel="esocial")
                         
                         st.info("⏳ **Editor da Linha do Tempo (eSocial):** Aperte ENTER para pular de campo. Use **CTRL + ENTER** para salvar rápido.")
                         
@@ -722,7 +720,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     # --- MÓDULO EXCLUSIVO DE DEMISSÃO ---
                     if st.session_state['status_acao'] == 'solicitou_demissao':
                         # PULA A CAIXA DE PESQUISA E FOCA NA DATA DE DEMISSÃO
-                        injetar_autofoco(pular_busca=True)
+                        injetar_autofoco(pular_busca=True, painel="demissao")
                         
                         st.info("🛑 **Módulo de Desligamento e Correção de Demissão.** Use **CTRL + ENTER** para salvar rápido.")
                         c_dem1, c_dem2 = st.columns(2)
@@ -770,7 +768,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     # --- LANÇAMENTO AVULSO ---
                     if st.session_state['status_acao'] == 'solicitou_lancamento_avulso':
                         # PULA A CAIXA DE PESQUISA E FOCA NA COMPETÊNCIA
-                        injetar_autofoco(pular_busca=True)
+                        injetar_autofoco(pular_busca=True, painel="avulso")
                         
                         st.info("➕ **Inserção Avulsa (Com Validação e Anti-Duplicidade).** Use **CTRL + ENTER** para salvar rápido.")
                         c_av1, c_av2, c_av3 = st.columns(3)
@@ -811,7 +809,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     # --- CORRIGIR HISTÓRICO ---
                     if st.session_state['status_acao'] == 'solicitou_corrigir_historico':
                         # PULA A CAIXA DE PESQUISA E FOCA NO NOVO VALOR
-                        injetar_autofoco(pular_busca=True)
+                        injetar_autofoco(pular_busca=True, painel="corrigir")
                         
                         st.info("🛠️ **Editor de Histórico (Pagamentos).** Use **CTRL + ENTER** para salvar rápido.")
                         if not df_hist.empty:
@@ -839,7 +837,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     # --- EDITAR FICHA MESTRA ---
                     if st.session_state['status_acao'] == 'solicitou_alterar':
                         # PULA A CAIXA DE PESQUISA E FOCA NO ID/MATRÍCULA
-                        injetar_autofoco(pular_busca=True)
+                        injetar_autofoco(pular_busca=True, painel="editar_ficha")
                         
                         st.info("📝 Modo de Edição Ativo. Aperte ENTER para pular campos. Use **CTRL + ENTER** para salvar rápido.")
                         cargo_idx = LISTA_CARGOS.index(str(colab.cargo).upper().strip()) if str(colab.cargo).upper().strip() in LISTA_CARGOS else (len(LISTA_CARGOS)-1)
@@ -908,7 +906,7 @@ elif menu == "🛠️ Gestão de Cadastros":
 
     elif sub_menu == "➕ Novo Cadastro":
         # SEM CAIXA DE PESQUISA NESTA TELA, FOCA NORMALMENTE NO PRIMEIRO CAMPO
-        injetar_autofoco()
+        injetar_autofoco(painel="novo_cadastro")
         
         st.subheader("Inserir Novo Colaborador")
         st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
@@ -1022,7 +1020,7 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                 if st.session_state.get('zaut_acao') != 'lancando':
                     if st.button(f"➕ Iniciar Lançamento para {dados_c['nome']}", type="primary"): st.session_state['zaut_acao'] = 'lancando'; st.rerun()
                 else:
-                    injetar_autofoco(pular_busca=False)
+                    injetar_autofoco(pular_busca=False, painel="zaut_individual")
                     st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                     sal_hora_base = dados_c['sal_hora']
                     if sal_hora_base == 0.0:
