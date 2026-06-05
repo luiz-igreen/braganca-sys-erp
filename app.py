@@ -168,10 +168,11 @@ if (!window.parent.CustomKeyboardNav) {
 </script>
 """, height=0, width=0)
 
-# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO
+# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO DE FORMA ESTÁVEL
 def injetar_autofoco(pular_busca=False, painel=""):
     pular_js = "true" if pular_busca else "false"
     components.html(f"""
+    <!-- Foco Inicial - Painel: {painel} -->
     <script>
     setTimeout(function() {{
         var doc = window.parent.document;
@@ -469,7 +470,7 @@ elif menu == "📥 Importação Inteligente":
                     col_dt = next((c for c in df_st.columns if 'DATA ST' in str(c).strip().upper() or 'DATA' in str(c).strip().upper()), None)
                     
                     if not col_id or not col_s or not col_dt:
-                        st.error(f"⚠️ As colunas exatas não foram encontradas. Colunas que o sistema viu: {list(df_st.columns)}. Certifique-se de que a sua planilha tem as colunas 'Código', 'S' e 'Data ST'.")
+                        st.error(f"⚠️ As colunas exatas não foram encontradas. Colunas que o sistema viu: {list(df_st.columns)}.")
                     else:
                         mapa_st = {str(item.split(' - ')[0]).strip(): item for item in LISTA_SITUACOES_ESOCIAL}
                         sucessos = 0
@@ -984,7 +985,12 @@ elif menu == "🛠️ Gestão de Cadastros":
                                                 conn.execute(text("UPDATE historico_premiacoes_e_folha SET valor_lancamento = :val WHERE id = :id_hist"), {"val": float(sm_val), "id_hist": existe_hist[0]})
                                                 
                                     st.success("Salvo!"); st.session_state['busca_selecionada_id'] = edit_id.strip(); st.session_state['status_acao'] = None; st.rerun()
-                            except Exception as e: st.error(f"Erro: {e}")
+                            except Exception as e:
+                                error_msg = str(e).lower()
+                                if "unique constraint" in error_msg or "duplicate key" in error_msg:
+                                    st.error(f"⚠️ AÇÃO BLOQUEADA (DUPLICIDADE): O ID/Matrícula '{edit_id.strip()}' já pertence a outro colaborador no sistema! Como medida de segurança, não é possível ter duas pessoas com a mesma matrícula. Se está a tentar fundir cadastros, atualize a ficha original (ID {edit_id.strip()}) e apague esta.")
+                                else:
+                                    st.error(f"Erro no banco de dados: {e}")
                         if st.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
             except Exception as e:
@@ -1032,7 +1038,12 @@ elif menu == "🛠️ Gestão de Cadastros":
                         conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": str(n_id), "comp": comp_str, "val": float(sm_val)})
                         
                 st.success("Salvo!"); st.session_state['redirect_to_consulta'] = True; st.rerun()
-            except Exception as e: st.error(f"Erro ao salvar: {e}")
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "unique constraint" in error_msg or "duplicate key" in error_msg:
+                    st.error(f"⚠️ AÇÃO BLOQUEADA (DUPLICIDADE): O ID/Matrícula '{str(n_id).strip()}' já está registado para outro colaborador! Verifique se a pessoa já existe na base de dados pesquisando por esta matrícula.")
+                else:
+                    st.error(f"Erro ao salvar: {e}")
 
 # ==========================================
 # 4. GESTÃO DE PRÊMIOS (ZAUT) E 5. AUDITORIA
