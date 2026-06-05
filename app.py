@@ -135,8 +135,7 @@ if (!window.parent.CustomKeyboardNav) {
     window.parent.CustomKeyboardNav = true;
     doc.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
-            
-            // SE O USUÁRIO APERTAR CTRL + ENTER -> SALVA IMEDIATAMENTE (Botão Primário)
+            // SE O USUÁRIO APERTAR CTRL + ENTER -> SALVA IMEDIATAMENTE
             if (e.ctrlKey) {
                 e.preventDefault();
                 var saveBtn = doc.querySelector('button[kind="primary"]');
@@ -144,8 +143,7 @@ if (!window.parent.CustomKeyboardNav) {
                 return;
             }
             
-            // LÓGICA DO DOMÍNIO: ENTER = TAB (Pular para a próxima linha)
-            // IGNORAR SE FOR BOTÃO, CAIXA DE TEXTO LONGA, GRID DE DADOS OU MENU SUSPENSO ABERTO
+            // ENTER NORMAL: Pula para o próximo campo
             if (e.target.tagName === 'BUTTON' || e.target.tagName === 'TEXTAREA' || e.target.getAttribute('aria-expanded') === 'true' || e.target.closest('[data-testid="stDataFrame"]')) {
                 return;
             }
@@ -169,18 +167,23 @@ if (!window.parent.CustomKeyboardNav) {
 </script>
 """, height=0, width=0)
 
-# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO
-def injetar_autofoco():
+# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO (AGORA INTELIGENTE)
+def injetar_autofoco(pular_busca=False):
     uid = str(uuid.uuid4())
+    pular_js = "true" if pular_busca else "false"
     components.html(f"""
     <script id="{uid}">
     setTimeout(function() {{
         var doc = window.parent.document;
-        var inputs = doc.querySelectorAll('input[type="text"]:not([disabled]), input[type="number"]:not([disabled])');
-        for(var i=0; i<inputs.length; i++) {{
-            if(inputs[i].offsetWidth > 0 && inputs[i].offsetHeight > 0) {{
-                inputs[i].focus();
-                break;
+        var inputs = Array.from(doc.querySelectorAll('input[type="text"]:not([disabled]), input[type="number"]:not([disabled])')).filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
+        
+        if(inputs.length > 0) {{
+            if({pular_js} && inputs.length > 1) {{
+                // Pula a barra de pesquisa no topo e vai direto para a ação
+                inputs[1].focus();
+            }} else {{
+                // Foca no primeiro campo normal (ex: Barra de pesquisa ou Novo Cadastro)
+                inputs[0].focus();
             }}
         }}
     }}, 400);
@@ -477,7 +480,9 @@ elif menu == "🛠️ Gestão de Cadastros":
     st.markdown("<br>", unsafe_allow_html=True)
 
     if sub_menu == "🔍 Consultar & Gerenciar":
-        if not st.session_state['busca_selecionada_id']: injetar_autofoco()
+        # Se NÃO tiver clicado em nenhum botão de ação E NÃO tiver ninguém selecionado -> Foca na Pesquisa
+        if not st.session_state['busca_selecionada_id']: 
+            injetar_autofoco()
         
         termo = st.text_input("Digite o ID (Matrícula) ou parte do Nome:", key="k_term_busca")
         btn_buscar = st.button("Buscar Registro", type="primary")
@@ -675,7 +680,9 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- MÓDULO EXCLUSIVO DE LINHA DO TEMPO (ESOCIAL) ---
                     if st.session_state['status_acao'] == 'solicitou_hist_esocial':
-                        injetar_autofoco()
+                        # PULA A CAIXA DE PESQUISA E FOCA NA DATA DO EVENTO
+                        injetar_autofoco(pular_busca=True)
+                        
                         st.info("⏳ **Editor da Linha do Tempo (eSocial):** Aperte ENTER para pular de campo. Use **CTRL + ENTER** para salvar rápido.")
                         
                         aba_add, aba_del = st.tabs(["➕ Lançar Evento Retroativo", "🗑️ Apagar Evento"])
@@ -714,7 +721,9 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- MÓDULO EXCLUSIVO DE DEMISSÃO ---
                     if st.session_state['status_acao'] == 'solicitou_demissao':
-                        injetar_autofoco()
+                        # PULA A CAIXA DE PESQUISA E FOCA NA DATA DE DEMISSÃO
+                        injetar_autofoco(pular_busca=True)
+                        
                         st.info("🛑 **Módulo de Desligamento e Correção de Demissão.** Use **CTRL + ENTER** para salvar rápido.")
                         c_dem1, c_dem2 = st.columns(2)
                         with c_dem1:
@@ -760,7 +769,9 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- LANÇAMENTO AVULSO ---
                     if st.session_state['status_acao'] == 'solicitou_lancamento_avulso':
-                        injetar_autofoco()
+                        # PULA A CAIXA DE PESQUISA E FOCA NA COMPETÊNCIA
+                        injetar_autofoco(pular_busca=True)
+                        
                         st.info("➕ **Inserção Avulsa (Com Validação e Anti-Duplicidade).** Use **CTRL + ENTER** para salvar rápido.")
                         c_av1, c_av2, c_av3 = st.columns(3)
                         val_sugestao = format_brl_number(val_atual_base) if val_atual_base > 0 else ""
@@ -799,7 +810,9 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- CORRIGIR HISTÓRICO ---
                     if st.session_state['status_acao'] == 'solicitou_corrigir_historico':
-                        injetar_autofoco()
+                        # PULA A CAIXA DE PESQUISA E FOCA NO NOVO VALOR
+                        injetar_autofoco(pular_busca=True)
+                        
                         st.info("🛠️ **Editor de Histórico (Pagamentos).** Use **CTRL + ENTER** para salvar rápido.")
                         if not df_hist.empty:
                             try:
@@ -825,7 +838,9 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- EDITAR FICHA MESTRA ---
                     if st.session_state['status_acao'] == 'solicitou_alterar':
-                        injetar_autofoco()
+                        # PULA A CAIXA DE PESQUISA E FOCA NO ID/MATRÍCULA
+                        injetar_autofoco(pular_busca=True)
+                        
                         st.info("📝 Modo de Edição Ativo. Aperte ENTER para pular campos. Use **CTRL + ENTER** para salvar rápido.")
                         cargo_idx = LISTA_CARGOS.index(str(colab.cargo).upper().strip()) if str(colab.cargo).upper().strip() in LISTA_CARGOS else (len(LISTA_CARGOS)-1)
                         sit_idx = LISTA_SITUACOES_ESOCIAL.index(v_sit_atual) if v_sit_atual in LISTA_SITUACOES_ESOCIAL else 0
@@ -892,7 +907,9 @@ elif menu == "🛠️ Gestão de Cadastros":
                 st.error(f"Erro no processamento da ficha: {e}")
 
     elif sub_menu == "➕ Novo Cadastro":
+        # SEM CAIXA DE PESQUISA NESTA TELA, FOCA NORMALMENTE NO PRIMEIRO CAMPO
         injetar_autofoco()
+        
         st.subheader("Inserir Novo Colaborador")
         st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
         cn1, cn2 = st.columns(2)
@@ -1005,7 +1022,7 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                 if st.session_state.get('zaut_acao') != 'lancando':
                     if st.button(f"➕ Iniciar Lançamento para {dados_c['nome']}", type="primary"): st.session_state['zaut_acao'] = 'lancando'; st.rerun()
                 else:
-                    injetar_autofoco()
+                    injetar_autofoco(pular_busca=False)
                     st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                     sal_hora_base = dados_c['sal_hora']
                     if sal_hora_base == 0.0:
