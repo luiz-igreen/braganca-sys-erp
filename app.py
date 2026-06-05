@@ -243,6 +243,7 @@ LISTA_SITUACOES_ESOCIAL = [
     "19 - Aborto nao criminoso", "20 - Licenca maternidade adocao 1 ano", "21 - Licenca maternidade adocao 1 a 4 anos",
     "22 - Licenca maternidade adocao 4 a 8 anos", "23 - Transferido", "24 - Outros motivos de afastamento",
     "39 - Ausência Justificada",
+    "8136 - Licença Paternidade",
     "90 - Suspensão contratual decorrente de forca maior", "91 - Suspensão contratual para inquerito falta grave"
 ]
 
