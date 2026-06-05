@@ -4,6 +4,7 @@ from sqlalchemy import create_engine, text
 import re
 from datetime import datetime, date
 import calendar
+import uuid
 import streamlit.components.v1 as components
 
 # --- CONFIGURAÇÃO INICIAL DA APLICAÇÃO ---
@@ -169,8 +170,6 @@ if (!window.parent.CustomKeyboardNav) {
 # FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO DE FORMA ESTÁVEL
 def injetar_autofoco(pular_busca=False, painel=""):
     pular_js = "true" if pular_busca else "false"
-    # A string HTML é fixa por painel. O Streamlit NÃO vai recarregar o iframe
-    # a cada clique nos menus suspensos, evitando o roubo de foco.
     components.html(f"""
     <script>
     setTimeout(function() {{
@@ -351,7 +350,8 @@ if menu == "👥 Visão Geral":
 elif menu == "📥 Importação Inteligente":
     st.title("📥 Central de Ingestão de Dados")
     
-    aba_imp1, aba_imp2, aba_imp3 = st.tabs(["📋 Carga Base (Cadastros)", "💰 Motor ETL (Histórico Salarial)", "🔄 Sincronizar eSocial (ST)"])
+    # 4 ABAS AGORA!
+    aba_imp1, aba_imp2, aba_imp3, aba_imp4 = st.tabs(["📋 Carga Base (Cadastros)", "💰 Motor ETL (Histórico Salarial)", "🔄 Sincronizar eSocial (ST)", "🪪 Injeção de CPFs"])
     
     with aba_imp1:
         st.subheader("Importação de Cadastros Novos")
@@ -467,6 +467,58 @@ elif menu == "📥 Importação Inteligente":
                                             sucessos += 1
                         st.success(f"✅ Missão Cumprida! A varredura analisou os dados e inseriu {sucessos} novos eventos na Linha do Tempo dos colaboradores.")
                 except Exception as e: st.error(f"Erro ao processar o ficheiro: {e}")
+
+    # ABA NOVA: INJEÇÃO DE CPFS COM "UPSERT INTELIGENTE"
+    with aba_imp4:
+        st.subheader("🪪 Injeção Automática de CPFs")
+        st.info("Envie a planilha contendo a coluna de **Código/Matrícula** e a coluna de **CPF**. O robô fará o cruzamento. Se o CPF do sistema for idêntico ao da planilha, ele pula para poupar tempo. Se for diferente ou estiver vazio, ele atualiza automaticamente!")
+        
+        arquivo_cpf = st.file_uploader("Selecione a Planilha (.xlsx, .csv)", type=["xlsx", "csv"], key="up_cpf")
+        if arquivo_cpf and st.button("🚀 Iniciar Varredura de CPFs", type="primary"):
+            with st.spinner("Analisando CPFs e cruzando com o Banco de Dados..."):
+                try:
+                    df_cpf = pd.read_excel(arquivo_cpf, engine='openpyxl') if arquivo_cpf.name.endswith('.xlsx') else pd.read_csv(arquivo_cpf)
+                    
+                    # Motor caçador de colunas
+                    col_id = next((c for c in df_cpf.columns if str(c).strip().upper() in ['CÓDIGO', 'CODIGO', 'ID', 'MATRÍCULA', 'MATRICULA']), None)
+                    col_cpf = next((c for c in df_cpf.columns if 'CPF' in str(c).strip().upper()), None)
+                    
+                    if not col_id or not col_cpf:
+                        st.error(f"⚠️ Colunas necessárias não encontradas. Achei: {list(df_cpf.columns)}. Preciso de uma coluna de ID e uma de CPF.")
+                    else:
+                        atualizados = 0
+                        ignorados = 0
+                        
+                        with engine.begin() as conn:
+                            # 1. Trazemos todos os CPFs atuais do banco para memória (ultra rápido)
+                            atuais = conn.execute(text("SELECT id, cpf FROM cadastro_geral_colaborador")).fetchall()
+                            mapa_atuais = {str(r.id).strip(): format_cpf(str(r.cpf)) if r.cpf else "" for r in atuais}
+                            
+                            for _, row in df_cpf.iterrows():
+                                v_id = str(row[col_id]).strip().replace('.0', '')
+                                raw_cpf = str(row[col_cpf]).strip()
+                                
+                                # Pula linhas vazias ou de totais
+                                if not v_id or v_id == 'nan' or raw_cpf.lower() == 'nan' or not raw_cpf:
+                                    continue
+                                    
+                                cpf_planilha_formatado = format_cpf(raw_cpf)
+                                if not cpf_planilha_formatado: # Se não for um CPF válido após a limpeza, pula
+                                    continue
+                                
+                                cpf_banco = mapa_atuais.get(v_id)
+                                
+                                # Se o colaborador existe no sistema
+                                if cpf_banco is not None: 
+                                    if cpf_banco == cpf_planilha_formatado:
+                                        ignorados += 1 # Já é exatamente igual, não fazemos nada!
+                                    else:
+                                        conn.execute(text("UPDATE cadastro_geral_colaborador SET cpf = :cpf WHERE id = :id"), {"cpf": cpf_planilha_formatado, "id": v_id})
+                                        atualizados += 1
+                                        
+                        st.success(f"✅ Varredura Concluída! **{atualizados}** CPFs foram atualizados/inseridos. **{ignorados}** CPFs já estavam perfeitos e foram pulados.")
+                except Exception as e:
+                    st.error(f"Erro ao ler os CPFs: {e}")
 
 # ==========================================
 # 3. GESTÃO DE CADASTROS
@@ -678,7 +730,6 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- MÓDULO EXCLUSIVO DE LINHA DO TEMPO (ESOCIAL) ---
                     if st.session_state['status_acao'] == 'solicitou_hist_esocial':
-                        # PULA A CAIXA DE PESQUISA E FOCA NA DATA DO EVENTO
                         injetar_autofoco(pular_busca=True, painel="esocial")
                         
                         st.info("⏳ **Editor da Linha do Tempo (eSocial):** Aperte ENTER para pular de campo. Use **CTRL + ENTER** para salvar rápido.")
@@ -719,7 +770,6 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- MÓDULO EXCLUSIVO DE DEMISSÃO ---
                     if st.session_state['status_acao'] == 'solicitou_demissao':
-                        # PULA A CAIXA DE PESQUISA E FOCA NA DATA DE DEMISSÃO
                         injetar_autofoco(pular_busca=True, painel="demissao")
                         
                         st.info("🛑 **Módulo de Desligamento e Correção de Demissão.** Use **CTRL + ENTER** para salvar rápido.")
@@ -767,7 +817,6 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- LANÇAMENTO AVULSO ---
                     if st.session_state['status_acao'] == 'solicitou_lancamento_avulso':
-                        # PULA A CAIXA DE PESQUISA E FOCA NA COMPETÊNCIA
                         injetar_autofoco(pular_busca=True, painel="avulso")
                         
                         st.info("➕ **Inserção Avulsa (Com Validação e Anti-Duplicidade).** Use **CTRL + ENTER** para salvar rápido.")
@@ -808,7 +857,6 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- CORRIGIR HISTÓRICO ---
                     if st.session_state['status_acao'] == 'solicitou_corrigir_historico':
-                        # PULA A CAIXA DE PESQUISA E FOCA NO NOVO VALOR
                         injetar_autofoco(pular_busca=True, painel="corrigir")
                         
                         st.info("🛠️ **Editor de Histórico (Pagamentos).** Use **CTRL + ENTER** para salvar rápido.")
@@ -836,7 +884,6 @@ elif menu == "🛠️ Gestão de Cadastros":
 
                     # --- EDITAR FICHA MESTRA ---
                     if st.session_state['status_acao'] == 'solicitou_alterar':
-                        # PULA A CAIXA DE PESQUISA E FOCA NO ID/MATRÍCULA
                         injetar_autofoco(pular_busca=True, painel="editar_ficha")
                         
                         st.info("📝 Modo de Edição Ativo. Aperte ENTER para pular campos. Use **CTRL + ENTER** para salvar rápido.")
@@ -905,7 +952,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                 st.error(f"Erro no processamento da ficha: {e}")
 
     elif sub_menu == "➕ Novo Cadastro":
-        # SEM CAIXA DE PESQUISA NESTA TELA, FOCA NORMALMENTE NO PRIMEIRO CAMPO
         injetar_autofoco(painel="novo_cadastro")
         
         st.subheader("Inserir Novo Colaborador")
