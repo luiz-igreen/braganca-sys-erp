@@ -173,6 +173,7 @@ LISTA_SITUACOES_ESOCIAL = [
     "17 - Acid. Trabalho periodo igual ou inferior a 15 dias", "18 - Doenca periodo igual ou inferior a 15 dias",
     "19 - Aborto nao criminoso", "20 - Licenca maternidade adocao 1 ano", "21 - Licenca maternidade adocao 1 a 4 anos",
     "22 - Licenca maternidade adocao 4 a 8 anos", "23 - Transferido", "24 - Outros motivos de afastamento",
+    "39 - Ausência Justificada",
     "90 - Suspensão contratual decorrente de forca maior", "91 - Suspensão contratual para inquerito falta grave"
 ]
 
@@ -247,7 +248,6 @@ def sort_historico_chronological(df):
     return df
 
 def format_cpf(cpf_str):
-    """Corrige e adiciona pontos/traços em CPFs já existentes no banco de dados"""
     if not cpf_str or str(cpf_str).strip().lower() in ["nan", "none", ""]: return ""
     v = re.sub(r'\D', '', str(cpf_str))
     if len(v) == 11:
@@ -295,7 +295,7 @@ if menu == "👥 Visão Geral":
         df['Alertas do Sistema'] = df.apply(verificar_alertas, axis=1)
         df['salario_mes_12_24'] = df['salario_mes_12_24'].apply(format_currency_brl)
         df['salario_hora'] = df['salario_hora'].apply(format_currency_brl)
-        df['cpf'] = df['cpf'].apply(format_cpf) # Aplica máscara na tabela visual
+        df['cpf'] = df['cpf'].apply(format_cpf)
         df.rename(columns={'situacao': 'Status (eSocial)'}, inplace=True)
         
         cols_view = ['Alertas do Sistema', 'id', 'nome', 'Status (eSocial)', 'cpf', 'cargo', 'salario_mes_12_24']
