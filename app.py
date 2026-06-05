@@ -168,7 +168,7 @@ if (!window.parent.CustomKeyboardNav) {
 </script>
 """, height=0, width=0)
 
-# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO DE FORMA ESTÁVEL
+# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO
 def injetar_autofoco(pular_busca=False, painel=""):
     pular_js = "true" if pular_busca else "false"
     components.html(f"""
@@ -189,26 +189,18 @@ def injetar_autofoco(pular_busca=False, painel=""):
     </script>
     """, height=0, width=0)
 
-# LEITOR BLINDADO DE PLANILHAS (AGORA COM FORÇA BRUTA PARA ARQUIVOS SUJOS)
+# LEITOR BLINDADO DE PLANILHAS
 def ler_planilha_inteligente(arquivo, nrows=None, header=0):
     file_bytes = arquivo.getvalue()
-    
-    # 1. Tenta como Excel nativo
     try:
         return pd.read_excel(io.BytesIO(file_bytes), header=header, nrows=nrows)
     except: pass
-    
-    # 2. Tenta decodificar como CSV Sujo separado por Vírgulas
     try:
         return pd.read_csv(io.BytesIO(file_bytes), sep=',', encoding='latin1', header=header, nrows=nrows, on_bad_lines='skip', low_memory=False)
     except: pass
-    
-    # 3. Tenta decodificar como CSV Sujo separado por Ponto e Vírgula
     try:
         return pd.read_csv(io.BytesIO(file_bytes), sep=';', encoding='latin1', header=header, nrows=nrows, on_bad_lines='skip', low_memory=False)
     except: pass
-    
-    # 4. Tenta decodificar como HTML disfarçado de XLS
     try:
         str_data = file_bytes.decode('latin1', errors='ignore')
         dfs = pd.read_html(io.StringIO(str_data), header=header)
@@ -453,9 +445,9 @@ elif menu == "📥 Importação Inteligente":
                                     
                                     # VALIDAÇÕES DE TEMPO E ESPAÇO
                                     if not dt_coluna or dt_coluna < pd.Timestamp(year=2024, month=12, day=1): continue
-                                    if dt_coluna > limite_futuro: continue # BLOQUEIA O FUTURO AQUI!
+                                    if dt_coluna > limite_futuro: continue # BLOQUEIA O FUTURO
                                     if dt_adm and dt_coluna < dt_adm: continue
-                                    if dt_dem and dt_coluna > dt_dem: continue
+                                    if dt_dem and dt_coluna > dt_dem: continue # BLOQUEIA O PÓS-DEMISSÃO
                                     
                                     try: val_float = float(val) if not isinstance(val, str) else float(val.upper().replace('R$', '').replace('.', '').replace(',', '.').strip())
                                     except: continue
@@ -616,10 +608,21 @@ elif menu == "🛠️ Gestão de Cadastros":
                 
                 if colab:
                     # -------------------------------------------------------------
-                    # LIMPEZA AUTOMÁTICA DE FOLHA FUTURA (A VASSOURA DO TEMPO)
+                    # LIMPEZA AUTOMÁTICA DE FOLHA FUTURA E PÓS-DEMISSÃO (A VASSOURA DO TEMPO)
                     # -------------------------------------------------------------
                     if not df_hist.empty:
-                        max_date_allowed = date(datetime.today().year, datetime.today().month, calendar.monthrange(datetime.today().year, datetime.today().month)[1])
+                        hoje = datetime.today().date()
+                        max_date_allowed = date(hoje.year, hoje.month, calendar.monthrange(hoje.year, hoje.month)[1])
+                        
+                        # Se o colaborador está demitido, a "Vassoura" não deixa o histórico passar do mês da demissão
+                        if pd.notna(colab.demissao):
+                            try:
+                                dt_dem_obj = pd.to_datetime(colab.demissao).date()
+                                max_dem_date = date(dt_dem_obj.year, dt_dem_obj.month, calendar.monthrange(dt_dem_obj.year, dt_dem_obj.month)[1])
+                                if max_dem_date < max_date_allowed:
+                                    max_date_allowed = max_dem_date
+                            except: pass
+
                         df_hist_clean = df_hist.copy()
                         df_hist_clean['temp_date'] = pd.to_datetime(df_hist_clean['competencia'], format='%m/%Y', errors='coerce').dt.date
                         df_future = df_hist_clean[df_hist_clean['temp_date'] > max_date_allowed]
@@ -631,7 +634,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     conn_clean.execute(text(f"DELETE FROM historico_premiacoes_e_folha WHERE id = {ids_to_del[0]}"))
                                 else:
                                     conn_clean.execute(text(f"DELETE FROM historico_premiacoes_e_folha WHERE id IN {ids_to_del}"))
-                            st.toast("🧹 Lançamentos futuros foram detetados e excluídos automaticamente da base!")
+                            st.toast("🧹 Lançamentos posteriores ao mês de demissão/atual foram excluídos automaticamente!")
                             # Recarrega o histórico limpo
                             df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), engine, params={"id": str(colab_id)})
 
@@ -822,24 +825,17 @@ elif menu == "🛠️ Gestão de Cadastros":
                             else:
                                 try:
                                     with engine.begin() as conn:
-                                        # 1. Verifica se o destino existe
                                         existe = conn.execute(text("SELECT id, nome FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_limpo}).fetchone()
                                         if not existe:
                                             st.error(f"⚠️ O ID/Matrícula {id_limpo} não existe no sistema! Crie-o primeiro ou verifique a numeração.")
                                         else:
-                                            # 2. Transfere todo o histórico de folha
                                             conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :novo WHERE id_colaborador = :antigo"), {"novo": id_limpo, "antigo": str(colab_id)})
-                                            # 3. Transfere todo o histórico de eSocial
                                             conn.execute(text("UPDATE historico_situacoes SET id_colaborador = :novo WHERE id_colaborador = :antigo"), {"novo": id_limpo, "antigo": str(colab_id)})
-                                            # 4. Transfere histórico salarial antigo (se houver)
                                             conn.execute(text("UPDATE historico_salarial SET id_colaborador = :novo WHERE id_colaborador = :antigo"), {"novo": id_limpo, "antigo": str(colab_id)})
-                                            
-                                            # 5. Destrói o cadastro antigo
                                             conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": str(colab_id)})
                                             conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": str(colab_id)})
                                             
                                     st.success(f"🎉 FUSÃO CONCLUÍDA! O histórico foi movido para o colaborador '{existe.nome}' (ID: {id_limpo}) e este fantasma foi apagado.")
-                                    # Pula automaticamente para o ID oficial para o utilizador conferir
                                     st.session_state['busca_selecionada_id'] = id_limpo
                                     st.session_state['status_acao'] = None
                                     st.rerun()
@@ -916,7 +912,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     with engine.begin() as conn: 
                                         conn.execute(text("UPDATE cadastro_geral_colaborador SET demissao = :d, situacao = :sit WHERE id = :id"), {"d": dem_str, "sit": novo_status, "id": str(colab_id)})
                                         conn.execute(text("INSERT INTO historico_situacoes (id_colaborador, data_evento, descricao) VALUES (:id, :dt, :desc)"), {"id": str(colab_id), "dt": dt_hist_evento, "desc": novo_status})
-                                    st.success("✅ Atualizado!"); st.session_state['status_acao'] = None; st.rerun()
+                                    st.success("✅ Atualizado! Qualquer folha posterior a esta data será limpa ao recarregar a ficha."); st.session_state['status_acao'] = None; st.rerun()
                             except Exception as e: st.error(f"Erro ao salvar: {e}")
                         if c_bt2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
