@@ -97,7 +97,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- INJEÇÃO DE JAVASCRIPT PROFISSIONAL (AUTO-FOCO E "ENTER" GRAVAR DIRETO) ---
+# --- INJEÇÃO DE JAVASCRIPT PROFISSIONAL ---
 components.html("""
 <script>
 const doc = window.parent.document;
@@ -135,13 +135,33 @@ if (!window.parent.CustomKeyboardNav) {
     window.parent.CustomKeyboardNav = true;
     doc.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
-            if (e.target.tagName === 'TEXTAREA' || e.target.getAttribute('aria-expanded') === 'true') return;
-            e.preventDefault(); e.stopPropagation();
             
-            // LÓGICA DO ENTER ASSASSINO: Procura e clica no botão Primário da tela!
-            var saveBtn = doc.querySelector('button[kind="primary"]');
-            if (saveBtn && !saveBtn.disabled) {
-                saveBtn.click();
+            // SE O USUÁRIO APERTAR CTRL + ENTER -> SALVA IMEDIATAMENTE (Botão Primário)
+            if (e.ctrlKey) {
+                e.preventDefault();
+                var saveBtn = doc.querySelector('button[kind="primary"]');
+                if (saveBtn && !saveBtn.disabled) saveBtn.click();
+                return;
+            }
+            
+            // LÓGICA DO DOMÍNIO: ENTER = TAB (Pular para a próxima linha)
+            // IGNORAR SE FOR BOTÃO, CAIXA DE TEXTO LONGA, GRID DE DADOS OU MENU SUSPENSO ABERTO
+            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'TEXTAREA' || e.target.getAttribute('aria-expanded') === 'true' || e.target.closest('[data-testid="stDataFrame"]')) {
+                return;
+            }
+            e.preventDefault(); 
+            e.stopPropagation();
+            
+            var selectors = 'input:not([disabled]):not([type="hidden"]), button:not([disabled]), textarea:not([disabled]), [tabindex="0"]:not([disabled])';
+            var focusable = Array.from(doc.querySelectorAll(selectors)).filter(el => (el.offsetWidth > 0 || el.offsetHeight > 0) && el.style.display !== 'none' && el.style.visibility !== 'hidden');
+            
+            var index = focusable.indexOf(e.target);
+            if (index > -1 && index < focusable.length - 1) {
+                var nextEl = focusable[index + 1]; 
+                nextEl.focus();
+                if (nextEl.tagName === 'INPUT' && (nextEl.type === 'text' || nextEl.type === 'number')) { 
+                    setTimeout(() => nextEl.select(), 10); 
+                }
             }
         }
     }, true); 
@@ -457,7 +477,6 @@ elif menu == "🛠️ Gestão de Cadastros":
     st.markdown("<br>", unsafe_allow_html=True)
 
     if sub_menu == "🔍 Consultar & Gerenciar":
-        # Dispara autofoco para a caixa de pesquisa ao carregar a tela
         if not st.session_state['busca_selecionada_id']: injetar_autofoco()
         
         termo = st.text_input("Digite o ID (Matrícula) ou parte do Nome:", key="k_term_busca")
@@ -657,7 +676,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     # --- MÓDULO EXCLUSIVO DE LINHA DO TEMPO (ESOCIAL) ---
                     if st.session_state['status_acao'] == 'solicitou_hist_esocial':
                         injetar_autofoco()
-                        st.info("⏳ **Editor da Linha do Tempo (eSocial):** Adicione eventos passados para sincronizar o histórico com a Contabilidade.")
+                        st.info("⏳ **Editor da Linha do Tempo (eSocial):** Aperte ENTER para pular de campo. Use **CTRL + ENTER** para salvar rápido.")
                         
                         aba_add, aba_del = st.tabs(["➕ Lançar Evento Retroativo", "🗑️ Apagar Evento"])
                         
@@ -696,7 +715,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     # --- MÓDULO EXCLUSIVO DE DEMISSÃO ---
                     if st.session_state['status_acao'] == 'solicitou_demissao':
                         injetar_autofoco()
-                        st.info("🛑 **Módulo de Desligamento e Correção de Demissão:**")
+                        st.info("🛑 **Módulo de Desligamento e Correção de Demissão.** Use **CTRL + ENTER** para salvar rápido.")
                         c_dem1, c_dem2 = st.columns(2)
                         with c_dem1:
                             ja_demitido = pd.notna(colab.demissao)
@@ -742,7 +761,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     # --- LANÇAMENTO AVULSO ---
                     if st.session_state['status_acao'] == 'solicitou_lancamento_avulso':
                         injetar_autofoco()
-                        st.info("➕ **Inserção Avulsa (Com Validação e Anti-Duplicidade):**")
+                        st.info("➕ **Inserção Avulsa (Com Validação e Anti-Duplicidade).** Use **CTRL + ENTER** para salvar rápido.")
                         c_av1, c_av2, c_av3 = st.columns(3)
                         val_sugestao = format_brl_number(val_atual_base) if val_atual_base > 0 else ""
                         with c_av1: av_comp = st.text_input("Competência (MM/AAAA)", placeholder="Ex: 092025")
@@ -781,7 +800,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     # --- CORRIGIR HISTÓRICO ---
                     if st.session_state['status_acao'] == 'solicitou_corrigir_historico':
                         injetar_autofoco()
-                        st.info("🛠️ **Editor de Histórico (Pagamentos):** Apague o valor (ou deixe 0) e clique em Salvar para deletar a linha.")
+                        st.info("🛠️ **Editor de Histórico (Pagamentos).** Use **CTRL + ENTER** para salvar rápido.")
                         if not df_hist.empty:
                             try:
                                 opcoes_hist = {f"ID: {row['id']} | Comp: {row['competencia']} | Tipo: {row['tipo_lancamento']} | Val: R$ {format_brl_number(row['valor_lancamento'])}": row['id'] for _, row in df_hist.iterrows()}
@@ -807,7 +826,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     # --- EDITAR FICHA MESTRA ---
                     if st.session_state['status_acao'] == 'solicitou_alterar':
                         injetar_autofoco()
-                        st.info("📝 Modo de Edição Ativo")
+                        st.info("📝 Modo de Edição Ativo. Aperte ENTER para pular campos. Use **CTRL + ENTER** para salvar rápido.")
                         cargo_idx = LISTA_CARGOS.index(str(colab.cargo).upper().strip()) if str(colab.cargo).upper().strip() in LISTA_CARGOS else (len(LISTA_CARGOS)-1)
                         sit_idx = LISTA_SITUACOES_ESOCIAL.index(v_sit_atual) if v_sit_atual in LISTA_SITUACOES_ESOCIAL else 0
                         
@@ -892,6 +911,7 @@ elif menu == "🛠️ Gestão de Cadastros":
             n_ret_str = st.text_input("Retorno Previsto", placeholder="Ex: 01072025")
         st.markdown('</div>', unsafe_allow_html=True)
         
+        st.info("Aperte ENTER para pular campos. Use **CTRL + ENTER** para salvar direto no banco de dados.")
         if st.button("💾 Salvar Registro no Sistema", type="primary"):
             try:
                 dt_a = parse_br_date_smart(n_adm_str)
@@ -1004,6 +1024,7 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                     
                     if hp_ind_float > 0 and sal_hora_base > 0: st.markdown(f'<p class="field-highlight">R$ {format_brl_number(val_final_ind)}</p>', unsafe_allow_html=True)
                     
+                    st.info("Aperte ENTER para pular campos. Use **CTRL + ENTER** para salvar rápido.")
                     c_btn_i1, c_btn_i2 = st.columns([1, 4])
                     if c_btn_i1.button("💾 Gravar", type="primary", key="btn_ind_gravar"):
                         if hp_ind_float <= 0 or sal_hora_base <= 0 or not desc_final_str.strip(): st.error("⚠️ Dados inválidos.")
