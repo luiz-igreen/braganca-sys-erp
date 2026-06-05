@@ -64,6 +64,14 @@ try:
             """))
 except: pass
 
+# --- AUTO-LIMPEZA DE FANTASMAS (HIGIENE DE BASE DE DADOS) ---
+try:
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM historico_situacoes WHERE id_colaborador IS NULL OR TRIM(id_colaborador) = '' OR id_colaborador = 'nan'"))
+        conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador IS NULL OR TRIM(id_colaborador) = '' OR id_colaborador = 'nan'"))
+        conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id IS NULL OR TRIM(id) = '' OR id = 'nan'"))
+except: pass
+
 # --- ESTILIZAÇÃO VISUAL AVANÇADA (MENU HORIZONTAL E GLASSMORPHISM) ---
 st.markdown("""
 <style>
@@ -168,7 +176,7 @@ if (!window.parent.CustomKeyboardNav) {
 </script>
 """, height=0, width=0)
 
-# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO
+# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO DE FORMA ESTÁVEL
 def injetar_autofoco(pular_busca=False, painel=""):
     pular_js = "true" if pular_busca else "false"
     components.html(f"""
@@ -189,18 +197,26 @@ def injetar_autofoco(pular_busca=False, painel=""):
     </script>
     """, height=0, width=0)
 
-# LEITOR BLINDADO DE PLANILHAS
+# LEITOR BLINDADO DE PLANILHAS (AGORA COM FORÇA BRUTA PARA ARQUIVOS SUJOS)
 def ler_planilha_inteligente(arquivo, nrows=None, header=0):
     file_bytes = arquivo.getvalue()
+    
+    # 1. Tenta como Excel nativo
     try:
         return pd.read_excel(io.BytesIO(file_bytes), header=header, nrows=nrows)
     except: pass
+    
+    # 2. Tenta decodificar como CSV Sujo separado por Vírgulas
     try:
         return pd.read_csv(io.BytesIO(file_bytes), sep=',', encoding='latin1', header=header, nrows=nrows, on_bad_lines='skip', low_memory=False)
     except: pass
+    
+    # 3. Tenta decodificar como CSV Sujo separado por Ponto e Vírgula
     try:
         return pd.read_csv(io.BytesIO(file_bytes), sep=';', encoding='latin1', header=header, nrows=nrows, on_bad_lines='skip', low_memory=False)
     except: pass
+    
+    # 4. Tenta decodificar como HTML disfarçado de XLS
     try:
         str_data = file_bytes.decode('latin1', errors='ignore')
         dfs = pd.read_html(io.StringIO(str_data), header=header)
@@ -445,7 +461,7 @@ elif menu == "📥 Importação Inteligente":
                                     
                                     # VALIDAÇÕES DE TEMPO E ESPAÇO
                                     if not dt_coluna or dt_coluna < pd.Timestamp(year=2024, month=12, day=1): continue
-                                    if dt_coluna > limite_futuro: continue # BLOQUEIA O FUTURO
+                                    if dt_coluna > limite_futuro: continue # BLOQUEIA O FUTURO AQUI!
                                     if dt_adm and dt_coluna < dt_adm: continue
                                     if dt_dem and dt_coluna > dt_dem: continue # BLOQUEIA O PÓS-DEMISSÃO
                                     
@@ -513,7 +529,9 @@ elif menu == "📥 Importação Inteligente":
         if arquivo_cpf and st.button("🚀 Iniciar Varredura de CPFs", type="primary"):
             with st.spinner("A caçar os cabeçalhos ocultos e a processar..."):
                 try:
+                    # Passo 1: Leitura preview robusta para achar a linha correta
                     df_preview = ler_planilha_inteligente(arquivo_cpf, nrows=15, header=None)
+                    
                     header_idx = 0
                     for idx, row in df_preview.iterrows():
                         row_str = ' '.join([str(v).upper() for v in row if pd.notna(v)])
@@ -521,9 +539,11 @@ elif menu == "📥 Importação Inteligente":
                             header_idx = idx
                             break
                             
+                    # Passo 2: Leitura oficial ignorando as linhas de lixo acima
                     arquivo_cpf.seek(0)
                     df_cpf = ler_planilha_inteligente(arquivo_cpf, header=header_idx)
                     
+                    # Motor caçador de colunas
                     col_id = next((c for c in df_cpf.columns if str(c).strip().upper() in ['CÓDIGO', 'CODIGO', 'ID', 'MATRÍCULA', 'MATRICULA', 'ID/MATRÍCULA']), None)
                     col_cpf = next((c for c in df_cpf.columns if 'CPF' in str(c).strip().upper()), None)
                     
