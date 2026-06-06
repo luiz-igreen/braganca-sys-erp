@@ -6,6 +6,7 @@ from datetime import datetime, date
 import calendar
 import uuid
 import io
+import json
 import streamlit.components.v1 as components
 
 # --- CONFIGURAÇÃO INICIAL DA APLICAÇÃO ---
@@ -170,7 +171,6 @@ if (!window.parent.CustomKeyboardNav) {
 </script>
 """, height=0, width=0)
 
-# FUNÇÃO PYTHON PARA DISPARAR O AUTO-FOCO DINÂMICO DE FORMA ESTÁVEL
 def injetar_autofoco(pular_busca=False, painel=""):
     pular_js = "true" if pular_busca else "false"
     components.html(f"""
@@ -186,7 +186,6 @@ def injetar_autofoco(pular_busca=False, painel=""):
     </script>
     """, height=0, width=0)
 
-# LEITOR BLINDADO DE PLANILHAS
 def ler_planilha_inteligente(arquivo, nrows=None, header=0):
     file_bytes = arquivo.getvalue()
     try: return pd.read_excel(io.BytesIO(file_bytes), header=header, nrows=nrows)
@@ -205,7 +204,6 @@ def ler_planilha_inteligente(arquivo, nrows=None, header=0):
     except: pass
     raise ValueError(f"O arquivo não pode ser lido. Solução rápida: Abra o arquivo no Excel e salve como '.xlsx', depois tente de novo!")
 
-# --- LISTAS PADRÃO ---
 LISTA_CARGOS = [
     "PEDREIRO", "SERVENTE", "AJUDANTE PRATICO", "CARPINTEIRO", "PINTOR", "ELETRICISTA", 
     "ENCANADOR", "MESTRE DE OBRAS", "ENCARREGADO", 
@@ -232,7 +230,6 @@ LISTA_SITUACOES_ESOCIAL = [
     "90 - Suspensão contratual decorrente de forca maior", "91 - Suspensão contratual para inquerito falta grave"
 ]
 
-# --- GERENCIADOR DE SESSÃO E ROTEAMENTO SPA ---
 for k in ['busca_selecionada_id', 'status_acao', 'zaut_acao']:
     if k not in st.session_state: st.session_state[k] = None
 if 'sub_menu_index' not in st.session_state: st.session_state['sub_menu_index'] = 0
@@ -241,7 +238,6 @@ if 'redirect_to_consulta' not in st.session_state: st.session_state['redirect_to
 if st.session_state['redirect_to_consulta']:
     st.session_state['sub_menu_index'] = 0; st.session_state['redirect_to_consulta'] = False; st.rerun()
 
-# --- FUNÇÕES INTELIGENTES E CORREÇÃO MESTRA DO CPF ---
 def clean_money_to_db(val):
     if not val or str(val).strip() == "" or str(val).strip().lower() == "none": return None
     s = str(val).upper().replace('R$', '').strip()
@@ -302,69 +298,38 @@ def sort_historico_chronological(df):
         df = df.sort_values(by=['data_ordenacao', 'id'], ascending=[False, False]).drop(columns=['data_ordenacao'])
     return df
 
-# O NOVO RESTAURADOR DE DNA DO CPF
 def format_cpf(cpf_str):
     if not cpf_str or str(cpf_str).strip().lower() in ["nan", "none", ""]: return ""
     s = str(cpf_str).strip()
-    
-    # 1. Arranca o falso decimal que o Pandas/Excel injeta
-    if s.endswith('.0'):
-        s = s[:-2]
-        
-    # 2. Mantém só os números puros
+    if s.endswith('.0'): s = s[:-2]
     v = re.sub(r'\D', '', s)
     if not v: return ""
-    
-    # 3. Injeta o zero à esquerda perdido pela matemática do Excel
     v = v.zfill(11)
-    
-    # 4. Formata de forma perfeita
-    if len(v) == 11:
-        return f"{v[:3]}.{v[3:6]}.{v[6:9]}-{v[9:]}"
-        
+    if len(v) == 11: return f"{v[:3]}.{v[3:6]}.{v[6:9]}-{v[9:]}"
     return str(cpf_str)
 
-# ==========================================
-# MENU SUPERIOR HORIZONTAL EXCLUSIVO
-# ==========================================
 st.markdown("<h3 style='text-align: center; color: #f8fafc; margin-bottom: 10px; margin-top: -30px;'>🏗️ BRAGANÇA SYS <span style='color: #3b82f6;'>| ERP</span></h3>", unsafe_allow_html=True)
-
 menu = st.radio("Menu Principal", ["👥 Visão Geral", "📥 Importação Inteligente", "🛠️ Gestão de Cadastros", "🏆 Gestão de Prêmios (ZAUT)", "🔎 Auditoria CCT (IA)"], horizontal=True, label_visibility="collapsed")
 st.markdown("---")
 
-# ==========================================
-# 1. VISÃO GERAL (PAINEL DE AUDITORIA)
-# ==========================================
 if menu == "👥 Visão Geral":
     st.title("📊 Painel Corporativo & Auditoria Cadastral")
-    
     mostrar_alertas = st.checkbox("🚨 Mostrar Apenas Colaboradores com Alertas/Pendências", value=False)
-    
     try:
         df = pd.read_sql("SELECT id, nome, cpf, cargo, situacao, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora FROM cadastro_geral_colaborador ORDER BY nome ASC", engine)
-        
         def verificar_alertas(row):
             alertas = []
             sit = str(row['situacao']) if pd.notna(row['situacao']) else ""
             dt_ret = parse_br_date_smart(row['data_retorno'])
             dt_afast = parse_br_date_smart(row['data_afastamento'])
             hoje = datetime.today().date()
-            
-            if sit not in ['1 - Trabalhando', '8 - Demitido'] and dt_ret and dt_ret <= hoje:
-                alertas.append("Retorno Vencido (Abra a ficha)")
-            if sit == '1 - Trabalhando' and dt_afast and not dt_ret:
-                alertas.append("Afastamento em Aberto")
-            
+            if sit not in ['1 - Trabalhando', '8 - Demitido'] and dt_ret and dt_ret <= hoje: alertas.append("Retorno Vencido (Abra a ficha)")
+            if sit == '1 - Trabalhando' and dt_afast and not dt_ret: alertas.append("Afastamento em Aberto")
             v_id_check = str(row['id']).strip()
-            if not v_id_check or v_id_check.lower() == 'none' or v_id_check.lower() == 'nan':
-                alertas.append("FANTASMA (Exclua este registo)")
-            elif pd.isna(row['cpf']) or str(row['cpf']).strip() == "":
-                alertas.append("Falta CPF")
-                
+            if not v_id_check or v_id_check.lower() == 'none' or v_id_check.lower() == 'nan': alertas.append("FANTASMA (Exclua este registo)")
+            elif pd.isna(row['cpf']) or str(row['cpf']).strip() == "": alertas.append("Falta CPF")
             sal = clean_money_to_db(row['salario_mes_12_24'])
-            if not sal or float(sal) == 0:
-                alertas.append("Sem Salário Base")
-                
+            if not sal or float(sal) == 0: alertas.append("Sem Salário Base")
             return "⚠️ " + " / ".join(alertas) if alertas else "✅ Atualizado"
 
         df['Alertas do Sistema'] = df.apply(verificar_alertas, axis=1)
@@ -372,7 +337,6 @@ if menu == "👥 Visão Geral":
         df['salario_hora'] = df['salario_hora'].apply(format_currency_brl)
         df['cpf'] = df['cpf'].apply(format_cpf)
         df.rename(columns={'situacao': 'Status (eSocial)'}, inplace=True)
-        
         cols_view = ['Alertas do Sistema', 'id', 'nome', 'Status (eSocial)', 'cpf', 'cargo', 'salario_mes_12_24']
         df_view = df[cols_view].copy()
         
@@ -382,11 +346,9 @@ if menu == "👥 Visão Geral":
         
         st.dataframe(df_view, use_container_width=True, hide_index=True)
         
-        # --- PAINEL EXCLUSIVO: EXCLUSÃO RÁPIDA DE FANTASMAS E ERROS ---
         st.markdown("---")
         st.subheader("🗑️ Exclusão Rápida de Inconsistências")
         st.info("Utilize este painel para apagar de forma definitiva linhas vazias, fantasmas ou qualquer outro registo listado acima, sem precisar de abrir a ficha.")
-        
         opcoes_fantasma = {}
         for idx, r in df.iterrows():
             v_id = str(r['id']) if pd.notna(r['id']) and str(r['id']).strip() else "VAZIO"
@@ -396,8 +358,7 @@ if menu == "👥 Visão Geral":
             opcoes_fantasma[label] = v_id
 
         col_f1, col_f2 = st.columns([3, 1])
-        with col_f1:
-            selecao_fantasma = st.selectbox("Selecione o registo problemático:", ["(Nenhum selecionado)"] + list(opcoes_fantasma.keys()))
+        with col_f1: selecao_fantasma = st.selectbox("Selecione o registo problemático:", ["(Nenhum selecionado)"] + list(opcoes_fantasma.keys()))
         with col_f2:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("🔥 Exterminar Registo", type="primary", use_container_width=True):
@@ -419,20 +380,16 @@ if menu == "👥 Visão Geral":
                                 conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_alvo})
                                 st.success(f"✅ Matrícula {id_alvo} apagada com sucesso!")
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro ao excluir o registo: {e}")
-                else:
-                    st.warning("Selecione um registo na lista ao lado primeiro.")
+                    except Exception as e: st.error(f"Erro ao excluir o registo: {e}")
+                else: st.warning("Selecione um registo na lista ao lado primeiro.")
 
     except Exception as e: st.error(f"Erro ao carregar dados do painel: {e}")
 
-# ==========================================
-# 2. IMPORTAÇÃO INTELIGENTE
-# ==========================================
 elif menu == "📥 Importação Inteligente":
     st.title("📥 Central de Ingestão de Dados")
     
-    aba_imp1, aba_imp2, aba_imp3, aba_imp4 = st.tabs(["📋 Carga Base (Cadastros)", "💰 Motor ETL (Histórico Salarial)", "🔄 Sincronizar eSocial (ST)", "🪪 Injeção de CPFs"])
+    # AGORA COM A 5ª ABA (LEITOR IA)
+    aba_imp1, aba_imp2, aba_imp3, aba_imp4, aba_imp5 = st.tabs(["📋 Carga Base", "💰 Motor ETL", "🔄 Sincronizar eSocial", "🪪 Injeção de CPFs", "🤖 Leitor IA (Chat)"])
     
     with aba_imp1:
         st.subheader("Importação de Cadastros Novos")
@@ -487,7 +444,6 @@ elif menu == "📥 Importação Inteligente":
                             colab = db_dict[nome_xls]
                             dt_adm = pd.Timestamp(year=pd.to_datetime(colab['admissao']).year, month=pd.to_datetime(colab['admissao']).month, day=1) if colab['admissao'] else None
                             dt_dem = pd.Timestamp(year=pd.to_datetime(colab['demissao']).year, month=pd.to_datetime(colab['demissao']).month, day=1) if colab['demissao'] else None
-                            
                             for col in df_excel.columns:
                                 col_str = str(col).strip().upper()
                                 if "SALÁRIO MÊS" in col_str or "SALARIO MES" in col_str:
@@ -588,21 +544,59 @@ elif menu == "📥 Importação Inteligente":
                                 v_id = str(row[col_id]).strip().replace('.0', '')
                                 raw_cpf = str(row[col_cpf]).strip()
                                 if not v_id or v_id == 'nan' or raw_cpf.lower() == 'nan' or not raw_cpf: continue
-                                
                                 cpf_planilha_formatado = format_cpf(raw_cpf)
                                 if not cpf_planilha_formatado: continue
-                                
                                 cpf_banco = mapa_atuais.get(v_id)
                                 if cpf_banco is not None: 
-                                    # O robô compara o formatado perfeitamente com o do banco
                                     if cpf_banco == cpf_planilha_formatado: ignorados += 1
                                     else:
-                                        # Se o do banco estiver sujo ou sem zero, ele sobrescreve!
                                         conn.execute(text("UPDATE cadastro_geral_colaborador SET cpf = :cpf WHERE id = :id"), {"cpf": cpf_planilha_formatado, "id": v_id})
                                         atualizados += 1
                         st.success(f"✅ Varredura Concluída com Sucesso! **{atualizados}** CPFs corrigidos/atualizados. **{ignorados}** CPFs já estavam perfeitos.")
                 except Exception as e:
                     st.error(f"Erro ao ler os CPFs: {e}")
+                    
+    with aba_imp5:
+        st.subheader("🤖 Injeção Universal de Histórico via IA")
+        st.info("Cole na caixa abaixo o 'Pacote de Dados' (Código) gerado pelo seu Assistente de IA no chat.")
+        
+        pacote_ia = st.text_area("Pacote de Dados (JSON)", height=200, placeholder='Ex: [{"id": "9", "eventos": [["2022-06-14", "18 - Doenca..."], ...]}]')
+        
+        if st.button("🚀 Executar Injeção em Massa", type="primary"):
+            if pacote_ia.strip():
+                try:
+                    dados = json.loads(pacote_ia)
+                    sucessos = 0
+                    with engine.begin() as conn:
+                        for colab in dados:
+                            v_id = str(colab['id'])
+                            # Prevenção: apagar linha do tempo antiga do eSocial para não duplicar se clicar 2x
+                            conn.execute(text("DELETE FROM historico_situacoes WHERE id_colaborador = :id"), {"id": v_id})
+                            
+                            ultimo_status = "1 - Trabalhando"
+                            ultima_data = None
+                            
+                            for ev in colab['eventos']:
+                                data_ev = ev[0]
+                                desc_ev = ev[1]
+                                conn.execute(text("INSERT INTO historico_situacoes (id_colaborador, data_evento, descricao) VALUES (:id, :dt, :desc)"), {"id": v_id, "dt": data_ev, "desc": desc_ev})
+                                ultimo_status = desc_ev
+                                ultima_data = data_ev
+                                
+                            # Atualiza ficha mestra de acordo com o último evento da lista
+                            if ultimo_status.startswith("8 - "):
+                                conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = :sit, demissao = :dt WHERE id = :id"), {"sit": ultimo_status, "dt": ultima_data, "id": v_id})
+                            elif ultimo_status.startswith("1 - "):
+                                conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = :sit, data_retorno = :dt WHERE id = :id"), {"sit": ultimo_status, "dt": ultima_data, "id": v_id})
+                            else:
+                                conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = :sit, data_afastamento = :dt, data_retorno = NULL WHERE id = :id"), {"sit": ultimo_status, "dt": ultima_data, "id": v_id})
+                                
+                            sucessos += 1
+                    st.success(f"✅ BINGO! Histórico de {sucessos} colaborador(es) reconstruído(s) com sucesso a partir do chat!")
+                except Exception as e:
+                    st.error(f"Erro na interpretação do pacote. Tem a certeza que copiou o código inteiro? Erro: {e}")
+            else:
+                st.warning("Cole o código gerado pela IA antes de clicar.")
 
 # ==========================================
 # 3. GESTÃO DE CADASTROS
@@ -614,7 +608,6 @@ elif menu == "🛠️ Gestão de Cadastros":
     st.markdown("<br>", unsafe_allow_html=True)
 
     if sub_menu == "🔍 Consultar & Gerenciar":
-        # Se NÃO tiver clicado em nenhum botão de ação E NÃO tiver ninguém selecionado -> Foca na Pesquisa
         if not st.session_state['busca_selecionada_id']: 
             injetar_autofoco(painel="busca")
         
