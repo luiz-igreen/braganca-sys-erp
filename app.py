@@ -640,7 +640,20 @@ elif menu == "🛠️ Gestão de Cadastros":
                     df_fin = pd.read_sql(text("SELECT * FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), conn, params={"id": str(colab_id)})
                     fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None
                     df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
-                    df_hist_sit = pd.read_sql(text("SELECT id, data_evento, descricao FROM historico_situacoes WHERE id_colaborador = :id ORDER BY data_evento DESC, id DESC"), conn, params={"id": str(colab_id)})
+                    
+                    # QUERY CORRIGIDA COM JOIN PARA BUSCAR DESCRIÇÃO OFICIAL
+                    query_esocial = text("""
+                        SELECT 
+                            h.id, 
+                            h.data_evento, 
+                            COALESCE(d.codigo || ' - ' || d.descricao, h.descricao) as descricao
+                        FROM historico_situacoes h
+                        LEFT JOIN dominio_situacoes_esocial d 
+                        ON h.descricao ILIKE d.codigo || ' - %'
+                        WHERE h.id_colaborador = :id 
+                        ORDER BY h.data_evento DESC, h.id DESC
+                    """)
+                    df_hist_sit = pd.read_sql(query_esocial, conn, params={"id": str(colab_id)})
                 
                 if colab:
                     # -------------------------------------------------------------
@@ -1223,4 +1236,3 @@ elif menu == "🔎 Auditoria CCT (IA)":
             return pd.Series([f"R$ {format_brl_number(piso)}", f"R$ {format_brl_number(sal_atual)}", st_aud])
         df_folha[['Salário Ideal (CCT)', 'Salário Atual', 'Status']] = df_folha.apply(calcular_auditoria, axis=1)
         st.dataframe(df_folha[~df_folha['Status'].str.contains("Demitido")][['id', 'nome', 'cargo', 'situacao', 'Salário Atual', 'Salário Ideal (CCT)', 'Status']], use_container_width=True, hide_index=True)
-
