@@ -731,6 +731,19 @@ elif menu == "🛠️ Gestão de Cadastros":
                     v_afast = getattr(colab, 'data_afastamento', None)
                     v_ret = getattr(colab, 'data_retorno', None)
 
+                    # --- AUTO-CURA DA DATA DE AFASTAMENTO (RECUPERAÇÃO DE DADOS DA LINHA DO TEMPO) ---
+                    if (not v_afast or str(v_afast).strip().lower() in ["nan", "none", ""]) and not df_hist_sit.empty:
+                        df_afastamentos = df_hist_sit[~df_hist_sit['descricao'].str.startswith('1 -') & ~df_hist_sit['descricao'].str.startswith('8 -')]
+                        if not df_afastamentos.empty:
+                            v_afast_rec = df_afastamentos.iloc[0]['data_evento']
+                            if pd.notna(v_afast_rec):
+                                v_afast = v_afast_rec
+                                try:
+                                    with engine.begin() as conn_fix:
+                                        conn_fix.execute(text("UPDATE cadastro_geral_colaborador SET data_afastamento = :dt WHERE id = :id"), {"dt": str(v_afast_rec), "id": str(colab_id)})
+                                except: pass
+                    # ---------------------------------------------------------------------------------
+
                     if v_ret and v_sit_atual not in ["1 - Trabalhando", "8 - Demitido"]:
                         dt_ret_obj = parse_br_date_smart(v_ret)
                         if dt_ret_obj and dt_ret_obj <= datetime.today().date():
