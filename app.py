@@ -44,7 +44,6 @@ try:
         """))
 except Exception as e: st.error(f"Erro ao inicializar tabelas: {e}")
 
-# Módulo de Auto-Correção de Status eSocial Corrompidos
 try:
     with engine.begin() as conn:
         correcoes_esocial = {
@@ -62,11 +61,11 @@ except: pass
 try:
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS data_afastamento VARCHAR(50);"))
-except: pass 
+except: pass
 try:
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS data_retorno VARCHAR(50);"))
-except: pass 
+except: pass
 try:
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS situacao VARCHAR(100) DEFAULT '1 - Trabalhando';"))
@@ -86,7 +85,6 @@ try:
             """))
 except: pass
 
-# --- AUTO-LIMPEZA DE FANTASMAS (HIGIENE DE BASE DE DADOS) ---
 try:
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM historico_afastamentos WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
@@ -95,7 +93,7 @@ try:
         conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id IS NULL OR TRIM(CAST(id AS TEXT)) = '' OR CAST(id AS TEXT) ILIKE 'nan' OR CAST(id AS TEXT) ILIKE 'none'"))
 except: pass
 
-# --- ESTILIZAÇÃO VISUAL AVANÇADA (MENU HORIZONTAL E GLASSMORPHISM) ---
+# --- ESTILIZAÇÃO VISUAL AVANÇADA ---
 st.markdown("""
 <style>
     .stApp { background-color: #0f172a; color: #f8fafc; }
@@ -111,20 +109,54 @@ st.markdown("""
     .field-label { color: #94a3b8; font-size: 0.9rem; font-weight: bold; }
     .field-value { color: #f8fafc; font-size: 1.1rem; margin-bottom: 12px; background: rgba(15, 23, 42, 0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); }
     .field-highlight { color: #10b981; font-size: 1.4rem; font-weight: bold; margin-bottom: 12px; background: rgba(16, 185, 129, 0.1); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.3); }
-    
     .fake-label { color: #f8fafc; font-size: 0.85rem; font-weight: 500; margin-bottom: -15px; display: block; }
 
     div[data-testid="stRadio"] div[role="radiogroup"] > label > div:first-child { display: none; }
-    div[data-testid="stRadio"] > div { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 12px; }
+    div[data-testid="stRadio"] > div {
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        justify-content: center !important;
+        gap: 10px !important;
+        width: 100% !important;
+    }
     div[data-testid="stRadio"] label {
-        background: rgba(30, 41, 59, 0.8); padding: 12px 24px; border-radius: 8px; border: 1px solid rgba(51, 65, 85, 0.8);
-        color: #cbd5e1; cursor: pointer; font-weight: 600; transition: all 0.2s ease-in-out;
+        background: rgba(30, 41, 59, 0.8);
+        padding: 10px 16px;
+        border-radius: 8px;
+        border: 1px solid rgba(51, 65, 85, 0.8);
+        color: #cbd5e1;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 0.85rem;
+        transition: all 0.2s ease-in-out;
+        white-space: nowrap;
+        flex: 1;
+        text-align: center;
     }
     div[data-testid="stRadio"] label:hover { background: rgba(59, 130, 246, 0.1); border-color: #3b82f6; }
     div[data-testid="stRadio"] label[data-testid="stWidgetSelected"] {
         background: #2563eb !important; color: #ffffff !important; border-color: #60a5fa !important; box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4);
     }
-    
+
+    div[data-testid="stRadio"]:nth-of-type(2) > div {
+        justify-content: center !important;
+        gap: 16px !important;
+    }
+    div[data-testid="stRadio"]:nth-of-type(2) label {
+        flex: 0 1 auto !important;
+        min-width: 200px;
+    }
+
+    button[kind="primary"] {
+        background-color: #2563eb !important;
+        border-color: #2563eb !important;
+        color: #ffffff !important;
+    }
+    button[kind="primary"]:hover {
+        background-color: #1d4ed8 !important;
+        border-color: #1d4ed8 !important;
+    }
+
     section[data-testid="stSidebar"] { display: none; }
 </style>
 """, unsafe_allow_html=True)
@@ -141,7 +173,7 @@ setInterval(function(){
         el.setAttribute('autofill', 'off');
         if (!el.hasAttribute('data-name-set')) { el.setAttribute('name', 'input_' + Math.random().toString(36).substring(7)); el.setAttribute('data-name-set', 'true'); }
     });
-    
+
     doc.querySelectorAll('input[aria-label="CPF"]').forEach(function(el){
         if (!el.hasAttribute('data-cpf-mask')) {
             el.setAttribute('data-cpf-mask', 'true');
@@ -344,6 +376,7 @@ def format_cpf(cpf_str):
     if len(v) == 11: return f"{v[:3]}.{v[3:6]}.{v[6:9]}-{v[9:]}"
     return str(cpf_str)
 
+# --- CABEÇALHO ---
 st.markdown("<h3 style='text-align: center; color: #f8fafc; margin-bottom: 10px; margin-top: -30px;'>🏗️ BRAGANÇA SYS <span style='color: #3b82f6;'>| ERP</span></h3>", unsafe_allow_html=True)
 menu = st.radio("Menu Principal", ["👥 Visão Geral", "📥 Importação Inteligente", "🛠️ Gestão de Cadastros", "🏆 Gestão de Prêmios (ZAUT)", "🔎 Auditoria CCT (IA)"], horizontal=True, label_visibility="collapsed")
 st.markdown("---")
@@ -375,13 +408,13 @@ if menu == "👥 Visão Geral":
         df.rename(columns={'situacao': 'Status (eSocial)'}, inplace=True)
         cols_view = ['Alertas do Sistema', 'id', 'nome', 'Status (eSocial)', 'cpf', 'cargo', 'salario_mes_12_24']
         df_view = df[cols_view].copy()
-        
+
         if mostrar_alertas:
             df_view = df_view[df_view['Alertas do Sistema'].str.contains('⚠️')]
             if df_view.empty: st.success("🎉 Parabéns! Todos os cadastros estão atualizados e sem pendências no momento.")
-        
+
         st.dataframe(df_view, use_container_width=True, hide_index=True)
-        
+
         st.markdown("---")
         st.subheader("🗑️ Exclusão Rápida de Inconsistências")
         st.info("Utilize este painel para apagar de forma definitiva linhas vazias, fantasmas ou qualquer outro registo listado acima, sem precisar de abrir a ficha.")
@@ -423,9 +456,9 @@ if menu == "👥 Visão Geral":
 
 elif menu == "📥 Importação Inteligente":
     st.title("📥 Central de Ingestão de Dados")
-    
+
     aba_imp1, aba_imp2, aba_imp3, aba_imp4, aba_imp5 = st.tabs(["📋 Carga Base", "💰 Motor ETL", "🔄 Sincronizar eSocial", "🪪 Injeção de CPFs", "🤖 Leitor IA (Chat)"])
-    
+
     with aba_imp1:
         st.subheader("Importação de Cadastros Novos")
         arquivo = st.file_uploader("Selecione o arquivo de migração de colaboradores (.xlsx, .csv)", type=["xlsx", "csv"], key="up_cad_base")
@@ -513,7 +546,7 @@ elif menu == "📥 Importação Inteligente":
                     col_id = next((c for c in df_st.columns if str(c).strip().upper() in ['CÓDIGO', 'CODIGO', 'ID', 'MATRICULA', 'ID/MATRÍCULA']), None)
                     col_s = next((c for c in df_st.columns if str(c).strip().upper() in ['S', 'ST', 'SITUAÇÃO', 'SITUACAO']), None)
                     col_dt = next((c for c in df_st.columns if 'DATA ST' in str(c).strip().upper() or 'DATA' in str(c).strip().upper()), None)
-                    
+
                     if not col_id or not col_s or not col_dt:
                         st.error(f"⚠️ As colunas exatas não foram encontradas. Colunas que o sistema viu: {list(df_st.columns)}.")
                     else:
@@ -536,7 +569,7 @@ elif menu == "📥 Importação Inteligente":
                                         conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = :sit, data_retorno = :dt WHERE id = :id"), {"sit": sit_completa, "dt": dt_str, "id": v_id})
                                     else: 
                                         conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = :sit, data_afastamento = :dt, data_retorno = NULL WHERE id = :id"), {"sit": sit_completa, "dt": dt_str, "id": v_id})
-                                        
+
                                     if dt_str:
                                         ja_tem = conn.execute(text("SELECT 1 FROM historico_afastamentos WHERE id_colaborador = :id AND data_inicio = :dt AND codigo_situacao = :desc"), {"id": v_id, "dt": dt_str, "desc": sit_completa}).fetchone()
                                         if not ja_tem:
@@ -548,7 +581,7 @@ elif menu == "📥 Importação Inteligente":
     with aba_imp4:
         st.subheader("🪪 Injeção Automática de CPFs")
         st.info("Envie a planilha. O robô vai formatar e corrigir os CPFs que perderam o zero à esquerda devido a falhas do Excel.")
-        
+
         arquivo_cpf = st.file_uploader("Selecione a Planilha (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="up_cpf")
         if arquivo_cpf and st.button("🚀 Iniciar Varredura de CPFs", type="primary"):
             with st.spinner("A caçar os cabeçalhos ocultos e a processar..."):
@@ -560,13 +593,13 @@ elif menu == "📥 Importação Inteligente":
                         if 'CPF' in row_str and ('MATR' in row_str or 'ID' in row_str or 'CÓD' in row_str or 'COD' in row_str):
                             header_idx = idx
                             break
-                            
+
                     arquivo_cpf.seek(0)
                     df_cpf = ler_planilha_inteligente(arquivo_cpf, header=header_idx)
-                    
+
                     col_id = next((c for c in df_cpf.columns if str(c).strip().upper() in ['CÓDIGO', 'CODIGO', 'ID', 'MATRÍCULA', 'MATRICULA', 'ID/MATRÍCULA']), None)
                     col_cpf = next((c for c in df_cpf.columns if 'CPF' in str(c).strip().upper()), None)
-                    
+
                     if not col_id or not col_cpf:
                         st.error(f"⚠️ Não consegui encontrar as colunas na linha {header_idx}. Tentei achar entre estas: {list(df_cpf.columns)}. Salve como .xlsx no Excel se o problema persistir.")
                     else:
@@ -587,16 +620,16 @@ elif menu == "📥 Importação Inteligente":
                                     else:
                                         conn.execute(text("UPDATE cadastro_geral_colaborador SET cpf = :cpf WHERE id = :id"), {"cpf": cpf_planilha_formatado, "id": v_id})
                                         atualizados += 1
-                        st.success(f"✅ Varredura Concluída com Sucesso! **{atualizados}** CPFs corrigidos/atualizados. **{ignorados}** CPFs já estavam perfeitos.")
+                        st.success(f"✅ Varredura Concluída! {atualizados} CPFs corrigidos/atualizados. {ignorados} CPFs já estavam perfeitos.")
                 except Exception as e:
                     st.error(f"Erro ao ler os CPFs: {e}")
-                    
+
     with aba_imp5:
         st.subheader("🤖 Injeção Universal de Histórico via IA")
         st.info("Cole na caixa abaixo o 'Pacote de Dados' (Código) gerado pelo seu Assistente de IA no chat.")
-        
+
         pacote_ia = st.text_area("Pacote de Dados (JSON)", height=200, placeholder='Ex: [{"id": "9", "eventos": [["2022-06-14", "18 - Doenca..."], ...]}]')
-        
+
         if st.button("🚀 Executar Injeção em Massa", type="primary"):
             if pacote_ia.strip():
                 try:
@@ -606,34 +639,27 @@ elif menu == "📥 Importação Inteligente":
                         for colab in dados:
                             v_id = str(colab['id'])
                             conn.execute(text("DELETE FROM historico_afastamentos WHERE id_colaborador = :id"), {"id": v_id})
-                            
                             ultimo_status = "1 - Trabalhando"
                             ultima_data = None
-                            
                             for ev in colab['eventos']:
                                 data_ev = ev[0]
                                 desc_ev = ev[1]
                                 conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) VALUES (:id, :dt, :desc)"), {"id": v_id, "dt": data_ev, "desc": desc_ev})
                                 ultimo_status = desc_ev
                                 ultima_data = data_ev
-                                
                             if ultimo_status.startswith("8 - "):
                                 conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = :sit, demissao = :dt WHERE id = :id"), {"sit": ultimo_status, "dt": ultima_data, "id": v_id})
                             elif ultimo_status.startswith("1 - "):
                                 conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = :sit, data_retorno = :dt WHERE id = :id"), {"sit": ultimo_status, "dt": ultima_data, "id": v_id})
                             else:
                                 conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = :sit, data_afastamento = :dt, data_retorno = NULL WHERE id = :id"), {"sit": ultimo_status, "dt": ultima_data, "id": v_id})
-                                
                             sucessos += 1
-                    st.success(f"✅ BINGO! Histórico de {sucessos} colaborador(es) reconstruído(s) com sucesso a partir do chat!")
+                    st.success(f"✅ Histórico de {sucessos} colaborador(es) reconstruído(s) com sucesso!")
                 except Exception as e:
                     st.error(f"Erro na interpretação do pacote. Tem a certeza que copiou o código inteiro? Erro: {e}")
             else:
                 st.warning("Cole o código gerado pela IA antes de clicar.")
 
-# ==========================================
-# 3. GESTÃO DE CADASTROS
-# ==========================================
 elif menu == "🛠️ Gestão de Cadastros":
     opcoes_sub = ["🔍 Consultar & Gerenciar", "➕ Novo Cadastro"]
     sub_menu = st.radio("Menu de Operações", opcoes_sub, index=st.session_state['sub_menu_index'], label_visibility="collapsed", horizontal=True)
@@ -643,10 +669,10 @@ elif menu == "🛠️ Gestão de Cadastros":
     if sub_menu == "🔍 Consultar & Gerenciar":
         if not st.session_state['busca_selecionada_id']: 
             injetar_autofoco(painel="busca")
-        
+
         termo = st.text_input("Digite o ID (Matrícula) ou parte do Nome:", key="k_term_busca")
         btn_buscar = st.button("Buscar Registro", type="primary")
-        
+
         if btn_buscar and termo:
             st.session_state['status_acao'] = None
             st.session_state['busca_selecionada_id'] = None
@@ -674,7 +700,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None
                     df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
                     df_hist_sit = pd.read_sql(text("SELECT id, data_inicio as data_evento, codigo_situacao as descricao FROM historico_afastamentos WHERE id_colaborador = :id ORDER BY data_inicio DESC, id DESC"), conn, params={"id": str(colab_id)})
-                
+
                 if colab:
                     if not df_hist.empty:
                         hoje = datetime.today().date()
@@ -689,7 +715,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                         df_hist_clean = df_hist.copy()
                         df_hist_clean['temp_date'] = pd.to_datetime(df_hist_clean['competencia'], format='%m/%Y', errors='coerce').dt.date
                         df_future = df_hist_clean[df_hist_clean['temp_date'] > max_date_allowed]
-                        
+
                         if not df_future.empty:
                             ids_to_del = tuple(df_future['id'].tolist())
                             with engine.begin() as conn_clean:
@@ -703,7 +729,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     hist_salario = df_hist[df_hist['tipo_lancamento'].str.contains('Salário', na=False, case=False)] if not df_hist.empty else pd.DataFrame()
                     tem_hist = not hist_salario.empty
                     val_atual_base = 0.0
-                    
+
                     if sal_mestra_vazio and tem_hist:
                         ultimo_salario_hist = hist_salario.iloc[0]['valor_lancamento']
                         val_hora_calc = float(ultimo_salario_hist) / 220.0
@@ -711,7 +737,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                         val_atual_base = float(ultimo_salario_hist)
                         salario_mes_display = format_currency_brl(val_atual_base)
                         salario_hora_display = format_currency_brl(val_hora_calc)
-                        
+
                     elif not sal_mestra_vazio:
                         sm_val = clean_money_to_db(str(colab.salario_mes_12_24))
                         if sm_val:
@@ -735,9 +761,11 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), engine, params={"id": str(colab_id)})
                                     df_hist = sort_historico_chronological(df_hist)
                     else:
+
+                    else:
                         salario_mes_display = "Não Informado"
                         salario_hora_display = "Não Informado"
-                    
+
                     v_sit_atual = getattr(colab, "situacao", "1 - Trabalhando") or "1 - Trabalhando"
                     v_afast = getattr(colab, 'data_afastamento', None)
                     v_ret = getattr(colab, 'data_retorno', None)
@@ -817,7 +845,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     if not df_hist.empty:
                         duplicatas = df_hist.groupby(['competencia', 'tipo_lancamento']).size().reset_index(name='contagem')
                         duplicatas = duplicatas[duplicatas['contagem'] > 1]
-                        if not duplicatas.empty: st.markdown('<div style="background-color: rgba(220, 38, 38, 0.15); border: 1px solid #ef4444; padding: 15px; border-radius: 8px; margin-bottom: 20px;">🛑 **ALERTA DE AUDITORIA INTERNA: DUPLICIDADE DETETADA!**<br>O sistema encontrou lançamentos repetidos para o mesmo mês. Utilize o botão **Corrigir Hist.** e apague o valor para limpar.</div>', unsafe_allow_html=True)
+                        if not duplicatas.empty: st.markdown('<div style="background-color: rgba(220, 38, 38, 0.15); border: 1px solid #ef4444; padding: 15px; border-radius: 8px; margin-bottom: 20px;">🛑 ALERTA DE AUDITORIA INTERNA: DUPLICIDADE DETETADA! O sistema encontrou lançamentos repetidos para o mesmo mês. Utilize o botão Corrigir Hist. e apague o valor para limpar.</div>', unsafe_allow_html=True)
 
                     st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                     if not df_hist.empty:
@@ -830,7 +858,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                     else: st.info("Nenhum histórico registrado na base de dados para este colaborador.")
                     st.markdown('</div>', unsafe_allow_html=True)
 
-                    # --- BOTÕES DE AÇÃO ---
                     if st.session_state['status_acao'] is None:
                         cb1, cb2, cb3, cb4, cb5, cb6, cb7, cb8 = st.columns(8)
                         if cb1.button("✏️ Editar"): st.session_state['status_acao'] = 'solicitou_alterar'; st.rerun()
@@ -842,13 +869,10 @@ elif menu == "🛠️ Gestão de Cadastros":
                         if cb7.button("❌ Excluir"): st.session_state['status_acao'] = 'solicitou_excluir'; st.rerun()
                         if cb8.button("🧹 Fechar"): st.session_state['busca_selecionada_id'] = None; st.session_state['status_acao'] = None; st.rerun()
 
-                    # --- MÓDULO EXCLUSIVO DE FUSÃO (MESCLAR) ---
                     if st.session_state['status_acao'] == 'solicitou_mesclar':
                         injetar_autofoco(pular_busca=True, painel="mesclar")
-                        st.warning(f"🔄 **Motor de Fusão Ativado:** Todo o histórico de salários, eSocial, férias e dados deste cadastro ({colab.nome} - ID: {colab.id}) será injetado noutra matrícula. Após a transferência, **este cadastro será automaticamente apagado**.")
-                        
+                        st.warning(f"🔄 Motor de Fusão Ativado: Todo o histórico de salários, eSocial, férias e dados deste cadastro ({colab.nome} - ID: {colab.id}) será injetado noutra matrícula. Após a transferência, este cadastro será automaticamente apagado.")
                         id_destino = st.text_input("Digite o ID de Destino (Ex: 133)", placeholder="Para qual matrícula quer enviar estes dados?")
-                        
                         c_bt1, c_bt2 = st.columns([1, 4])
                         if c_bt1.button("💾 Executar Fusão", type="primary"):
                             id_limpo = str(id_destino).strip()
@@ -858,40 +882,34 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 try:
                                     with engine.begin() as conn:
                                         existe = conn.execute(text("SELECT id, nome FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_limpo}).fetchone()
-                                        if not existe: st.error(f"⚠️ O ID/Matrícula {id_limpo} não existe no sistema! Crie-o primeiro ou verifique a numeração.")
+                                        if not existe: st.error(f"⚠️ O ID/Matrícula {id_limpo} não existe no sistema!")
                                         else:
                                             conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :novo WHERE id_colaborador = :antigo"), {"novo": id_limpo, "antigo": str(colab_id)})
                                             conn.execute(text("UPDATE historico_afastamentos SET id_colaborador = :novo WHERE id_colaborador = :antigo"), {"novo": id_limpo, "antigo": str(colab_id)})
                                             conn.execute(text("UPDATE historico_salarial SET id_colaborador = :novo WHERE id_colaborador = :antigo"), {"novo": id_limpo, "antigo": str(colab_id)})
                                             conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": str(colab_id)})
                                             conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": str(colab_id)})
-                                            
-                                        st.success(f"🎉 FUSÃO CONCLUÍDA! O histórico foi movido para o colaborador '{existe.nome}' (ID: {id_limpo}) e este fantasma foi apagado.")
+                                        st.success(f"🎉 FUSÃO CONCLUÍDA! O histórico foi movido para '{existe.nome}' (ID: {id_limpo}) e este fantasma foi apagado.")
                                         st.session_state['busca_selecionada_id'] = id_limpo; st.session_state['status_acao'] = None; st.rerun()
                                 except Exception as e: st.error(f"Erro Crítico durante a fusão: {e}")
                         if c_bt2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
-                    # --- MÓDULO EXCLUSIVO DE LINHA DO TEMPO (ESOCIAL) ---
                     if st.session_state['status_acao'] == 'solicitou_hist_esocial':
                         injetar_autofoco(pular_busca=True, painel="esocial")
-                        
-                        st.info("⏳ **Editor da Linha do Tempo (eSocial):** Aperte ENTER para pular de campo. Use **CTRL + ENTER** para salvar rápido.")
+                        st.info("⏳ Editor da Linha do Tempo (eSocial): Aperte ENTER para pular de campo. Use CTRL + ENTER para salvar rápido.")
                         aba_add, aba_del = st.tabs(["➕ Lançar Evento Retroativo", "🗑️ Apagar Evento"])
-                        
                         with aba_add:
                             ce_dt, ce_sit = st.columns(2)
                             with ce_dt: nova_dt_esocial = st.text_input("Data do Evento (Sem barras)", placeholder="Ex: 09122025")
                             with ce_sit: nova_sit_esocial = st.selectbox("Selecione a Situação", LISTA_SITUACOES_ESOCIAL)
-                            
                             if st.button("💾 Gravar no Histórico", type="primary"):
                                 dt_limpa = parse_br_date_smart(nova_dt_esocial)
-                                if not dt_limpa: st.error("Data inválida! Digite no formato correto (ex: 09122025).")
+                                if not dt_limpa: st.error("Data inválida!")
                                 else:
                                     dt_str = dt_limpa.strftime('%Y-%m-%d')
                                     with engine.begin() as conn: conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) VALUES (:id, :dt, :desc)"), {"id": str(colab_id), "dt": dt_str, "desc": nova_sit_esocial})
                                     st.success("Evento gravado na Linha do Tempo!")
                                     st.session_state['status_acao'] = None; st.rerun()
-                                    
                         with aba_del:
                             if not df_hist_sit.empty:
                                 opcoes_sit = {f"Data: {pd.to_datetime(row['data_evento']).strftime('%d/%m/%Y')} | {row['descricao']}": row['id'] for _, row in df_hist_sit.iterrows()}
@@ -903,11 +921,9 @@ elif menu == "🛠️ Gestão de Cadastros":
                             else: st.warning("Nenhum histórico para apagar.")
                         if st.button("⬅️ Voltar / Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
-                    # --- MÓDULO EXCLUSIVO DE DEMISSÃO ---
                     if st.session_state['status_acao'] == 'solicitou_demissao':
                         injetar_autofoco(pular_busca=True, painel="demissao")
-                        
-                        st.info("🛑 **Módulo de Desligamento e Correção de Demissão.** Use **CTRL + ENTER** para salvar rápido.")
+                        st.info("🛑 Módulo de Desligamento e Correção de Demissão. Use CTRL + ENTER para salvar rápido.")
                         c_dem1, c_dem2 = st.columns(2)
                         with c_dem1:
                             ja_demitido = pd.notna(colab.demissao)
@@ -917,7 +933,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                         with c_dem2:
                             st.markdown("<br>", unsafe_allow_html=True)
                             reverter = st.checkbox("🟢 Anular Demissão (Tornar Ativo)", value=not ja_demitido)
-                            
                         c_bt1, c_bt2 = st.columns([1, 4])
                         if c_bt1.button("💾 Gravar Demissão", type="primary"):
                             try:
@@ -930,11 +945,10 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     with engine.begin() as conn: 
                                         conn.execute(text("UPDATE cadastro_geral_colaborador SET demissao = :d, situacao = :sit WHERE id = :id"), {"d": dem_str, "sit": novo_status, "id": str(colab_id)})
                                         conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) VALUES (:id, :dt, :desc)"), {"id": str(colab_id), "dt": dt_hist_evento, "desc": novo_status})
-                                    st.success("✅ Atualizado! Qualquer folha posterior a esta data será limpa ao recarregar a ficha."); st.session_state['status_acao'] = None; st.rerun()
+                                    st.success("✅ Atualizado!"); st.session_state['status_acao'] = None; st.rerun()
                             except Exception as e: st.error(f"Erro ao salvar: {e}")
                         if c_bt2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
-                    # --- EXCLUIR ---
                     if st.session_state['status_acao'] == 'solicitou_excluir':
                         st.warning(f"⚠️ Deseja excluir definitivamente {colab.nome} e todo o seu histórico?")
                         cx1, cx2 = st.columns(2)
@@ -950,18 +964,15 @@ elif menu == "🛠️ Gestão de Cadastros":
                             except Exception as e: st.error(f"Erro: {e}")
                         if cx2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
-                    # --- LANÇAMENTO AVULSO ---
                     if st.session_state['status_acao'] == 'solicitou_lancamento_avulso':
                         injetar_autofoco(pular_busca=True, painel="avulso")
-                        
-                        st.info("➕ **Inserção Avulsa (Com Validação e Anti-Duplicidade).** Use **CTRL + ENTER** para salvar rápido.")
+                        st.info("➕ Inserção Avulsa (Com Validação e Anti-Duplicidade). Use CTRL + ENTER para salvar rápido.")
                         c_av1, c_av2, c_av3 = st.columns(3)
                         val_sugestao = format_brl_number(val_atual_base) if val_atual_base > 0 else ""
                         with c_av1: av_comp = st.text_input("Competência (MM/AAAA)", placeholder="Ex: 092025")
                         with c_av2: av_tipo = st.selectbox("Tipo", ["Salário Mensal", "Prêmio ZAUT", "Férias", "Outros"])
                         with c_av3: av_valor = st.text_input("Valor (R$)", value=val_sugestao, placeholder="Digite o valor")
                         c_bt1, c_bt2 = st.columns([1, 4])
-                        
                         if c_bt1.button("💾 Salvar Lançamento", type="primary"):
                             try:
                                 v_clean = clean_money_to_db(av_valor)
@@ -990,11 +1001,9 @@ elif menu == "🛠️ Gestão de Cadastros":
                             except Exception as e: st.error(f"Erro ao validar datas: {e}")
                         if c_bt2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
-                    # --- CORRIGIR HISTÓRICO ---
                     if st.session_state['status_acao'] == 'solicitou_corrigir_historico':
                         injetar_autofoco(pular_busca=True, painel="corrigir")
-                        
-                        st.info("🛠️ **Editor de Histórico (Pagamentos).** Use **CTRL + ENTER** para salvar rápido.")
+                        st.info("🛠️ Editor de Histórico (Pagamentos). Use CTRL + ENTER para salvar rápido.")
                         if not df_hist.empty:
                             try:
                                 opcoes_hist = {f"ID: {row['id']} | Comp: {row['competencia']} | Tipo: {row['tipo_lancamento']} | Val: R$ {format_brl_number(row['valor_lancamento'])}": row['id'] for _, row in df_hist.iterrows()}
@@ -1017,14 +1026,11 @@ elif menu == "🛠️ Gestão de Cadastros":
                             except Exception as e: st.error(f"Erro ao carregar lista: {e}")
                         else: st.warning("Nenhum histórico para corrigir.")
 
-                    # --- EDITAR FICHA MESTRA ---
                     if st.session_state['status_acao'] == 'solicitou_alterar':
                         injetar_autofoco(pular_busca=True, painel="editar_ficha")
-                        
-                        st.info("📝 Modo de Edição Ativo. Aperte ENTER para pular campos. Use **CTRL + ENTER** para salvar rápido.")
+                        st.info("📝 Modo de Edição Ativo. Aperte ENTER para pular campos. Use CTRL + ENTER para salvar rápido.")
                         cargo_idx = LISTA_CARGOS.index(str(colab.cargo).upper().strip()) if str(colab.cargo).upper().strip() in LISTA_CARGOS else (len(LISTA_CARGOS)-1)
                         sit_idx = LISTA_SITUACOES_ESOCIAL.index(v_sit_atual) if v_sit_atual in LISTA_SITUACOES_ESOCIAL else 0
-                        
                         ce1, ce2 = st.columns(2)
                         with ce1:
                             edit_id = st.text_input("ID / Matrícula", value=str(colab.id))
@@ -1038,12 +1044,10 @@ elif menu == "🛠️ Gestão de Cadastros":
                             sel_sit = st.selectbox("Situação (eSocial)", LISTA_SITUACOES_ESOCIAL, index=sit_idx)
                             edit_pix = st.text_input("Chave PIX", value=str(colab.chave_pix) if colab.chave_pix else "")
                             edit_sal_hora = st.text_input("Salário-Hora Base", value="Automático (Base / 220)", disabled=True)
-                            
                         st.markdown("##### 📅 Datas da Situação Atual")
                         ci1, ci2 = st.columns(2)
                         with ci1: edit_afast = st.text_input("Data de Início", value=format_date_br(v_afast))
                         with ci2: edit_ret = st.text_input("Retorno Previsto", value=format_date_br(v_ret))
-                        
                         if st.button("Confirmar e Salvar Alterações", type="primary"):
                             try:
                                 if not edit_id.strip() or not edit_nome.strip(): st.error("ID e Nome são obrigatórios.")
@@ -1051,26 +1055,21 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     dt_a = parse_br_date_smart(edit_adm)
                                     dt_af = parse_br_date_smart(edit_afast)
                                     dt_r = parse_br_date_smart(edit_ret)
-                                    
                                     adm_str = dt_a.strftime('%Y-%m-%d') if dt_a else None
                                     af_str = dt_af.strftime('%Y-%m-%d') if dt_af else None
                                     ret_str = dt_r.strftime('%Y-%m-%d') if dt_r else None
-                                    
                                     sm_val = clean_money_to_db(edit_sal_mes)
                                     sh_val = str(float(sm_val)/220.0) if sm_val is not None else None
-                                    
                                     with engine.begin() as conn:
                                         conn.execute(text("UPDATE cadastro_geral_colaborador SET id=:nid, nome=:n, cpf=:c, cargo=:ca, admissao=:ad, data_afastamento=:afast, data_retorno=:ret, chave_pix=:pix, salario_mes_12_24=:sm, salario_hora=:sh, situacao=:sit WHERE id=:oid"), {"nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf, "ca": edit_cargo, "ad": adm_str, "afast": af_str, "ret": ret_str, "pix": edit_pix, "sm": sm_val, "sh": sh_val, "sit": sel_sit, "oid": str(colab_id)})
                                         if edit_id.strip() != str(colab_id):
                                             conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
                                             conn.execute(text("UPDATE historico_afastamentos SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
-                                        
                                         if sel_sit != v_sit_atual:
                                             dt_hist_evento = dt_af if dt_af else datetime.today().date()
                                             if sel_sit.startswith("1 - ") and dt_r: dt_hist_evento = dt_r
                                             dt_str_final = dt_hist_evento.strftime('%Y-%m-%d') if isinstance(dt_hist_evento, date) else datetime.today().strftime('%Y-%m-%d')
                                             conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) VALUES (:id, :dt, :desc)"), {"id": edit_id.strip(), "dt": dt_str_final, "desc": sel_sit})
-                                        
                                         if sm_val:
                                             existe_hist = conn.execute(text("SELECT id FROM historico_premiacoes_e_folha WHERE id_colaborador = :id AND tipo_lancamento ILIKE '%Salário%' ORDER BY id DESC LIMIT 1"), {"id": edit_id.strip()}).fetchone()
                                             if not existe_hist:
@@ -1078,12 +1077,11 @@ elif menu == "🛠️ Gestão de Cadastros":
                                                 conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": edit_id.strip(), "comp": comp_str, "val": float(sm_val)})
                                             else:
                                                 conn.execute(text("UPDATE historico_premiacoes_e_folha SET valor_lancamento = :val WHERE id = :id_hist"), {"val": float(sm_val), "id_hist": existe_hist[0]})
-                                                
                                     st.success("Salvo!"); st.session_state['busca_selecionada_id'] = edit_id.strip(); st.session_state['status_acao'] = None; st.rerun()
                             except Exception as e:
                                 error_msg = str(e).lower()
                                 if "unique constraint" in error_msg or "duplicate key" in error_msg:
-                                    st.error(f"⚠️ AÇÃO BLOQUEADA (DUPLICIDADE): O ID/Matrícula '{edit_id.strip()}' já pertence a outro colaborador no sistema! Como medida de segurança, não é possível ter duas pessoas com a mesma matrícula. Se está a tentar fundir cadastros, utilize o botão 'Mesclar'.")
+                                    st.error(f"⚠️ AÇÃO BLOQUEADA (DUPLICIDADE): O ID/Matrícula '{edit_id.strip()}' já pertence a outro colaborador!")
                                 else:
                                     st.error(f"Erro no banco de dados: {e}")
                         if st.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
@@ -1093,7 +1091,6 @@ elif menu == "🛠️ Gestão de Cadastros":
 
     elif sub_menu == "➕ Novo Cadastro":
         injetar_autofoco(painel="novo_cadastro")
-        
         st.subheader("Inserir Novo Colaborador")
         st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
         cn1, cn2 = st.columns(2)
@@ -1111,38 +1108,29 @@ elif menu == "🛠️ Gestão de Cadastros":
             n_sal_hora = st.text_input("Salário-Hora", value="Automático (Base / 220)", disabled=True)
             n_ret_str = st.text_input("Retorno Previsto", placeholder="Ex: 01072025")
         st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.info("Aperte ENTER para pular campos. Use **CTRL + ENTER** para salvar direto no banco de dados.")
+        st.info("Aperte ENTER para pular campos. Use CTRL + ENTER para salvar direto no banco de dados.")
         if st.button("💾 Salvar Registro no Sistema", type="primary"):
             try:
                 dt_a = parse_br_date_smart(n_adm_str)
                 dt_af = parse_br_date_smart(n_afast_str)
                 dt_r = parse_br_date_smart(n_ret_str)
-                
                 sm_val = clean_money_to_db(n_sal_mes)
                 sh_val = str(float(sm_val)/220.0) if sm_val is not None else None
-                
                 with engine.begin() as conn:
                     conn.execute(text("INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora, situacao) VALUES (:id, :n, :c, :ca, :ad, :afast, :ret, :sm, :sh, :sit)"), {"id": str(n_id), "n": str(n_nome), "c": str(n_cpf), "ca": str(n_cargo), "ad": dt_a.strftime('%Y-%m-%d') if dt_a else None, "afast": dt_af.strftime('%Y-%m-%d') if dt_af else None, "ret": dt_r.strftime('%Y-%m-%d') if dt_r else None, "sm": sm_val, "sh": sh_val, "sit": n_sit})
-                    
                     dt_hist_evento = dt_a.strftime('%Y-%m-%d') if dt_a else datetime.today().strftime('%Y-%m-%d')
                     conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) VALUES (:id, :dt, :desc)"), {"id": str(n_id), "dt": dt_hist_evento, "desc": n_sit})
-                    
                     if sm_val:
                         comp_str = dt_a.strftime('%m/%Y') if dt_a else datetime.today().strftime('%m/%Y')
                         conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": str(n_id), "comp": comp_str, "val": float(sm_val)})
-                        
                 st.success("Salvo!"); st.session_state['redirect_to_consulta'] = True; st.rerun()
             except Exception as e:
                 error_msg = str(e).lower()
                 if "unique constraint" in error_msg or "duplicate key" in error_msg:
-                    st.error(f"⚠️ AÇÃO BLOQUEADA (DUPLICIDADE): O ID/Matrícula '{str(n_id).strip()}' já está registado para outro colaborador! Verifique se a pessoa já existe na base de dados pesquisando por esta matrícula.")
+                    st.error(f"⚠️ AÇÃO BLOQUEADA (DUPLICIDADE): O ID/Matrícula '{str(n_id).strip()}' já está registado!")
                 else:
                     st.error(f"Erro ao salvar: {e}")
 
-# ==========================================
-# 4. GESTÃO DE PRÊMIOS (ZAUT) E 5. AUDITORIA
-# ==========================================
 elif menu == "🏆 Gestão de Prêmios (ZAUT)":
     st.title("🏆 Lançamento de Prêmios (ZAUT)")
     col_comp1, col_comp2 = st.columns([1, 3])
@@ -1155,17 +1143,14 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
         df_colabs = pd.read_sql("SELECT id, nome, cargo, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24, situacao FROM cadastro_geral_colaborador ORDER BY nome ASC", engine)
         data_inicio_comp = pd.Timestamp(year=int(comp_sel.split('/')[1]), month=int(comp_sel.split('/')[0]), day=1)
         data_fim_comp = pd.Timestamp(year=int(comp_sel.split('/')[1]), month=int(comp_sel.split('/')[0]), day=calendar.monthrange(int(comp_sel.split('/')[1]), int(comp_sel.split('/')[0]))[1])
-        
         colabs_elegiveis = []
         for _, row in df_colabs.iterrows():
-            if pd.notna(row['demissao']) and pd.to_datetime(row['demissao']) < data_inicio_comp: continue 
+            if pd.notna(row['demissao']) and pd.to_datetime(row['demissao']) < data_inicio_comp: continue
             dt_afast = pd.to_datetime(row['data_afastamento']) if pd.notna(row['data_afastamento']) else None
             dt_ret = pd.to_datetime(row['data_retorno']) if pd.notna(row['data_retorno']) else None
-            if dt_afast and dt_afast < data_inicio_comp and (dt_ret is None or dt_ret > data_fim_comp): continue 
-            
+            if dt_afast and dt_afast < data_inicio_comp and (dt_ret is None or dt_ret > data_fim_comp): continue
             try: sal_base_float = float(str(row['salario_mes_12_24']).upper().replace('R$', '').replace('.', '').replace(',', '.').strip()) if row['salario_mes_12_24'] else 0.0
             except: sal_base_float = 0.0
-                
             if sal_base_float == 0.0:
                 try:
                     with engine.connect() as conn2:
@@ -1173,7 +1158,6 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                         if hs: sal_base_float = float(hs[0])
                 except: pass
             colabs_elegiveis.append({"id": str(row['id']), "nome": str(row['nome']), "sal_hora": sal_base_float / 220.0 if sal_base_float > 0 else 0.0})
-            
         if not colabs_elegiveis: st.warning("Nenhum colaborador elegível para esta competência.")
         else:
             aba_lote, aba_ind = st.tabs(["📊 Planilha de Lote Rápido", "👤 Lançamento Individual"])
@@ -1207,7 +1191,6 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                         df_jl_view['valor_lancamento'] = df_jl_view['valor_lancamento'].apply(format_currency_brl)
                         st.dataframe(df_jl_view.rename(columns={'tipo_lancamento': 'Descrição do Prêmio', 'valor_lancamento': 'Valor', 'status_pagamento': 'Status'}), use_container_width=True, hide_index=True)
                 except: pass
-                
                 if st.session_state.get('zaut_acao') != 'lancando':
                     if st.button(f"➕ Iniciar Lançamento para {dados_c['nome']}", type="primary"): st.session_state['zaut_acao'] = 'lancando'; st.rerun()
                 else:
@@ -1219,18 +1202,14 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
                         try: sal_hora_base = float(clean_money_to_db(sal_hora_manual)) if clean_money_to_db(sal_hora_manual) else 0.0
                         except: sal_hora_base = 0.0
                     else: st.markdown(f"**Valor Hora Calculado:** R$ {format_brl_number(sal_hora_base)}")
-                    
                     cli1, cli2 = st.columns(2)
                     with cli1: hp_ind = st.text_input("Horas", key="k_hpi")
                     with cli2: desc_final_str = st.text_input("Especificar:", key="k_d_outro") if (desc_ind := st.selectbox("Serviço", LISTA_SERVICOS_PREMIO, key="k_di")) == "OUTRO (DIGITAR MANUALMENTE)" else desc_ind
-                    
                     try: hp_ind_float = float(clean_money_to_db(hp_ind)) if clean_money_to_db(hp_ind) else 0.0
                     except: hp_ind_float = 0.0
                     val_final_ind = (sal_hora_base * hp_ind_float) + 1.00 if hp_ind_float > 0 else 0.00
-                    
                     if hp_ind_float > 0 and sal_hora_base > 0: st.markdown(f'<p class="field-highlight">R$ {format_brl_number(val_final_ind)}</p>', unsafe_allow_html=True)
-                    
-                    st.info("Aperte ENTER para pular campos. Use **CTRL + ENTER** para salvar rápido.")
+                    st.info("Aperte ENTER para pular campos. Use CTRL + ENTER para salvar rápido.")
                     c_btn_i1, c_btn_i2 = st.columns([1, 4])
                     if c_btn_i1.button("💾 Gravar", type="primary", key="btn_ind_gravar"):
                         if hp_ind_float <= 0 or sal_hora_base <= 0 or not desc_final_str.strip(): st.error("⚠️ Dados inválidos.")
