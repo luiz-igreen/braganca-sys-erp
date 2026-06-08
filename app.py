@@ -761,8 +761,6 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), engine, params={"id": str(colab_id)})
                                     df_hist = sort_historico_chronological(df_hist)
                     else:
-
-                    else:
                         salario_mes_display = "Não Informado"
                         salario_hora_display = "Não Informado"
 
