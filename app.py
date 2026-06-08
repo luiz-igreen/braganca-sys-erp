@@ -33,11 +33,13 @@ try:
             )
         """))
         conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS historico_situacoes (
+            CREATE TABLE IF NOT EXISTS historico_afastamentos (
                 id SERIAL PRIMARY KEY,
                 id_colaborador VARCHAR(50),
-                data_evento DATE,
-                descricao VARCHAR(200)
+                data_inicio DATE,
+                data_fim DATE,
+                codigo_situacao VARCHAR(200),
+                observacao TEXT
             )
         """))
 except Exception as e: st.error(f"Erro ao inicializar tabelas: {e}")
@@ -46,38 +48,38 @@ except Exception as e: st.error(f"Erro ao inicializar tabelas: {e}")
 try:
     with engine.begin() as conn:
         correcoes_esocial = {
-            "6 - Doença": "6 - Doenca periodo igual ou superior a 15 dias",
-            "6 - Doenca": "6 - Doenca periodo igual ou superior a 15 dias",
-            "6 - Doenca periodo superior a 15 dias": "6 - Doenca periodo igual ou superior a 15 dias",
+            "6 - Doença": "6 - Doenca periodo superior a 15 dias",
+            "6 - Doenca": "6 - Doenca periodo superior a 15 dias",
+            "6 - Doenca periodo igual ou superior a 15 dias": "6 - Doenca periodo superior a 15 dias",
             "18 - Doença": "18 - Doenca periodo igual ou inferior a 15 dias",
             "18 - Doenca": "18 - Doenca periodo igual ou inferior a 15 dias"
         }
         for errado, correto in correcoes_esocial.items():
             conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = :c WHERE situacao = :e"), {"c": correto, "e": errado})
-            conn.execute(text("UPDATE historico_situacoes SET descricao = :c WHERE descricao = :e"), {"c": correto, "e": errado})
+            conn.execute(text("UPDATE historico_afastamentos SET codigo_situacao = :c WHERE codigo_situacao = :e"), {"c": correto, "e": errado})
 except: pass
 
 try:
     with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN data_afastamento VARCHAR(50);"))
+        conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS data_afastamento VARCHAR(50);"))
 except: pass 
 try:
     with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN data_retorno VARCHAR(50);"))
+        conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS data_retorno VARCHAR(50);"))
 except: pass 
 try:
     with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN situacao VARCHAR(100) DEFAULT '1 - Trabalhando';"))
+        conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS situacao VARCHAR(100) DEFAULT '1 - Trabalhando';"))
         conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = '8 - Demitido' WHERE demissao IS NOT NULL AND (situacao IS NULL OR situacao = '');"))
         conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = '1 - Trabalhando' WHERE demissao IS NULL AND (situacao IS NULL OR situacao = '');"))
 except: pass
 
 try:
     with engine.begin() as conn:
-        cnt = conn.execute(text("SELECT COUNT(*) FROM historico_situacoes")).fetchone()[0]
+        cnt = conn.execute(text("SELECT COUNT(*) FROM historico_afastamentos")).fetchone()[0]
         if cnt == 0:
             conn.execute(text("""
-                INSERT INTO historico_situacoes (id_colaborador, data_evento, descricao) 
+                INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) 
                 SELECT id, COALESCE(CAST(NULLIF(data_afastamento, '') AS DATE), CAST(NULLIF(admissao, '') AS DATE), CURRENT_DATE), situacao 
                 FROM cadastro_geral_colaborador 
                 WHERE situacao IS NOT NULL AND situacao != ''
@@ -87,7 +89,7 @@ except: pass
 # --- AUTO-LIMPEZA DE FANTASMAS (HIGIENE DE BASE DE DADOS) ---
 try:
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM historico_situacoes WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
+        conn.execute(text("DELETE FROM historico_afastamentos WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
         conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
         conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
         conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id IS NULL OR TRIM(CAST(id AS TEXT)) = '' OR CAST(id AS TEXT) ILIKE 'nan' OR CAST(id AS TEXT) ILIKE 'none'"))
@@ -235,18 +237,33 @@ LISTA_SERVICOS_PREMIO = [
 ]
 
 LISTA_SITUACOES_ESOCIAL = [
-    "1 - Trabalhando", "2 - Afastado Direitos Integrais", "3 - Acid. Trabalho periodo superior a 15 dias",
-    "4 - Servico Militar", "5 - Licenca maternidade", "6 - Doenca periodo igual ou superior a 15 dias",
-    "7 - Licenca sem Vencimento", "8 - Demitido", "9 - Ferias", "10 - Novo afast. mesmo acid. trabalho",
-    "11 - Antecipacao e/ou prorrogacao Licenca Maternidade", "12 - Novo afast. mesma doenca",
-    "13 - Exercicio de mandato sindical", "14 - Aposent. por invalid. acidente de trabalho",
-    "15 - Aposent. por invalid. doenca profissional", "16 - Aposent. por invalid. exceto acid. trabalho",
-    "17 - Acid. Trabalho periodo igual ou inferior a 15 dias", "18 - Doenca periodo igual ou inferior a 15 dias",
-    "19 - Aborto nao criminoso", "20 - Licenca maternidade adocao 1 ano", "21 - Licenca maternidade adocao 1 a 4 anos",
-    "22 - Licenca maternidade adocao 4 a 8 anos", "23 - Transferido", "24 - Outros motivos de afastamento",
-    "39 - Ausência Justificada",
-    "8136 - Licença Paternidade",
-    "90 - Suspensão contratual decorrente de forca maior", "91 - Suspensão contratual para inquerito falta grave"
+    "1 - Trabalhando",
+    "2 - Afastado Direitos Integrais",
+    "3 - Acid. Trabalho periodo superior a 15 dias",
+    "4 - Servico Militar",
+    "5 - Licenca maternidade",
+    "6 - Doenca periodo superior a 15 dias",
+    "7 - Licenca sem Vencimento",
+    "8 - Demitido",
+    "8136 - Licença paternidade",
+    "8701 - Ausencia justificada",
+    "9 - Ferias",
+    "10 - Novo afast. mesmo acid. trabalho",
+    "11 - Antecipacao e/ou prorrogacao Licenca Maternidade",
+    "12 - Novo afast. mesma doenca",
+    "13 - Exercicio de mandato sindical",
+    "14 - Aposent. por invalid. acidente de trabalho",
+    "15 - Aposent. por invalid. doenca profissional",
+    "16 - Aposent. por invalid. exceto acid. trab. e doenca profissional",
+    "17 - Acid. Trabalho periodo igual ou inferior a 15 dias",
+    "18 - Doenca periodo igual ou inferior a 15 dias",
+    "19 - Aborto nao criminoso",
+    "20 - Licenca maternidade adocao 1 ano",
+    "21 - Licenca maternidade adocao 1 a 4 anos",
+    "22 - Licenca maternidade adocao 4 a 8 anos",
+    "24 - Outros motivos de afastamento",
+    "90 - Suspensão contratual decorrente ação trabalhista por rescisão indireta",
+    "91 - Suspensão contratual para inquérito de apuração de falta grave"
 ]
 
 for k in ['busca_selecionada_id', 'status_acao', 'zaut_acao']:
@@ -386,13 +403,13 @@ if menu == "👥 Visão Geral":
                     try:
                         with engine.begin() as conn:
                             if id_alvo == "VAZIO" or id_alvo.lower() == "none" or id_alvo.lower() == "nan":
-                                conn.execute(text("DELETE FROM historico_situacoes WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
+                                conn.execute(text("DELETE FROM historico_afastamentos WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
                                 conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
                                 conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
                                 conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id IS NULL OR TRIM(CAST(id AS TEXT)) = '' OR CAST(id AS TEXT) ILIKE 'nan' OR CAST(id AS TEXT) ILIKE 'none'"))
                                 st.success("🧹 Todos os Fantasmas sem ID foram exterminados da base de dados!")
                             else:
-                                conn.execute(text("DELETE FROM historico_situacoes WHERE id_colaborador = :id"), {"id": id_alvo})
+                                conn.execute(text("DELETE FROM historico_afastamentos WHERE id_colaborador = :id"), {"id": id_alvo})
                                 conn.execute(text("DELETE FROM historico_salarial WHERE id_colaborador = :id"), {"id": id_alvo})
                                 conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador = :id"), {"id": id_alvo})
                                 conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": id_alvo})
@@ -407,7 +424,6 @@ if menu == "👥 Visão Geral":
 elif menu == "📥 Importação Inteligente":
     st.title("📥 Central de Ingestão de Dados")
     
-    # AGORA COM A 5ª ABA (LEITOR IA)
     aba_imp1, aba_imp2, aba_imp3, aba_imp4, aba_imp5 = st.tabs(["📋 Carga Base", "💰 Motor ETL", "🔄 Sincronizar eSocial", "🪪 Injeção de CPFs", "🤖 Leitor IA (Chat)"])
     
     with aba_imp1:
@@ -522,9 +538,9 @@ elif menu == "📥 Importação Inteligente":
                                         conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = :sit, data_afastamento = :dt, data_retorno = NULL WHERE id = :id"), {"sit": sit_completa, "dt": dt_str, "id": v_id})
                                         
                                     if dt_str:
-                                        ja_tem = conn.execute(text("SELECT 1 FROM historico_situacoes WHERE id_colaborador = :id AND data_evento = :dt AND descricao = :desc"), {"id": v_id, "dt": dt_str, "desc": sit_completa}).fetchone()
+                                        ja_tem = conn.execute(text("SELECT 1 FROM historico_afastamentos WHERE id_colaborador = :id AND data_inicio = :dt AND codigo_situacao = :desc"), {"id": v_id, "dt": dt_str, "desc": sit_completa}).fetchone()
                                         if not ja_tem:
-                                            conn.execute(text("INSERT INTO historico_situacoes (id_colaborador, data_evento, descricao) VALUES (:id, :dt, :desc)"), {"id": v_id, "dt": dt_str, "desc": sit_completa})
+                                            conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) VALUES (:id, :dt, :desc)"), {"id": v_id, "dt": dt_str, "desc": sit_completa})
                                             sucessos += 1
                         st.success(f"✅ Missão Cumprida! A varredura analisou os dados e inseriu {sucessos} novos eventos na Linha do Tempo dos colaboradores.")
                 except Exception as e: st.error(f"Erro ao processar o ficheiro: {e}")
@@ -589,8 +605,7 @@ elif menu == "📥 Importação Inteligente":
                     with engine.begin() as conn:
                         for colab in dados:
                             v_id = str(colab['id'])
-                            # Prevenção: apagar linha do tempo antiga do eSocial para não duplicar se clicar 2x
-                            conn.execute(text("DELETE FROM historico_situacoes WHERE id_colaborador = :id"), {"id": v_id})
+                            conn.execute(text("DELETE FROM historico_afastamentos WHERE id_colaborador = :id"), {"id": v_id})
                             
                             ultimo_status = "1 - Trabalhando"
                             ultima_data = None
@@ -598,11 +613,10 @@ elif menu == "📥 Importação Inteligente":
                             for ev in colab['eventos']:
                                 data_ev = ev[0]
                                 desc_ev = ev[1]
-                                conn.execute(text("INSERT INTO historico_situacoes (id_colaborador, data_evento, descricao) VALUES (:id, :dt, :desc)"), {"id": v_id, "dt": data_ev, "desc": desc_ev})
+                                conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) VALUES (:id, :dt, :desc)"), {"id": v_id, "dt": data_ev, "desc": desc_ev})
                                 ultimo_status = desc_ev
                                 ultima_data = data_ev
                                 
-                            # Atualiza ficha mestra de acordo com o último evento da lista
                             if ultimo_status.startswith("8 - "):
                                 conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = :sit, demissao = :dt WHERE id = :id"), {"sit": ultimo_status, "dt": ultima_data, "id": v_id})
                             elif ultimo_status.startswith("1 - "):
@@ -659,12 +673,9 @@ elif menu == "🛠️ Gestão de Cadastros":
                     df_fin = pd.read_sql(text("SELECT * FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), conn, params={"id": str(colab_id)})
                     fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None
                     df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
-                    df_hist_sit = pd.read_sql(text("SELECT id, data_evento, descricao FROM historico_situacoes WHERE id_colaborador = :id ORDER BY data_evento DESC, id DESC"), conn, params={"id": str(colab_id)})
+                    df_hist_sit = pd.read_sql(text("SELECT id, data_inicio as data_evento, codigo_situacao as descricao FROM historico_afastamentos WHERE id_colaborador = :id ORDER BY data_inicio DESC, id DESC"), conn, params={"id": str(colab_id)})
                 
                 if colab:
-                    # -------------------------------------------------------------
-                    # LIMPEZA AUTOMÁTICA DE FOLHA FUTURA E PÓS-DEMISSÃO
-                    # -------------------------------------------------------------
                     if not df_hist.empty:
                         hoje = datetime.today().date()
                         max_date_allowed = date(hoje.year, hoje.month, calendar.monthrange(hoje.year, hoje.month)[1])
@@ -731,25 +742,12 @@ elif menu == "🛠️ Gestão de Cadastros":
                     v_afast = getattr(colab, 'data_afastamento', None)
                     v_ret = getattr(colab, 'data_retorno', None)
 
-                    # --- AUTO-CURA DA DATA DE AFASTAMENTO (RECUPERAÇÃO DE DADOS DA LINHA DO TEMPO) ---
-                    if (not v_afast or str(v_afast).strip().lower() in ["nan", "none", ""]) and not df_hist_sit.empty:
-                        df_afastamentos = df_hist_sit[~df_hist_sit['descricao'].str.startswith('1 -') & ~df_hist_sit['descricao'].str.startswith('8 -')]
-                        if not df_afastamentos.empty:
-                            v_afast_rec = df_afastamentos.iloc[0]['data_evento']
-                            if pd.notna(v_afast_rec):
-                                v_afast = v_afast_rec
-                                try:
-                                    with engine.begin() as conn_fix:
-                                        conn_fix.execute(text("UPDATE cadastro_geral_colaborador SET data_afastamento = :dt WHERE id = :id"), {"dt": str(v_afast_rec), "id": str(colab_id)})
-                                except: pass
-                    # ---------------------------------------------------------------------------------
-
                     if v_ret and v_sit_atual not in ["1 - Trabalhando", "8 - Demitido"]:
                         dt_ret_obj = parse_br_date_smart(v_ret)
                         if dt_ret_obj and dt_ret_obj <= datetime.today().date():
                             with engine.begin() as conn_auto:
                                 conn_auto.execute(text("UPDATE cadastro_geral_colaborador SET situacao = '1 - Trabalhando' WHERE id = :id"), {"id": str(colab_id)})
-                                conn_auto.execute(text("INSERT INTO historico_situacoes (id_colaborador, data_evento, descricao) VALUES (:id, :dt, '1 - Trabalhando')"), {"id": str(colab_id), "dt": dt_ret_obj.strftime('%Y-%m-%d')})
+                                conn_auto.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) VALUES (:id, :dt, '1 - Trabalhando')"), {"id": str(colab_id), "dt": dt_ret_obj.strftime('%Y-%m-%d')})
                             st.toast(f"🤖 Auto-Retorno: O sistema detetou que a data já passou e atualizou {colab.nome} para 'Trabalhando'!")
                             st.rerun()
 
@@ -863,13 +861,13 @@ elif menu == "🛠️ Gestão de Cadastros":
                                         if not existe: st.error(f"⚠️ O ID/Matrícula {id_limpo} não existe no sistema! Crie-o primeiro ou verifique a numeração.")
                                         else:
                                             conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :novo WHERE id_colaborador = :antigo"), {"novo": id_limpo, "antigo": str(colab_id)})
-                                            conn.execute(text("UPDATE historico_situacoes SET id_colaborador = :novo WHERE id_colaborador = :antigo"), {"novo": id_limpo, "antigo": str(colab_id)})
+                                            conn.execute(text("UPDATE historico_afastamentos SET id_colaborador = :novo WHERE id_colaborador = :antigo"), {"novo": id_limpo, "antigo": str(colab_id)})
                                             conn.execute(text("UPDATE historico_salarial SET id_colaborador = :novo WHERE id_colaborador = :antigo"), {"novo": id_limpo, "antigo": str(colab_id)})
                                             conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": str(colab_id)})
                                             conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": str(colab_id)})
                                             
-                                    st.success(f"🎉 FUSÃO CONCLUÍDA! O histórico foi movido para o colaborador '{existe.nome}' (ID: {id_limpo}) e este fantasma foi apagado.")
-                                    st.session_state['busca_selecionada_id'] = id_limpo; st.session_state['status_acao'] = None; st.rerun()
+                                        st.success(f"🎉 FUSÃO CONCLUÍDA! O histórico foi movido para o colaborador '{existe.nome}' (ID: {id_limpo}) e este fantasma foi apagado.")
+                                        st.session_state['busca_selecionada_id'] = id_limpo; st.session_state['status_acao'] = None; st.rerun()
                                 except Exception as e: st.error(f"Erro Crítico durante a fusão: {e}")
                         if c_bt2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
@@ -890,7 +888,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 if not dt_limpa: st.error("Data inválida! Digite no formato correto (ex: 09122025).")
                                 else:
                                     dt_str = dt_limpa.strftime('%Y-%m-%d')
-                                    with engine.begin() as conn: conn.execute(text("INSERT INTO historico_situacoes (id_colaborador, data_evento, descricao) VALUES (:id, :dt, :desc)"), {"id": str(colab_id), "dt": dt_str, "desc": nova_sit_esocial})
+                                    with engine.begin() as conn: conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) VALUES (:id, :dt, :desc)"), {"id": str(colab_id), "dt": dt_str, "desc": nova_sit_esocial})
                                     st.success("Evento gravado na Linha do Tempo!")
                                     st.session_state['status_acao'] = None; st.rerun()
                                     
@@ -899,7 +897,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                                 opcoes_sit = {f"Data: {pd.to_datetime(row['data_evento']).strftime('%d/%m/%Y')} | {row['descricao']}": row['id'] for _, row in df_hist_sit.iterrows()}
                                 id_sit_alvo = opcoes_sit[st.selectbox("Selecione o evento a apagar:", list(opcoes_sit.keys()))]
                                 if st.button("🗑️ Apagar Evento Selecionado", type="primary"):
-                                    with engine.begin() as conn: conn.execute(text("DELETE FROM historico_situacoes WHERE id = :id"), {"id": id_sit_alvo})
+                                    with engine.begin() as conn: conn.execute(text("DELETE FROM historico_afastamentos WHERE id = :id"), {"id": id_sit_alvo})
                                     st.success("Evento apagado da linha do tempo!")
                                     st.session_state['status_acao'] = None; st.rerun()
                             else: st.warning("Nenhum histórico para apagar.")
@@ -931,7 +929,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                                     dt_hist_evento = dt_nova.strftime('%Y-%m-%d') if dt_nova else datetime.today().strftime('%Y-%m-%d')
                                     with engine.begin() as conn: 
                                         conn.execute(text("UPDATE cadastro_geral_colaborador SET demissao = :d, situacao = :sit WHERE id = :id"), {"d": dem_str, "sit": novo_status, "id": str(colab_id)})
-                                        conn.execute(text("INSERT INTO historico_situacoes (id_colaborador, data_evento, descricao) VALUES (:id, :dt, :desc)"), {"id": str(colab_id), "dt": dt_hist_evento, "desc": novo_status})
+                                        conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) VALUES (:id, :dt, :desc)"), {"id": str(colab_id), "dt": dt_hist_evento, "desc": novo_status})
                                     st.success("✅ Atualizado! Qualquer folha posterior a esta data será limpa ao recarregar a ficha."); st.session_state['status_acao'] = None; st.rerun()
                             except Exception as e: st.error(f"Erro ao salvar: {e}")
                         if c_bt2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
@@ -943,7 +941,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                         if cx1.button("🔥 Sim, Excluir Tudo", type="primary"):
                             try:
                                 with engine.begin() as conn:
-                                    conn.execute(text("DELETE FROM historico_situacoes WHERE id_colaborador = :id"), {"id": str(colab_id)})
+                                    conn.execute(text("DELETE FROM historico_afastamentos WHERE id_colaborador = :id"), {"id": str(colab_id)})
                                     conn.execute(text("DELETE FROM historico_salarial WHERE id_colaborador = :id"), {"id": str(colab_id)})
                                     conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador = :id"), {"id": str(colab_id)})
                                     conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": str(colab_id)})
@@ -1065,13 +1063,13 @@ elif menu == "🛠️ Gestão de Cadastros":
                                         conn.execute(text("UPDATE cadastro_geral_colaborador SET id=:nid, nome=:n, cpf=:c, cargo=:ca, admissao=:ad, data_afastamento=:afast, data_retorno=:ret, chave_pix=:pix, salario_mes_12_24=:sm, salario_hora=:sh, situacao=:sit WHERE id=:oid"), {"nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf, "ca": edit_cargo, "ad": adm_str, "afast": af_str, "ret": ret_str, "pix": edit_pix, "sm": sm_val, "sh": sh_val, "sit": sel_sit, "oid": str(colab_id)})
                                         if edit_id.strip() != str(colab_id):
                                             conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
-                                            conn.execute(text("UPDATE historico_situacoes SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
+                                            conn.execute(text("UPDATE historico_afastamentos SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
                                         
                                         if sel_sit != v_sit_atual:
                                             dt_hist_evento = dt_af if dt_af else datetime.today().date()
                                             if sel_sit.startswith("1 - ") and dt_r: dt_hist_evento = dt_r
                                             dt_str_final = dt_hist_evento.strftime('%Y-%m-%d') if isinstance(dt_hist_evento, date) else datetime.today().strftime('%Y-%m-%d')
-                                            conn.execute(text("INSERT INTO historico_situacoes (id_colaborador, data_evento, descricao) VALUES (:id, :dt, :desc)"), {"id": edit_id.strip(), "dt": dt_str_final, "desc": sel_sit})
+                                            conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) VALUES (:id, :dt, :desc)"), {"id": edit_id.strip(), "dt": dt_str_final, "desc": sel_sit})
                                         
                                         if sm_val:
                                             existe_hist = conn.execute(text("SELECT id FROM historico_premiacoes_e_folha WHERE id_colaborador = :id AND tipo_lancamento ILIKE '%Salário%' ORDER BY id DESC LIMIT 1"), {"id": edit_id.strip()}).fetchone()
@@ -1128,7 +1126,7 @@ elif menu == "🛠️ Gestão de Cadastros":
                     conn.execute(text("INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora, situacao) VALUES (:id, :n, :c, :ca, :ad, :afast, :ret, :sm, :sh, :sit)"), {"id": str(n_id), "n": str(n_nome), "c": str(n_cpf), "ca": str(n_cargo), "ad": dt_a.strftime('%Y-%m-%d') if dt_a else None, "afast": dt_af.strftime('%Y-%m-%d') if dt_af else None, "ret": dt_r.strftime('%Y-%m-%d') if dt_r else None, "sm": sm_val, "sh": sh_val, "sit": n_sit})
                     
                     dt_hist_evento = dt_a.strftime('%Y-%m-%d') if dt_a else datetime.today().strftime('%Y-%m-%d')
-                    conn.execute(text("INSERT INTO historico_situacoes (id_colaborador, data_evento, descricao) VALUES (:id, :dt, :desc)"), {"id": str(n_id), "dt": dt_hist_evento, "desc": n_sit})
+                    conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) VALUES (:id, :dt, :desc)"), {"id": str(n_id), "dt": dt_hist_evento, "desc": n_sit})
                     
                     if sm_val:
                         comp_str = dt_a.strftime('%m/%Y') if dt_a else datetime.today().strftime('%m/%Y')
