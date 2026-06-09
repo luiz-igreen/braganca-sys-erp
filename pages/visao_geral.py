@@ -1,20 +1,25 @@
-
 import streamlit as st
 import pandas as pd
 from sqlalchemy import text
+from datetime import datetime
+
+@st.cache_data(ttl=30)
+def carregar_colaboradores(_engine):
+    return pd.read_sql("SELECT id, nome, cpf, cargo, situacao, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora FROM cadastro_geral_colaborador ORDER BY nome ASC", _engine)
 
 def render(engine, parse_br_date_smart, format_currency_brl, format_cpf, clean_money_to_db):
     st.title("📊 Painel Corporativo & Auditoria Cadastral")
     mostrar_alertas = st.checkbox("🚨 Mostrar Apenas Colaboradores com Alertas/Pendências", value=False)
+
     try:
-        df = pd.read_sql("SELECT id, nome, cpf, cargo, situacao, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora FROM cadastro_geral_colaborador ORDER BY nome ASC", engine)
+        with st.spinner("⏳ Carregando dados, por favor aguarde..."):
+            df = carregar_colaboradores(engine)
 
         def verificar_alertas(row):
             alertas = []
             sit = str(row['situacao']) if pd.notna(row['situacao']) else ""
             dt_ret = parse_br_date_smart(row['data_retorno'])
             dt_afast = parse_br_date_smart(row['data_afastamento'])
-            from datetime import datetime
             hoje = datetime.today().date()
             if sit not in ['1 - Trabalhando', '8 - Demitido'] and dt_ret and dt_ret <= hoje:
                 alertas.append("Retorno Vencido (Abra a ficha)")
@@ -80,6 +85,7 @@ def render(engine, parse_br_date_smart, format_currency_brl, format_cpf, clean_m
                                 conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": id_alvo})
                                 conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_alvo})
                                 st.success(f"✅ Matrícula {id_alvo} apagada com sucesso!")
+                        st.cache_data.clear()
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao excluir o registo: {e}")
