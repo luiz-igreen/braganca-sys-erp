@@ -5,7 +5,23 @@ from datetime import datetime
 
 @st.cache_data(ttl=30)
 def carregar_colaboradores(_engine):
-    return pd.read_sql("SELECT id, nome, cpf, cargo, situacao, admissao, demissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora FROM cadastro_geral_colaborador ORDER BY nome ASC", _engine)
+    # CORREÇÃO: Atualizando nomes de colunas na query SQL
+    return pd.read_sql("""
+        SELECT 
+            id, 
+            nome, 
+            cpf, 
+            cargo, 
+            status_esocial, -- Alterado de 'situacao' para 'status_esocial'
+            admissao, 
+            demissao, 
+            salario_mes_12_24, 
+            salario_hora_12_24 -- Alterado de 'salario_hora' para 'salario_hora_12_24'
+        FROM 
+            cadastro_geral_colaborador 
+        ORDER BY 
+            nome ASC
+    """, _engine)
 
 def render(engine, parse_br_date_smart, format_currency_brl, format_cpf, clean_money_to_db):
     st.title("📊 Painel Corporativo & Auditoria Cadastral")
@@ -17,30 +33,43 @@ def render(engine, parse_br_date_smart, format_currency_brl, format_cpf, clean_m
 
         def verificar_alertas(row):
             alertas = []
-            sit = str(row['situacao']) if pd.notna(row['situacao']) else ""
-            dt_ret = parse_br_date_smart(row['data_retorno'])
-            dt_afast = parse_br_date_smart(row['data_afastamento'])
+            # CORREÇÃO: Usando 'status_esocial'
+            sit = str(row['status_esocial']) if pd.notna(row['status_esocial']) else ""
+
+            # As colunas data_afastamento e data_retorno não existem mais em cadastro_geral_colaborador.
+            # A lógica de afastamento deve ser baseada em 'status_esocial' e na tabela 'historico_afastamentos'.
+            # Por simplicidade, vamos focar nos status principais.
+
             hoje = datetime.today().date()
-            if sit not in ['1 - Trabalhando', '8 - Demitido'] and dt_ret and dt_ret <= hoje:
-                alertas.append("Retorno Vencido (Abra a ficha)")
-            if sit == '1 - Trabalhando' and dt_afast and not dt_ret:
-                alertas.append("Afastamento em Aberto")
+
+            # Alerta para status que não são "Trabalhando" ou "Demitido"
+            if sit not in ['1 - Trabalhando', '8 - Demitido', 'nan', 'None', '']:
+                alertas.append(f"Status eSocial: {sit}")
+
+            # Alerta para ID fantasma
             v_id_check = str(row['id']).strip()
             if not v_id_check or v_id_check.lower() == 'none' or v_id_check.lower() == 'nan':
                 alertas.append("FANTASMA (Exclua este registo)")
+
+            # Alerta para CPF ausente
             elif pd.isna(row['cpf']) or str(row['cpf']).strip() == "":
                 alertas.append("Falta CPF")
+
+            # Alerta para salário base zero
             sal = clean_money_to_db(row['salario_mes_12_24'])
             if not sal or float(sal) == 0:
                 alertas.append("Sem Salário Base")
+
             return "⚠️ " + " / ".join(alertas) if alertas else "✅ Atualizado"
 
         df['Alertas do Sistema'] = df.apply(verificar_alertas, axis=1)
         df['salario_mes_12_24'] = df['salario_mes_12_24'].apply(format_currency_brl)
-        df['salario_hora'] = df['salario_hora'].apply(format_currency_brl)
+        df['salario_hora_12_24'] = df['salario_hora_12_24'].apply(format_currency_brl) # CORREÇÃO: Renomeado
         df['cpf'] = df['cpf'].apply(format_cpf)
-        df.rename(columns={'situacao': 'Status (eSocial)'}, inplace=True)
-        cols_view = ['Alertas do Sistema', 'id', 'nome', 'Status (eSocial)', 'cpf', 'cargo', 'salario_mes_12_24']
+        df.rename(columns={'status_esocial': 'Status (eSocial)'}, inplace=True) # CORREÇÃO: Renomeado
+
+        # CORREÇÃO: Usando 'salario_hora_12_24' na visualização
+        cols_view = ['Alertas do Sistema', 'id', 'nome', 'Status (eSocial)', 'cpf', 'cargo', 'salario_mes_12_24', 'salario_hora_12_24']
         df_view = df[cols_view].copy()
 
         if mostrar_alertas:
@@ -80,7 +109,7 @@ def render(engine, parse_br_date_smart, format_currency_brl, format_cpf, clean_m
                                 st.success("🧹 Todos os Fantasmas sem ID foram exterminados da base de dados!")
                             else:
                                 conn.execute(text("DELETE FROM historico_afastamentos WHERE id_colaborador = :id"), {"id": id_alvo})
-                                conn.execute(text("DELETE FROM historico_salarial WHERE id_colaborador = :id"), {"id": id_alvo})
+                                # CORREÇÃO: Removido 'historico_salarial' e mantido 'historico_premiacoes_e_folha'
                                 conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador = :id"), {"id": id_alvo})
                                 conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": id_alvo})
                                 conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_alvo})
