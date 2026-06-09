@@ -42,4 +42,4 @@
                             st.error(f"Erro ao excluir o registo: {e}")
             else:
                 # Botão desabilitado se nada selecionado ou se o expander não foi aberto
-                st.button("🔥 Exterminar Registo", type="primary", use_container_width=True, disabled=True)        
+                st.button("🔥 Exterminar Registo", type="primary", use_container_width=True, disabled=True)
