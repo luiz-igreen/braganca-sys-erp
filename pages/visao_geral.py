@@ -13,6 +13,7 @@
         col_f1, col_f2 = st.columns([3, 1])
         with col_f1:
             selecao_fantasma = st.selectbox("Selecione o registo problemático:", ["(Nenhum selecionado)"] + list(opcoes_fantasma.keys()))
+
         with col_f2:
             st.markdown("<br>", unsafe_allow_html=True)
             # Adicionando a confirmação para exclusão
@@ -40,4 +41,5 @@
                         except Exception as e:
                             st.error(f"Erro ao excluir o registo: {e}")
             else:
-                st.button("🔥 Exterminar Registo", type="primary", use_container_width=True, disabled=True) # Botão desabilitado se nada selecionado
+                # Botão desabilitado se nada selecionado ou se o expander não foi aberto
+                st.button("🔥 Exterminar Registo", type="primary", use_container_width=True, disabled=True)
