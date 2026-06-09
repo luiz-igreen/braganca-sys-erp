@@ -7,12 +7,10 @@ import re
 import json
 
 @st.cache_data(ttl=30)
-def carregar_dados_colaboradores_importacao(_engine):
-    return _engine.connect().execute(text("SELECT id, nome, admissao, demissao FROM cadastro_geral_colaborador")).fetchall()
-
-@st.cache_data(ttl=30)
-def carregar_cpfs_atuais(_engine):
-    return _engine.connect().execute(text("SELECT id, cpf FROM cadastro_geral_colaborador")).fetchall()
+def carregar_colaboradores_importacao(_engine):
+    # Esta função pode ser ajustada para carregar dados específicos se necessário
+    # Por enquanto, retorna uma lista vazia ou dados mínimos para evitar erros
+    return []
 
 def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, format_competencia_smart, LISTA_SITUACOES_ESOCIAL):
     st.title("📥 Central de Ingestão de Dados")
@@ -25,7 +23,7 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
         st.subheader("Importação de Cadastros Novos")
         arquivo = st.file_uploader("Selecione o arquivo de migração de colaboradores (.xlsx, .csv)", type=["xlsx", "csv"], key="up_cad_base")
         if arquivo and st.button("Executar Ingestão de Cadastros", key="btn_imp_cad", type="primary"):
-            with st.spinner("⏳ Processando e inserindo cadastros..."):
+            with st.spinner("⏳ Processando arquivo e inserindo cadastros..."):
                 try:
                     df_bruto = ler_planilha_inteligente(arquivo)
                     with engine.begin() as conn:
@@ -34,12 +32,12 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                 v_id = str(row.iloc[0]) if len(row) > 0 else None
                                 if not v_id or v_id == 'nan': continue
                                 conn.execute(text("""
-                                    INSERT INTO cadastro_geral_colaborador 
-                                    (id, nome, cpf, cargo, admissao, demissao, salario_mes_12_24, salario_hora) 
-                                    VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :sal_mes, :sal_hora) 
-                                    ON CONFLICT (id) DO UPDATE SET 
-                                    nome = EXCLUDED.nome, cpf = EXCLUDED.cpf, cargo = EXCLUDED.cargo, 
-                                    admissao = EXCLUDED.admissao, demissao = EXCLUDED.demissao, 
+                                    INSERT INTO cadastro_geral_colaborador
+                                    (id, nome, cpf, cargo, admissao, demissao, salario_mes_12_24, salario_hora)
+                                    VALUES (:id, :nome, :cpf, :cargo, :admissao, :demissao, :sal_mes, :sal_hora)
+                                    ON CONFLICT (id) DO UPDATE SET
+                                    nome = EXCLUDED.nome, cpf = EXCLUDED.cpf, cargo = EXCLUDED.cargo,
+                                    admissao = EXCLUDED.admissao, demissao = EXCLUDED.demissao,
                                     salario_mes_12_24 = EXCLUDED.salario_mes_12_24, salario_hora = EXCLUDED.salario_hora
                                 """), {
                                     "id": v_id,
@@ -51,9 +49,10 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                     "sal_mes": str(row.iloc[6]) if len(row) > 6 else None,
                                     "sal_hora": str(row.iloc[7]) if len(row) > 7 else None
                                 })
-                        st.cache_data.clear() # Limpa o cache após a inserção
+                        st.cache_data.clear() # Limpa o cache para que a Visão Geral seja atualizada
                         st.success("Ingestão executada com sucesso!")
-
+                            except Exception as inner_e:
+                                st.warning(f"Linha ignorada: {inner_e}")
                 except Exception as e:
                     st.error(f"Erro Crítico: {e}")
 
@@ -64,8 +63,8 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                 try:
                     with engine.begin() as conn:
                         conn.execute(text("TRUNCATE TABLE historico_premiacoes_e_folha RESTART IDENTITY"))
+                    st.cache_data.clear() # Limpa o cache
                     st.success("💥 BANCO DE HISTÓRICO ZERADO!")
-                    st.cache_data.clear() # Limpa o cache após a alteração
                 except Exception as e:
                     st.error(f"Erro ao limpar: {e}")
 
@@ -74,8 +73,8 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
             with st.spinner("⏳ Analisando cruzamentos temporais e bloqueando previsões futuras..."):
                 try:
                     df_excel = ler_planilha_inteligente(arquivo_hist)
-
-                    db_cols = carregar_dados_colaboradores_importacao(engine)
+                    with engine.connect() as conn:
+                        db_cols = conn.execute(text("SELECT id, nome, admissao, demissao FROM cadastro_geral_colaborador")).fetchall()
                     db_dict = {
                         str(r.nome).strip().upper(): {
                             'id': str(r.id),
@@ -132,8 +131,8 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                 for item in inserts_pendentes:
                                     if not conn.execute(text("SELECT 1 FROM historico_premiacoes_e_folha WHERE id_colaborador = :id_colab AND competencia = :comp AND tipo_lancamento = :tipo"), item).fetchone():
                                         conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id_colab, :comp, :tipo, :valor, 'Pago')"), item)
+                            st.cache_data.clear() # Limpa o cache
                             st.success(f"✅ Lidos {linhas_processadas} colaboradores. Injetados {len(inserts_pendentes)} registros reais.")
-                            st.cache_data.clear() # Limpa o cache após a inserção
                         else:
                             st.warning("Nenhum registro novo importado.")
                 except Exception as e:
@@ -144,7 +143,7 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
         st.info("Faça o upload do seu relatório da Domínio. O sistema vai ignorar falsos-excels, achar o cabeçalho e atualizar todo o histórico num piscar de olhos!")
         arquivo_st = st.file_uploader("Selecione a Relação de Empregados (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="up_st")
         if arquivo_st and st.button("🚀 Processar Situações (Varredura Massiva)", type="primary"):
-            with st.spinner("⏳ A mapear as colunas e a varrer os dados..."):
+            with st.spinner("⏳ Mapeando colunas e varrendo dados..."):
                 try:
                     df_st = ler_planilha_inteligente(arquivo_st)
                     col_id = next((c for c in df_st.columns if str(c).strip().upper() in ['CÓDIGO', 'CODIGO', 'ID', 'MATRICULA', 'ID/MATRÍCULA']), None)
@@ -178,8 +177,8 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                         if not ja_tem:
                                             conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) VALUES (:id, :dt, :desc)"), {"id": v_id, "dt": dt_str, "desc": sit_completa})
                                             sucessos += 1
+                        st.cache_data.clear() # Limpa o cache
                         st.success(f"✅ Missão Cumprida! A varredura analisou os dados e inseriu {sucessos} novos eventos na Linha do Tempo dos colaboradores.")
-                        st.cache_data.clear() # Limpa o cache após a inserção
                 except Exception as e:
                     st.error(f"Erro ao processar o ficheiro: {e}")
 
@@ -188,7 +187,7 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
         st.info("Envie a planilha. O robô vai formatar e corrigir os CPFs que perderam o zero à esquerda devido a falhas do Excel.")
         arquivo_cpf = st.file_uploader("Selecione a Planilha (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="up_cpf")
         if arquivo_cpf and st.button("🚀 Iniciar Varredura de CPFs", type="primary"):
-            with st.spinner("⏳ A caçar os cabeçalhos ocultos e a processar..."):
+            with st.spinner("⏳ Caçando cabeçalhos ocultos e processando..."):
                 try:
                     df_preview = ler_planilha_inteligente(arquivo_cpf, nrows=15, header=None)
                     header_idx = 0
@@ -202,12 +201,12 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                     col_id = next((c for c in df_cpf.columns if str(c).strip().upper() in ['CÓDIGO', 'CODIGO', 'ID', 'MATRÍCULA', 'MATRICULA', 'ID/MATRÍCULA']), None)
                     col_cpf = next((c for c in df_cpf.columns if 'CPF' in str(c).strip().upper()), None)
                     if not col_id or not col_cpf:
-                        st.error(f"⚠️ Não consegui encontrar as colunas na linha {header_idx}. Tentei achar entre estas: {list(df_cpf.columns)}. Salve como .xlsx no Excel se o problema persistir.")
+                        st.error(f"⚠️ Não consegui encontrar as colunas na linha {header_idx}. Tentei achar entre estas: {list(df_cpf.columns)}.")
                     else:
                         atualizados, ignorados = 0, 0
-                        atuais = carregar_cpfs_atuais(engine)
-                        mapa_atuais = {str(r.id).strip(): format_cpf(str(r.cpf)) if r.cpf else "" for r in atuais}
                         with engine.begin() as conn:
+                            atuais = conn.execute(text("SELECT id, cpf FROM cadastro_geral_colaborador")).fetchall()
+                            mapa_atuais = {str(r.id).strip(): format_cpf(str(r.cpf)) if r.cpf else "" for r in atuais}
                             for _, row in df_cpf.iterrows():
                                 v_id = str(row[col_id]).strip().replace('.0', '')
                                 raw_cpf = str(row[col_cpf]).strip()
@@ -221,8 +220,8 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                     else:
                                         conn.execute(text("UPDATE cadastro_geral_colaborador SET cpf = :cpf WHERE id = :id"), {"cpf": cpf_planilha_formatado, "id": v_id})
                                         atualizados += 1
+                        st.cache_data.clear() # Limpa o cache
                         st.success(f"✅ Varredura Concluída! {atualizados} CPFs corrigidos/atualizados. {ignorados} CPFs já estavam perfeitos.")
-                        st.cache_data.clear() # Limpa o cache após a inserção
                 except Exception as e:
                     st.error(f"Erro ao ler os CPFs: {e}")
 
@@ -231,8 +230,8 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
         st.info("Cole na caixa abaixo o 'Pacote de Dados' (Código) gerado pelo seu Assistente de IA no chat.")
         pacote_ia = st.text_area("Pacote de Dados (JSON)", height=200, placeholder='Ex: [{"id": "9", "eventos": [["2022-06-14", "18 - Doenca..."], ...]}]')
         if st.button("🚀 Executar Injeção em Massa", type="primary"):
-            if pacote_ia.strip():
-                with st.spinner("⏳ Injetando histórico via IA..."):
+            with st.spinner("⏳ Injetando histórico em massa..."):
+                if pacote_ia.strip():
                     try:
                         dados = json.loads(pacote_ia)
                         sucessos = 0
@@ -255,9 +254,9 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                 else:
                                     conn.execute(text("UPDATE cadastro_geral_colaborador SET situacao = :sit, data_afastamento = :dt, data_retorno = NULL WHERE id = :id"), {"sit": ultimo_status, "dt": ultima_data, "id": v_id})
                                 sucessos += 1
+                        st.cache_data.clear() # Limpa o cache
                         st.success(f"✅ Histórico de {sucessos} colaborador(es) reconstruído(s) com sucesso!")
-                        st.cache_data.clear() # Limpa o cache após a inserção
                     except Exception as e:
                         st.error(f"Erro na interpretação do pacote. Tem a certeza que copiou o código inteiro? Erro: {e}")
-            else:
-                st.warning("Cole o código gerado pela IA antes de clicar.")
+                else:
+                    st.warning("Cole o código gerado pela IA antes de clicar.")
