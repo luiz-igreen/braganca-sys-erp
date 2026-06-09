@@ -13,36 +13,31 @@
         col_f1, col_f2 = st.columns([3, 1])
         with col_f1:
             selecao_fantasma = st.selectbox("Selecione o registo problemático:", ["(Nenhum selecionado)"] + list(opcoes_fantasma.keys()))
-
-        # Adiciona um checkbox de confirmação
-        confirmar_exclusao = st.checkbox("✅ Confirmo que desejo EXCLUIR este registro permanentemente.")
-
         with col_f2:
             st.markdown("<br>", unsafe_allow_html=True)
-            # O botão só é habilitado se um registro for selecionado E a exclusão for confirmada
-            if st.button("🔥 Exterminar Registo", type="primary", use_container_width=True, disabled=not confirmar_exclusao):
-                if selecao_fantasma != "(Nenhum selecionado)":
-                    id_alvo = opcoes_fantasma[selecao_fantasma]
-                    try:
-                        with engine.begin() as conn:
-                            if id_alvo == "VAZIO" or id_alvo.lower() == "none" or id_alvo.lower() == "nan":
-                                conn.execute(text("DELETE FROM historico_afastamentos WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
-                                conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
-                                conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
-                                conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id IS NULL OR TRIM(CAST(id AS TEXT)) = '' OR CAST(id AS TEXT) ILIKE 'nan' OR CAST(id AS TEXT) ILIKE 'none'"))
-                                st.success("🧹 Todos os Fantasmas sem ID foram exterminados da base de dados!")
-                            else:
-                                conn.execute(text("DELETE FROM historico_afastamentos WHERE id_colaborador = :id"), {"id": id_alvo})
-                                conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador = :id"), {"id": id_alvo})
-                                conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": id_alvo})
-                                conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_alvo})
-                                st.success(f"✅ Matrícula {id_alvo} apagada com sucesso!")
-                        st.cache_data.clear()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro ao excluir o registo: {e}")
-                else:
-                    st.warning("Selecione um registo na lista ao lado primeiro.")
-
-    except Exception as e:
-        st.error(f"Erro ao carregar dados do painel: {e}")
+            # Adicionando a confirmação para exclusão
+            if selecao_fantasma != "(Nenhum selecionado)":
+                with st.expander(f"⚠️ CONFIRMAR EXCLUSÃO DE: {selecao_fantasma.split('->')[1].strip()}?"):
+                    st.warning("Esta ação é IRREVERSÍVEL e apagará o registro e todo o seu histórico em todas as tabelas relacionadas.")
+                    if st.button("🔥 CONFIRMAR EXTERMINAR REGISTO", type="primary", use_container_width=True):
+                        id_alvo = opcoes_fantasma[selecao_fantasma]
+                        try:
+                            with engine.begin() as conn:
+                                if id_alvo == "VAZIO" or id_alvo.lower() == "none" or id_alvo.lower() == "nan":
+                                    conn.execute(text("DELETE FROM historico_afastamentos WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
+                                    conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
+                                    conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
+                                    conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id IS NULL OR TRIM(CAST(id AS TEXT)) = '' OR CAST(id AS TEXT) ILIKE 'nan' OR CAST(id AS TEXT) ILIKE 'none'"))
+                                    st.success("🧹 Todos os Fantasmas sem ID foram exterminados da base de dados!")
+                                else:
+                                    conn.execute(text("DELETE FROM historico_afastamentos WHERE id_colaborador = :id"), {"id": id_alvo})
+                                    conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador = :id"), {"id": id_alvo})
+                                    conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": id_alvo})
+                                    conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_alvo})
+                                    st.success(f"✅ Matrícula {id_alvo} apagada com sucesso!")
+                            st.cache_data.clear()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao excluir o registo: {e}")
+            else:
+                st.button("🔥 Exterminar Registo", type="primary", use_container_width=True, disabled=True) # Botão desabilitado se nada selecionado
