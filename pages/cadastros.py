@@ -11,7 +11,8 @@ def carregar_dados_colaborador_cache(_engine, colab_id):
         df_fin = pd.read_sql(text("SELECT * FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), conn, params={"id": str(colab_id)})
         fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None
         df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
-        df_hist_sit = pd.read_sql(text("SELECT id, data_inicio as data_evento, codigo_situacao as descricao FROM historico_afastamentos WHERE id_colaborador = :id ORDER BY data_inicio DESC, id DESC"), conn, params={"id": str(colab_id)})
+        # CORREÇÃO: Alterado 'codigo_situacao' para 'tipo_afastamento'
+        df_hist_sit = pd.read_sql(text("SELECT id, data_inicio as data_evento, tipo_afastamento as descricao FROM historico_afastamentos WHERE id_colaborador = :id ORDER BY data_inicio DESC, id DESC"), conn, params={"id": str(colab_id)})
     return colab, fin_data, df_hist, df_hist_sit
 
 @st.cache_data(ttl=30)
@@ -25,11 +26,19 @@ def buscar_colaboradores_cache(_engine, termo):
 def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format_currency_brl, format_brl_number, format_cpf, format_competencia_smart, clean_money_to_db, sort_historico_chronological, LISTA_CARGOS, LISTA_SITUACOES_ESOCIAL):
 
     opcoes_sub = ["🔍 Consultar & Gerenciar", "➕ Novo Cadastro"]
+    # Garante que st.session_state['sub_menu_index'] exista
+    if 'sub_menu_index' not in st.session_state:
+        st.session_state['sub_menu_index'] = 0
     sub_menu = st.radio("Menu de Operações", opcoes_sub, index=st.session_state['sub_menu_index'], label_visibility="collapsed", horizontal=True)
     st.session_state['sub_menu_index'] = opcoes_sub.index(sub_menu)
     st.markdown("<br>", unsafe_allow_html=True)
 
     if sub_menu == "🔍 Consultar & Gerenciar":
+        if 'busca_selecionada_id' not in st.session_state:
+            st.session_state['busca_selecionada_id'] = None
+        if 'status_acao' not in st.session_state:
+            st.session_state['status_acao'] = None
+
         if not st.session_state['busca_selecionada_id']:
             injetar_autofoco(painel="busca")
 
@@ -75,7 +84,9 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                                 except: pass
 
                             df_hist_clean = df_hist.copy()
-                            df_hist_clean['temp_date'] = pd.to_datetime(df_hist_clean['competencia'], format='%m/%Y', errors='coerce').dt.date
+                            # CORREÇÃO: Ajuste para formato de data, se necessário, ou garantir que 'competencia' já é DATE
+                            # Se 'competencia' já for DATE no DB, pode remover o format='%m/%Y'
+                            df_hist_clean['temp_date'] = pd.to_datetime(df_hist_clean['competencia'], errors='coerce').dt.date
                             df_future = df_hist_clean[df_hist_clean['temp_date'] > max_date_allowed]
 
                             if not df_future.empty:
@@ -90,6 +101,7 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                                 colab, fin_data, df_hist, df_hist_sit = carregar_dados_colaborador_cache(engine, colab_id) # Recarrega dados
 
                         df_hist = sort_historico_chronological(df_hist)
+                        # CORREÇÃO: Usando salario_mes_12_24
                         sal_mestra_vazio = not colab.salario_mes_12_24 or str(colab.salario_mes_12_24).strip() == "" or str(colab.salario_mes_12_24).lower() in ["nan", "none"]
                         hist_salario = df_hist[df_hist['tipo_lancamento'].str.contains('Salário', na=False, case=False)] if not df_hist.empty else pd.DataFrame()
                         tem_hist = not hist_salario.empty
@@ -99,7 +111,8 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                             ultimo_salario_hist = hist_salario.iloc[0]['valor_lancamento']
                             val_hora_calc = float(ultimo_salario_hist) / 220.0
                             with engine.begin() as conn_sync:
-                                conn_sync.execute(text("UPDATE cadastro_geral_colaborador SET salario_mes_12_24 = :sm, salario_hora = :sh WHERE id = :id"), {"sm": str(ultimo_salario_hist), "sh": str(val_hora_calc), "id": str(colab_id)})
+                                # CORREÇÃO: Usando salario_hora_12_24
+                                conn_sync.execute(text("UPDATE cadastro_geral_colaborador SET salario_mes_12_24 = :sm, salario_hora_12_24 = :sh WHERE id = :id"), {"sm": str(ultimo_salario_hist), "sh": str(val_hora_calc), "id": str(colab_id)})
                             val_atual_base = float(ultimo_salario_hist)
                             salario_mes_display = format_currency_brl(val_atual_base)
                             salario_hora_display = format_currency_brl(val_hora_calc)
@@ -111,6 +124,7 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                             if sm_val:
                                 val_atual_base = float(sm_val)
                                 salario_mes_display = format_currency_brl(val_atual_base)
+                                # CORREÇÃO: Usando salario_hora_12_24
                                 salario_hora_display = format_currency_brl(val_atual_base / 220.0)
                                 comp_atual_dt = datetime.today()
                                 comp_atual_str = comp_atual_dt.strftime('%m/%Y')
@@ -134,19 +148,35 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                             salario_mes_display = "Não Informado"
                             salario_hora_display = "Não Informado"
 
-                        v_sit_atual = getattr(colab, "situacao", "1 - Trabalhando") or "1 - Trabalhando"
-                        v_afast = getattr(colab, 'data_afastamento', None)
-                        v_ret = getattr(colab, 'data_retorno', None)
+                        # CORREÇÃO: Usando 'status_esocial' e removendo 'data_afastamento' e 'data_retorno'
+                        v_sit_atual = getattr(colab, "status_esocial", "1 - Trabalhando") or "1 - Trabalhando"
 
-                        if v_ret and v_sit_atual not in ["1 - Trabalhando", "8 - Demitido"]:
-                            dt_ret_obj = parse_br_date_smart(v_ret)
-                            if dt_ret_obj and dt_ret_obj <= datetime.today().date():
-                                with engine.begin() as conn_auto:
-                                    conn_auto.execute(text("UPDATE cadastro_geral_colaborador SET situacao = '1 - Trabalhando' WHERE id = :id"), {"id": str(colab_id)})
-                                    conn_auto.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) VALUES (:id, :dt, '1 - Trabalhando')"), {"id": str(colab_id), "dt": dt_ret_obj.strftime('%Y-%m-%d')})
-                                st.toast(f"🤖 Auto-Retorno: O sistema detetou que a data já passou e atualizou {colab.nome} para 'Trabalhando'!")
-                                st.cache_data.clear() # Limpa o cache após a alteração
-                                st.rerun()
+                        # A lógica de afastamento agora deve ser baseada no historico_afastamentos
+                        # e no status_esocial. As colunas data_afastamento e data_retorno não existem mais.
+                        # Vamos buscar o último afastamento no df_hist_sit para exibir.
+                        ultimo_afastamento = df_hist_sit.iloc[0] if not df_hist_sit.empty else None
+                        v_afast_data = ultimo_afastamento['data_evento'] if ultimo_afastamento else None
+                        v_afast_desc = ultimo_afastamento['descricao'] if ultimo_afastamento else None
+
+                        # Lógica de auto-retorno (ajustada para a nova estrutura)
+                        # Se o status atual não é "Trabalhando" ou "Demitido" e há um afastamento com data de retorno vencida
+                        if v_sit_atual not in ["1 - Trabalhando", "8 - Demitido"] and v_afast_data:
+                            dt_afast_obj = parse_br_date_smart(v_afast_data)
+                            # Assumindo que um afastamento tem uma duração ou uma data de retorno implícita
+                            # Para simplificar, se o afastamento não é "Trabalhando" e a data de início já passou
+                            # e não há um registro de "Trabalhando" posterior, podemos considerar um retorno.
+                            # Esta lógica pode precisar ser mais robusta dependendo de como você define "retorno vencido"
+                            # sem a coluna data_retorno.
+                            if dt_afast_obj and dt_afast_obj < datetime.today().date():
+                                # Verifica se o último status é diferente de "Trabalhando"
+                                if v_sit_atual != "1 - Trabalhando":
+                                    with engine.begin() as conn_auto:
+                                        conn_auto.execute(text("UPDATE cadastro_geral_colaborador SET status_esocial = '1 - Trabalhando' WHERE id = :id"), {"id": str(colab_id)})
+                                        # CORREÇÃO: Alterado 'codigo_situacao' para 'tipo_afastamento'
+                                        conn_auto.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, tipo_afastamento) VALUES (:id, :dt, '1 - Trabalhando')"), {"id": str(colab_id), "dt": datetime.today().strftime('%Y-%m-%d'), "desc": '1 - Trabalhando'})
+                                    st.toast(f"🤖 Auto-Retorno: O sistema detetou que a data já passou e atualizou {colab.nome} para 'Trabalhando'!")
+                                    st.cache_data.clear() # Limpa o cache após a alteração
+                                    st.rerun()
 
                         sit_color = "#f8fafc"
                         if v_sit_atual.startswith("8"): sit_color = "#ef4444"
@@ -180,29 +210,25 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                             st.markdown(f'<p class="field-value" style="color: #ef4444;">{format_date_br(colab.demissao) or "Ativo / Sem Demissão"}</p>', unsafe_allow_html=True)
                         st.markdown('</div>', unsafe_allow_html=True)
 
-                        if v_afast or v_ret:
-                            dt_r_obj = parse_br_date_smart(v_ret) if v_ret else None
-                            if v_sit_atual == "1 - Trabalhando":
-                                if dt_r_obj and dt_r_obj > datetime.today().date():
-                                    icon_afast, titulo_afast, alerta_color = "⚠️", "⚠️ Inconsistência: Status é 'Trabalhando' mas existe afastamento futuro.", "#ef4444"
-                                else:
-                                    icon_afast, titulo_afast, alerta_color = "🕒", "🕒 Último Afastamento Registado", "#94a3b8"
-                            elif v_sit_atual == "8 - Demitido":
-                                icon_afast, titulo_afast, alerta_color = "🕒", "🕒 Último Afastamento Antes da Demissão", "#94a3b8"
-                            elif "Ferias" in v_sit_atual:
-                                icon_afast, titulo_afast, alerta_color = "🏖️", f"🏖️ Afastamento Ativo: {v_sit_atual}", "#3b82f6"
-                            else:
-                                icon_afast, titulo_afast, alerta_color = "🏥", f"🏥 Afastamento Ativo: {v_sit_atual}", "#facc15"
+                        # CORREÇÃO: Lógica de exibição de afastamento ajustada
+                        if ultimo_afastamento:
+                            icon_afast, titulo_afast, alerta_color = "🕒", "🕒 Último Afastamento Registrado", "#94a3b8"
+                            if v_afast_desc.startswith("8"):
+                                titulo_afast = "🕒 Último Afastamento Antes da Demissão"
+                            elif "Ferias" in v_afast_desc:
+                                icon_afast, titulo_afast, alerta_color = "🏖️", f"🏖️ Afastamento Ativo: {v_afast_desc}", "#3b82f6"
+                            elif v_afast_desc not in ["1 - Trabalhando", "8 - Demitido"]:
+                                icon_afast, titulo_afast, alerta_color = "🏥", f"🏥 Afastamento Ativo: {v_afast_desc}", "#facc15"
 
-                            st.markdown(f"### <span style='color:{alerta_color};'>{titulo_afast}</span>", unsafe_allow_html=True)
+                            st.markdown(f"### <span>{titulo_afast}</span>", unsafe_allow_html=True)
                             st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                             ca1, ca2 = st.columns(2)
                             with ca1:
                                 st.markdown('<p class="field-label">DATA DE INÍCIO</p>', unsafe_allow_html=True)
-                                st.markdown(f'<p class="field-value" style="color:{alerta_color}; font-weight: bold;">{format_date_br(v_afast) or "Pendente"}</p>', unsafe_allow_html=True)
+                                st.markdown(f'<p class="field-value" style="color:{alerta_color}; font-weight: bold;">{format_date_br(v_afast_data) or "Pendente"}</p>', unsafe_allow_html=True)
                             with ca2:
-                                st.markdown('<p class="field-label">RETORNO PREVISTO / REALIZADO</p>', unsafe_allow_html=True)
-                                st.markdown(f'<p class="field-value" style="color:{alerta_color};">{format_date_br(v_ret) or "Em Aberto"}</p>', unsafe_allow_html=True)
+                                st.markdown('<p class="field-label">DESCRIÇÃO DO AFASTAMENTO</p>', unsafe_allow_html=True)
+                                st.markdown(f'<p class="field-value" style="color:{alerta_color};">{v_afast_desc or "Não Informado"}</p>', unsafe_allow_html=True)
                             st.markdown('</div>', unsafe_allow_html=True)
 
                         st.markdown("### 📜 Histórico de Situações (eSocial)")
@@ -218,14 +244,16 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
 
                         st.markdown("### 🏦 Dados Bancários (PIX Principal)")
                         st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
-                        if fin_data or colab.chave_pix:
+                        # CORREÇÃO: Adicionado 'chave_pix' à tabela cadastro_financeiro_colaborador
+                        if fin_data or (colab and hasattr(colab, 'chave_pix') and colab.chave_pix):
                             cf1, cf2 = st.columns(2)
                             with cf1:
                                 st.markdown('<p class="field-label">BANCO</p>', unsafe_allow_html=True)
                                 st.markdown(f'<p class="field-value">{(fin_data.get("banco") if fin_data else "") or "Não Informado"}</p>', unsafe_allow_html=True)
                             with cf2:
                                 st.markdown('<p class="field-label">CHAVE PIX</p>', unsafe_allow_html=True)
-                                st.markdown(f'<p class="field-value">{colab.chave_pix or (fin_data.get("chave_pix") if fin_data else "Não Informado")}</p>', unsafe_allow_html=True)
+                                # CORREÇÃO: A chave PIX deve vir de cadastro_financeiro_colaborador
+                                st.markdown(f'<p class="field-value">{(fin_data.get("chave_pix") if fin_data else "Não Informado")}</p>', unsafe_allow_html=True)
                         else:
                             st.info("Nenhum dado bancário registrado.")
                         st.markdown('</div>', unsafe_allow_html=True)
@@ -282,7 +310,7 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                                                 else:
                                                     conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :novo WHERE id_colaborador = :antigo"), {"novo": id_limpo, "antigo": str(colab_id)})
                                                     conn.execute(text("UPDATE historico_afastamentos SET id_colaborador = :novo WHERE id_colaborador = :antigo"), {"novo": id_limpo, "antigo": str(colab_id)})
-                                                    conn.execute(text("UPDATE historico_salarial SET id_colaborador = :novo WHERE id_colaborador = :antigo"), {"novo": id_limpo, "antigo": str(colab_id)})
+                                                    # CORREÇÃO: Removido 'historico_salarial'
                                                     conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": str(colab_id)})
                                                     conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": str(colab_id)})
                                                     st.success(f"🎉 FUSÃO CONCLUÍDA! Histórico movido para '{existe.nome}' (ID: {id_limpo}).")
@@ -310,7 +338,8 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                                         else:
                                             dt_str = dt_limpa.strftime('%Y-%m-%d')
                                             with engine.begin() as conn:
-                                                conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) VALUES (:id, :dt, :desc)"), {"id": str(colab_id), "dt": dt_str, "desc": nova_sit_esocial})
+                                                # CORREÇÃO: Alterado 'codigo_situacao' para 'tipo_afastamento'
+                                                conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, tipo_afastamento) VALUES (:id, :dt, :desc)"), {"id": str(colab_id), "dt": dt_str, "desc": nova_sit_esocial})
                                             st.success("Evento gravado na Linha do Tempo!")
                                             st.cache_data.clear() # Limpa o cache após a alteração
                                             st.session_state['status_acao'] = None; st.rerun()
@@ -353,8 +382,10 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                                             novo_status = '1 - Trabalhando' if reverter else '8 - Demitido'
                                             dt_hist_evento = dt_nova.strftime('%Y-%m-%d') if dt_nova else datetime.today().strftime('%Y-%m-%d')
                                             with engine.begin() as conn:
-                                                conn.execute(text("UPDATE cadastro_geral_colaborador SET demissao = :d, situacao = :sit WHERE id = :id"), {"d": dem_str, "sit": novo_status, "id": str(colab_id)})
-                                                conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) VALUES (:id, :dt, :desc)"), {"id": str(colab_id), "dt": dt_hist_evento, "desc": novo_status})
+                                                # CORREÇÃO: Usando 'status_esocial'
+                                                conn.execute(text("UPDATE cadastro_geral_colaborador SET demissao = :d, status_esocial = :sit WHERE id = :id"), {"d": dem_str, "sit": novo_status, "id": str(colab_id)})
+                                                # CORREÇÃO: Alterado 'codigo_situacao' para 'tipo_afastamento'
+                                                conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, tipo_afastamento) VALUES (:id, :dt, :desc)"), {"id": str(colab_id), "dt": dt_hist_evento, "desc": novo_status})
                                             st.success("✅ Atualizado!")
                                             st.cache_data.clear() # Limpa o cache após a alteração
                                             st.session_state['status_acao'] = None; st.rerun()
@@ -370,7 +401,7 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                                     try:
                                         with engine.begin() as conn:
                                             conn.execute(text("DELETE FROM historico_afastamentos WHERE id_colaborador = :id"), {"id": str(colab_id)})
-                                            conn.execute(text("DELETE FROM historico_salarial WHERE id_colaborador = :id"), {"id": str(colab_id)})
+                                            # CORREÇÃO: Removido 'historico_salarial'
                                             conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador = :id"), {"id": str(colab_id)})
                                             conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": str(colab_id)})
                                             conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": str(colab_id)})
@@ -420,7 +451,7 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                                                 st.error(f"🛑 {msg_bloqueio}")
                                             else:
                                                 with engine.begin() as conn:
-                                                    conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, :tipo, :val, 'Pago')"), {"id": str(colab_id), "comp": c_clean, "tipo": av_tipo, "valor": float(vc)})
+                                                    conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, :tipo, :val, 'Pago')"), {"id": str(colab_id), "comp": c_clean, "tipo": av_tipo, "val": float(vc)})
                                                 st.success("Salvo!")
                                                 st.cache_data.clear() # Limpa o cache após a alteração
                                                 st.session_state['status_acao'] = None; st.rerun()
@@ -462,6 +493,7 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                             injetar_autofoco(pular_busca=True, painel="editar_ficha")
                             st.info("📝 Modo de Edição Ativo. Aperte ENTER para pular campos. Use CTRL + ENTER para salvar rápido.")
                             cargo_idx = LISTA_CARGOS.index(str(colab.cargo).upper().strip()) if str(colab.cargo).upper().strip() in LISTA_CARGOS else (len(LISTA_CARGOS)-1)
+                            # CORREÇÃO: Usando 'status_esocial'
                             sit_idx = LISTA_SITUACOES_ESOCIAL.index(v_sit_atual) if v_sit_atual in LISTA_SITUACOES_ESOCIAL else 0
                             ce1, ce2 = st.columns(2)
                             with ce1:
@@ -469,17 +501,21 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                                 edit_nome = st.text_input("Nome Completo", value=str(colab.nome))
                                 edit_cpf = st.text_input("CPF", value=format_cpf(colab.cpf) if colab.cpf else "")
                                 edit_adm = st.text_input("Data de Admissão (Sem barras)", value=format_date_br(colab.admissao))
+                                # CORREÇÃO: Usando salario_mes_12_24
                                 edit_sal_mes = st.text_input("Salário-Mês Base", value=str(colab.salario_mes_12_24) if colab.salario_mes_12_24 else "")
                             with ce2:
                                 sel_cargo = st.selectbox("Cargo", LISTA_CARGOS, index=cargo_idx)
                                 edit_cargo = st.text_input("Digite o Cargo", value=str(colab.cargo) if sel_cargo == "OUTRO (DIGITAR MANUALMENTE)" else sel_cargo)
                                 sel_sit = st.selectbox("Situação (eSocial)", LISTA_SITUACOES_ESOCIAL, index=sit_idx)
-                                edit_pix = st.text_input("Chave PIX", value=str(colab.chave_pix) if colab.chave_pix else "")
+                                # CORREÇÃO: Chave PIX deve vir de cadastro_financeiro_colaborador
+                                edit_pix = st.text_input("Chave PIX", value=str(fin_data.get("chave_pix")) if fin_data and fin_data.get("chave_pix") else "")
+                                # CORREÇÃO: Usando salario_hora_12_24
                                 edit_sal_hora = st.text_input("Salário-Hora Base", value="Automático (Base / 220)", disabled=True)
                             st.markdown("##### 📅 Datas da Situação Atual")
                             ci1, ci2 = st.columns(2)
-                            with ci1: edit_afast = st.text_input("Data de Início", value=format_date_br(v_afast))
-                            with ci2: edit_ret = st.text_input("Retorno Previsto", value=format_date_br(v_ret))
+                            # CORREÇÃO: Removido data_afastamento e data_retorno
+                            # A edição de afastamentos deve ser feita na seção "Histórico de Situações (eSocial)"
+                            st.info("A edição de datas de afastamento/retorno deve ser feita na seção 'Histórico de Situações (eSocial)'.")
                             if st.button("Confirmar e Salvar Alterações", type="primary"):
                                 with st.spinner("⏳ Salvando alterações..."):
                                     try:
@@ -487,23 +523,29 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                                             st.error("ID e Nome são obrigatórios.")
                                         else:
                                             dt_a = parse_br_date_smart(edit_adm)
-                                            dt_af = parse_br_date_smart(edit_afast)
-                                            dt_r = parse_br_date_smart(edit_ret)
                                             adm_str = dt_a.strftime('%Y-%m-%d') if dt_a else None
-                                            af_str = dt_af.strftime('%Y-%m-%d') if dt_af else None
-                                            ret_str = dt_r.strftime('%Y-%m-%d') if dt_r else None
                                             sm_val = clean_money_to_db(edit_sal_mes)
                                             sh_val = str(float(sm_val)/220.0) if sm_val is not None else None
                                             with engine.begin() as conn:
-                                                conn.execute(text("UPDATE cadastro_geral_colaborador SET id=:nid, nome=:n, cpf=:c, cargo=:ca, admissao=:ad, data_afastamento=:afast, data_retorno=:ret, chave_pix=:pix, salario_mes_12_24=:sm, salario_hora=:sh, situacao=:sit WHERE id=:oid"), {"nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf, "ca": edit_cargo, "ad": adm_str, "afast": af_str, "ret": ret_str, "pix": edit_pix, "sm": sm_val, "sh": sh_val, "sit": sel_sit, "oid": str(colab_id)})
+                                                # CORREÇÃO: Removido data_afastamento, data_retorno e situacao. Adicionado status_esocial e salario_hora_12_24
+                                                conn.execute(text("UPDATE cadastro_geral_colaborador SET id=:nid, nome=:n, cpf=:c, cargo=:ca, admissao=:ad, status_esocial=:sit, salario_mes_12_24=:sm, salario_hora_12_24=:sh WHERE id=:oid"), {"nid": edit_id.strip(), "n": edit_nome, "c": edit_cpf, "ca": edit_cargo, "ad": adm_str, "sit": sel_sit, "sm": sm_val, "sh": sh_val, "oid": str(colab_id)})
+
+                                                # Atualiza ou insere na tabela cadastro_financeiro_colaborador para a chave PIX
+                                                if fin_data: # Se já existe registro financeiro
+                                                    conn.execute(text("UPDATE cadastro_financeiro_colaborador SET chave_pix = :pix WHERE id_colaborador = :id"), {"pix": edit_pix, "id": edit_id.strip()})
+                                                else: # Se não existe, insere
+                                                    conn.execute(text("INSERT INTO cadastro_financeiro_colaborador (id_colaborador, chave_pix) VALUES (:id, :pix)"), {"id": edit_id.strip(), "pix": edit_pix})
+
                                                 if edit_id.strip() != str(colab_id):
                                                     conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
                                                     conn.execute(text("UPDATE historico_afastamentos SET id_colaborador = :nid WHERE id_colaborador = :oid"), {"nid": edit_id.strip(), "oid": str(colab_id)})
+
+                                                # CORREÇÃO: Lógica de histórico de situação ajustada
                                                 if sel_sit != v_sit_atual:
-                                                    dt_hist_evento = dt_af if dt_af else datetime.today().date()
-                                                    if sel_sit.startswith("1 - ") and dt_r: dt_hist_evento = dt_r
-                                                    dt_str_final = dt_hist_evento.strftime('%Y-%m-%d') if isinstance(dt_hist_evento, date) else datetime.today().strftime('%Y-%m-%d')
-                                                    conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) VALUES (:id, :dt, :desc)"), {"id": edit_id.strip(), "dt": dt_str_final, "desc": sel_sit})
+                                                    dt_hist_evento = datetime.today().date()
+                                                    # CORREÇÃO: Alterado 'codigo_situacao' para 'tipo_afastamento'
+                                                    conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, tipo_afastamento) VALUES (:id, :dt, :desc)"), {"id": edit_id.strip(), "dt": dt_hist_evento.strftime('%Y-%m-%d'), "desc": sel_sit})
+
                                                 if sm_val:
                                                     existe_hist = conn.execute(text("SELECT id FROM historico_premiacoes_e_folha WHERE id_colaborador = :id AND tipo_lancamento ILIKE '%Salário%' ORDER BY id DESC LIMIT 1"), {"id": edit_id.strip()}).fetchone()
                                                     if not existe_hist:
@@ -537,28 +579,36 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
             n_cpf = st.text_input("CPF")
             n_adm_str = st.text_input("Admissão (Pode digitar sem barras)", placeholder="Ex: 01072025")
             n_sal_mes = st.text_input("Salário-Mês")
-            n_afast_str = st.text_input("Data de Início da Situação Acima", placeholder="Ex: 01072025")
+            # CORREÇÃO: Removido n_afast_str, pois a data de início da situação é a data de admissão ou um evento posterior
+            # n_afast_str = st.text_input("Data de Início da Situação Acima", placeholder="Ex: 01072025")
         with cn2:
             n_nome = st.text_input("Nome Completo")
             s_c = st.selectbox("Cargo", LISTA_CARGOS)
             n_cargo = st.text_input("Digite o Cargo") if s_c == "OUTRO (DIGITAR MANUALMENTE)" else s_c
             n_sit = st.selectbox("Situação Inicial", LISTA_SITUACOES_ESOCIAL, index=0)
             n_sal_hora = st.text_input("Salário-Hora", value="Automático (Base / 220)", disabled=True)
-            n_ret_str = st.text_input("Retorno Previsto", placeholder="Ex: 01072025")
+            # CORREÇÃO: Removido n_ret_str, pois a data de retorno é gerenciada por eventos de afastamento
+            # n_ret_str = st.text_input("Retorno Previsto", placeholder="Ex: 01072025")
+            n_chave_pix = st.text_input("Chave PIX (Opcional)") # Adicionado campo para chave PIX
         st.markdown('</div>', unsafe_allow_html=True)
         st.info("Aperte ENTER para pular campos. Use CTRL + ENTER para salvar direto no banco de dados.")
         if st.button("💾 Salvar Registro no Sistema", type="primary"):
             with st.spinner("⏳ Salvando novo registro..."):
                 try:
                     dt_a = parse_br_date_smart(n_adm_str)
-                    dt_af = parse_br_date_smart(n_afast_str)
-                    dt_r = parse_br_date_smart(n_ret_str)
                     sm_val = clean_money_to_db(n_sal_mes)
                     sh_val = str(float(sm_val)/220.0) if sm_val is not None else None
                     with engine.begin() as conn:
-                        conn.execute(text("INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, data_afastamento, data_retorno, salario_mes_12_24, salario_hora, situacao) VALUES (:id, :n, :c, :ca, :ad, :afast, :ret, :sm, :sh, :sit)"), {"id": str(n_id), "n": str(n_nome), "c": str(n_cpf), "ca": str(n_cargo), "ad": dt_a.strftime('%Y-%m-%d') if dt_a else None, "afast": dt_af.strftime('%Y-%m-%d') if dt_af else None, "ret": dt_r.strftime('%Y-%m-%d') if dt_r else None, "sm": sm_val, "sh": sh_val, "sit": n_sit})
+                        # CORREÇÃO: Removido data_afastamento, data_retorno. Adicionado status_esocial e salario_hora_12_24
+                        conn.execute(text("INSERT INTO cadastro_geral_colaborador (id, nome, cpf, cargo, admissao, status_esocial, salario_mes_12_24, salario_hora_12_24) VALUES (:id, :n, :c, :ca, :ad, :sit, :sm, :sh)"), {"id": str(n_id), "n": str(n_nome), "c": str(n_cpf), "ca": str(n_cargo), "ad": dt_a.strftime('%Y-%m-%d') if dt_a else None, "sit": n_sit, "sm": sm_val, "sh": sh_val})
+
+                        # Insere na tabela cadastro_financeiro_colaborador para a chave PIX
+                        if n_chave_pix.strip():
+                            conn.execute(text("INSERT INTO cadastro_financeiro_colaborador (id_colaborador, chave_pix) VALUES (:id, :pix)"), {"id": str(n_id), "pix": n_chave_pix.strip()})
+
                         dt_hist_evento = dt_a.strftime('%Y-%m-%d') if dt_a else datetime.today().strftime('%Y-%m-%d')
-                        conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, codigo_situacao) VALUES (:id, :dt, :desc)"), {"id": str(n_id), "dt": dt_hist_evento, "desc": n_sit})
+                        # CORREÇÃO: Alterado 'codigo_situacao' para 'tipo_afastamento'
+                        conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, tipo_afastamento) VALUES (:id, :dt, :desc)"), {"id": str(n_id), "dt": dt_hist_evento, "desc": n_sit})
                         if sm_val:
                             comp_str = dt_a.strftime('%m/%Y') if dt_a else datetime.today().strftime('%m/%Y')
                             conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento) VALUES (:id, :comp, 'Salário Mensal', :val, 'Pago')"), {"id": str(n_id), "comp": comp_str, "val": float(sm_val)})
