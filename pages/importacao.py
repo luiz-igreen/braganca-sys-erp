@@ -7,10 +7,12 @@ import re
 import json
 
 @st.cache_data(ttl=30)
-def carregar_colaboradores_importacao(_engine):
-    # Esta função pode ser ajustada para carregar dados específicos se necessário
-    # Por enquanto, retorna uma lista vazia ou dados mínimos para evitar erros
-    return []
+def carregar_dados_colaboradores_importacao(_engine):
+    return _engine.connect().execute(text("SELECT id, nome, admissao, demissao FROM cadastro_geral_colaborador")).fetchall()
+
+@st.cache_data(ttl=30)
+def carregar_cpfs_atuais(_engine):
+    return _engine.connect().execute(text("SELECT id, cpf FROM cadastro_geral_colaborador")).fetchall()
 
 def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, format_competencia_smart, LISTA_SITUACOES_ESOCIAL):
     st.title("📥 Central de Ingestão de Dados")
@@ -49,10 +51,10 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                     "sal_mes": str(row.iloc[6]) if len(row) > 6 else None,
                                     "sal_hora": str(row.iloc[7]) if len(row) > 7 else None
                                 })
-                        st.cache_data.clear() # Limpa o cache para que a Visão Geral seja atualizada
-                        st.success("Ingestão executada com sucesso!")
                             except Exception as inner_e:
                                 st.warning(f"Linha ignorada: {inner_e}")
+                        st.cache_data.clear() # Limpa o cache para que a Visão Geral seja atualizada
+                        st.success("Ingestão executada com sucesso!")
                 except Exception as e:
                     st.error(f"Erro Crítico: {e}")
 
@@ -73,8 +75,8 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
             with st.spinner("⏳ Analisando cruzamentos temporais e bloqueando previsões futuras..."):
                 try:
                     df_excel = ler_planilha_inteligente(arquivo_hist)
-                    with engine.connect() as conn:
-                        db_cols = conn.execute(text("SELECT id, nome, admissao, demissao FROM cadastro_geral_colaborador")).fetchall()
+
+                    db_cols = carregar_dados_colaboradores_importacao(engine)
                     db_dict = {
                         str(r.nome).strip().upper(): {
                             'id': str(r.id),
@@ -204,9 +206,9 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                         st.error(f"⚠️ Não consegui encontrar as colunas na linha {header_idx}. Tentei achar entre estas: {list(df_cpf.columns)}.")
                     else:
                         atualizados, ignorados = 0, 0
+                        atuais = carregar_cpfs_atuais(engine)
+                        mapa_atuais = {str(r.id).strip(): format_cpf(str(r.cpf)) if r.cpf else "" for r in atuais}
                         with engine.begin() as conn:
-                            atuais = conn.execute(text("SELECT id, cpf FROM cadastro_geral_colaborador")).fetchall()
-                            mapa_atuais = {str(r.id).strip(): format_cpf(str(r.cpf)) if r.cpf else "" for r in atuais}
                             for _, row in df_cpf.iterrows():
                                 v_id = str(row[col_id]).strip().replace('.0', '')
                                 raw_cpf = str(row[col_cpf]).strip()
