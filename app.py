@@ -238,13 +238,13 @@ components.html("""
 <script>
 const doc = window.parent.document;
 const setNativeValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-setInterval(function(){
-    doc.querySelectorAll('input').forEach(function(el){
+setInterval(function() {
+    doc.querySelectorAll('input').forEach(function(el) {
         el.setAttribute('autocomplete', 'new-password');
         el.setAttribute('autofill', 'off');
         if (!el.hasAttribute('data-name-set')) { el.setAttribute('name', 'input_' + Math.random().toString(36).substring(7)); el.setAttribute('data-name-set', 'true'); }
     });
-    doc.querySelectorAll('input[aria-label="CPF"]').forEach(function(el){
+    doc.querySelectorAll('input[aria-label="CPF"]').forEach(function(el) {
         if (!el.hasAttribute('data-cpf-mask')) {
             el.setAttribute('data-cpf-mask', 'true');
             el.addEventListener('input', function(e) {
