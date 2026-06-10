@@ -465,7 +465,7 @@ elif menu == "🛠️ Gestão de Cadastros":
     # CORREÇÃO AQUI: O arquivo é 'cadastros.py', não 'gestao_cadastros.py'
     from pages.cadastros import render
     # injetar_autofoco não está definido neste app.py, então foi removido da chamada
-    render(engine, parse_br_date_smart, format_date_br, format_currency_brl, format_brl_number, format_cpf, format_competencia_smart, clean_money_to_db, sort_historico_chronological, LISTA_CARGOS, LISTA_SITUACOES_ESOCIAL)
+    render(engine, parse_br_date_smart, format_date_br, format_currency_brl, format_brl_number, format_cpf, format_competencia_smart, clean_money_to_db, sort_historico_chronological, LISTA_CARGOS, LISTA_SITUACOES_ESOCIAL) # <-- LINHA 468 CORRIGIDA
 
 elif menu == "🏆 Gestão de Prêmios (ZAUT)":
     from pages.premios import render
