@@ -19,7 +19,6 @@ def format_currency_brl(value):
     if pd.isna(value): return "R$ -"
     return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# FUNÇÃO clean_money_to_db CORRIGIDA
 def clean_money_to_db(money_str):
     if isinstance(money_str, (int, float)):
         return money_str
@@ -185,7 +184,6 @@ st.set_page_config(page_title="BRAGANÇA SYS", page_icon="🏗️", layout="wide
 @st.cache_resource
 def get_engine():
     # Acessa a DATABASE_URL do Streamlit Secrets
-    # Agora busca diretamente a chave DATABASE_URL, como configurado nos secrets do Streamlit Cloud
     try:
         database_url = st.secrets["DATABASE_URL"]
     except KeyError:
@@ -216,12 +214,21 @@ try:
                 salario_hora_12_24 NUMERIC(10, 2)
             )
         """))
-        # Adiciona colunas se não existirem
-        for col, dtype in [('demissao', 'DATE'), ('status_esocial', 'TEXT'), ('salario_mes_12_24', 'NUMERIC(10, 2)'), ('salario_hora_12_24', 'NUMERIC(10, 2)')]:
-            try:
-                conn.execute(text(f"ALTER TABLE cadastro_geral_colaborador ADD COLUMN {col} {dtype}"))
-            except Exception as e:
-                if "already exists" not in str(e): raise
+
+        # --- LÓGICA MELHORADA PARA ADICIONAR COLUNAS SE NÃO EXISTIREM ---
+        # Verifica se a coluna existe antes de tentar adicioná-la
+        def add_column_if_not_exists(connection, table_name, column_name, column_type):
+            result = connection.execute(text(f"SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='{table_name}' AND column_name='{column_name}')")).scalar()
+            if not result:
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"))
+                # st.toast(f"Coluna '{column_name}' adicionada à tabela '{table_name}'.") # Opcional para feedback
+            # else:
+                # st.toast(f"Coluna '{column_name}' já existe na tabela '{table_name}'.") # Opcional para feedback
+
+        add_column_if_not_exists(conn, 'cadastro_geral_colaborador', 'demissao', 'DATE')
+        add_column_if_not_exists(conn, 'cadastro_geral_colaborador', 'status_esocial', 'TEXT')
+        add_column_if_not_exists(conn, 'cadastro_geral_colaborador', 'salario_mes_12_24', 'NUMERIC(10, 2)')
+        add_column_if_not_exists(conn, 'cadastro_geral_colaborador', 'salario_hora_12_24', 'NUMERIC(10, 2)')
 
         # Criação da tabela cadastro_financeiro_colaborador
         conn.execute(text("""
@@ -234,12 +241,10 @@ try:
                 chave_pix TEXT
             )
         """))
-        # Adiciona colunas se não existirem
-        for col, dtype in [('banco', 'TEXT'), ('agencia', 'TEXT'), ('conta', 'TEXT'), ('chave_pix', 'TEXT')]:
-            try:
-                conn.execute(text(f"ALTER TABLE cadastro_financeiro_colaborador ADD COLUMN {col} {dtype}"))
-            except Exception as e:
-                if "already exists" not in str(e): raise
+        add_column_if_not_exists(conn, 'cadastro_financeiro_colaborador', 'banco', 'TEXT')
+        add_column_if_not_exists(conn, 'cadastro_financeiro_colaborador', 'agencia', 'TEXT')
+        add_column_if_not_exists(conn, 'cadastro_financeiro_colaborador', 'conta', 'TEXT')
+        add_column_if_not_exists(conn, 'cadastro_financeiro_colaborador', 'chave_pix', 'TEXT')
 
         # Criação da tabela historico_premiacoes_e_folha
         conn.execute(text("""
@@ -254,12 +259,8 @@ try:
                 data_pagamento DATE
             )
         """))
-        # Adiciona colunas se não existirem
-        for col, dtype in [('retroativo_pago', 'NUMERIC(10, 2)'), ('data_pagamento', 'DATE')]:
-            try:
-                conn.execute(text(f"ALTER TABLE historico_premiacoes_e_folha ADD COLUMN {col} {dtype}"))
-            except Exception as e:
-                if "already exists" not in str(e): raise
+        add_column_if_not_exists(conn, 'historico_premiacoes_e_folha', 'retroativo_pago', 'NUMERIC(10, 2)')
+        add_column_if_not_exists(conn, 'historico_premiacoes_e_folha', 'data_pagamento', 'DATE')
 
         # Criação da tabela historico_afastamentos
         conn.execute(text("""
@@ -271,12 +272,7 @@ try:
                 tipo_afastamento TEXT
             )
         """))
-        # Adiciona colunas se não existirem
-        for col, dtype in [('data_fim', 'DATE')]:
-            try:
-                conn.execute(text(f"ALTER TABLE historico_afastamentos ADD COLUMN {col} {dtype}"))
-            except Exception as e:
-                if "already exists" not in str(e): raise
+        add_column_if_not_exists(conn, 'historico_afastamentos', 'data_fim', 'DATE')
 
     st.success("Estrutura do banco de dados verificada e atualizada com sucesso!")
 except Exception as e:
@@ -295,7 +291,6 @@ try:
                 for index, row in df_colaboradores.iterrows():
                     id_colaborador = row['id']
 
-                    # --- CORREÇÃO AQUI: Lógica para determinar data_inicio e data_fim ---
                     raw_data_afastamento = row['demissao'] # Assumindo que demissao pode ser um afastamento inicial
                     raw_admissao = row['admissao']
 
@@ -303,9 +298,7 @@ try:
                     data_inicio_val = raw_data_afastamento if pd.notna(raw_data_afastamento) else raw_admissao
                     data_inicio = parse_br_date_smart(data_inicio_val) # Usa a função auxiliar
 
-                    # Garante que data_fim seja um objeto date ou None
                     data_fim = parse_br_date_smart(row['demissao']) # Assumindo que demissao pode ser o fim de um afastamento
-                    # --- FIM DA CORREÇÃO ---
 
                     tipo_afastamento = row['status_esocial']
 
@@ -365,7 +358,7 @@ LISTA_SITUACOES_ESOCIAL = [
     "12 - Novo afast. mesma doenca", "13 - Exercicio de mandato sindical",
     "14 - Aposent. por invalid. acidente de trabalho",
     "15 - Aposent. por invalid. doenca profissional",
-    "16 - Aposent. por invalid. exceto acid. trab. e doenca profissional",
+    "16 - Aposent. por invalid. exceto acid. trab. e doenca professional",
     "17 - Acid. Trabalho periodo igual ou inferior a 15 dias",
     "18 - Doenca periodo igual ou inferior a 15 dias", "19 - Aborto nao criminoso",
     "20 - Licenca maternidade adocao 1 ano", "21 - Licenca maternidade adocao 1 a 4 anos",
@@ -409,4 +402,4 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
 
 elif menu == "🔎 Auditoria CCT (IA)":
     from pages.auditoria import render
-    render(engine, clean_money_to_db, format_brl_number)    
+    render(engine, clean_money_to_db, format_brl_number)
