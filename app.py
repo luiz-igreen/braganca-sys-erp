@@ -160,9 +160,9 @@ st.set_page_config(page_title="BRAGANÇA SYS", page_icon="🏗️", layout="wide
 @st.cache_resource
 def get_engine():
     # Acessa a DATABASE_URL do Streamlit Secrets
-    # A estrutura é st.secrets["connections"]["supabase"]["database_url"] conforme o secrets.toml
+    # Agora busca diretamente a chave DATABASE_URL, como configurado nos secrets do Streamlit Cloud
     try:
-        database_url = st.secrets["connections"]["supabase"]["database_url"]
+        database_url = st.secrets["DATABASE_URL"] # <-- LINHA CORRIGIDA
     except KeyError:
         st.error("DATABASE_URL não encontrada nos Streamlit Secrets. Verifique a configuração.")
         st.stop()
