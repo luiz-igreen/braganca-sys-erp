@@ -398,7 +398,8 @@ elif menu == "🛠️ Gestão de Cadastros":
 
 elif menu == "🏆 Gestão de Prêmios (ZAUT)":
     from pages.premios import render
-    render(engine, format_brl_number, format_currency_brl, clean_money_to_db, LISTA_SERVICOS_PREMIO)
+    # CORREÇÃO AQUI: Adicionado injetar_autofoco à chamada da função render para a página de Prêmios
+    render(engine, injetar_autofoco, format_brl_number, format_currency_brl, clean_money_to_db, LISTA_SERVICOS_PREMIO)
 
 elif menu == "🔎 Auditoria CCT (IA)":
     from pages.auditoria import render
