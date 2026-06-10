@@ -154,6 +154,18 @@ def get_current_month_year():
     today = date.today()
     return today.strftime("%m/%Y")
 
+# --- FUNÇÃO PARA INJETAR AUTOFOCUS (ADICIONADA) ---
+def injetar_autofoco(element_id):
+    js_code = f"""
+    <script>
+        var element = window.parent.document.getElementById('{element_id}');
+        if (element) {{
+            element.focus();
+        }}
+    </script>
+    """
+    components.html(js_code, height=0, width=0)
+
 # --- CONFIGURAÇÃO INICIAL DA APLICAÇÃO ---
 st.set_page_config(page_title="BRAGANÇA SYS", page_icon="🏗️", layout="wide")
 
@@ -463,15 +475,13 @@ elif menu == "📥 Importação Inteligente":
 
 elif menu == "🛠️ Gestão de Cadastros":
     from pages.cadastros import render
-    # injetar_autofoco não está definido neste app.py, então foi removido da chamada
-    # LINHA 468 CORRIGIDA: Adicionado LISTA_SITUACOES_ESOCIAL como último argumento
-    render(engine, parse_br_date_smart, format_date_br, format_currency_brl, format_brl_number, format_cpf, format_competencia_smart, clean_money_to_db, sort_historico_chronological, LISTA_CARGOS, LISTA_SITUACOES_ESOCIAL)
+    # LINHA 468 CORRIGIDA: Adicionado injetar_autofoco e LISTA_SITUACOES_ESOCIAL como argumentos
+    render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format_currency_brl, format_brl_number, format_cpf, format_competencia_smart, clean_money_to_db, sort_historico_chronological, LISTA_CARGOS, LISTA_SITUACOES_ESOCIAL)
 
 elif menu == "🏆 Gestão de Prêmios (ZAUT)":
     from pages.premios import render
-    # injetar_autofoco não está definido neste app.py, então foi removido da chamada
     render(engine, format_brl_number, format_currency_brl, clean_money_to_db, LISTA_SERVICOS_PREMIO)
 
 elif menu == "🔎 Auditoria CCT (IA)":
     from pages.auditoria import render
-    render(engine, clean_money_to_db, format_brl_number)
+    render(engine, clean_money_to_db, format_brl_number)    
