@@ -1,3 +1,4 @@
+import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, text
 import re
@@ -7,13 +8,165 @@ import uuid
 import io
 import json
 import streamlit.components.v1 as components
+import numpy as np # Adicionado para pd.NA e np.nan
+
+# --- FUNÇÕES AUXILIARES (MOVIDAS PARA O INÍCIO) ---
+def format_brl_number(value):
+    if pd.isna(value): return "-"
+    return f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+def format_currency_brl(value):
+    if pd.isna(value): return "R$ -"
+    return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+def clean_money_to_db(money_str):
+    if isinstance(money_str, (int, float)):
+        return money_str
+    if not money_str:
+        return None
+    clean_str = money_str.replace("R$", "").replace(".", "").replace(",", ".").strip()
+    try:
+        return float(clean_str)
+    except ValueError:
+        return None
+
+def parse_br_date_smart(date_str):
+    if pd.isna(date_str) or not date_str:
+        return None
+    if isinstance(date_str, date):
+        return date_str
+    if isinstance(date_str, datetime):
+        return date_str.date()
+
+    date_str = str(date_str).strip()
+
+    # Tenta formatos comuns
+    for fmt in ('%d/%m/%Y', '%d-%m-%Y', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(date_str, fmt).date()
+        except ValueError:
+            pass
+
+    # Tenta com ano de 2 dígitos
+    for fmt in ('%d/%m/%y', '%d-%m-%y'):
+        try:
+            return datetime.strptime(date_str, fmt).date()
+        except ValueError:
+            pass
+
+    # Tenta com mês abreviado (ex: 01-Jan-2023)
+    try:
+        return datetime.strptime(date_str, '%d-%b-%Y').date()
+    except ValueError:
+        pass
+
+    # Se for apenas o ano (ex: 2023), retorna o primeiro dia do ano
+    if re.fullmatch(r'\d{4}', date_str):
+        try:
+            return date(int(date_str), 1, 1)
+        except ValueError:
+            pass
+
+    # Se for apenas mês e ano (ex: 01/2023), retorna o primeiro dia do mês
+    if re.fullmatch(r'\d{2}/\d{4}', date_str):
+        try:
+            mes, ano = map(int, date_str.split('/'))
+            return date(ano, mes, 1)
+        except ValueError:
+            pass
+
+    # Se for um número que pode ser um timestamp (ex: 44927.0)
+    try:
+        if re.fullmatch(r'\d+\.?\d*', date_str):
+            excel_date = float(date_str)
+            # Excel epoch is 1899-12-30. Python's epoch is 1970-01-01.
+            # Convert Excel serial date to datetime object
+            return datetime.fromordinal(datetime(1900, 1, 1).toordinal() + int(excel_date) - 2).date()
+    except ValueError:
+        pass
+
+    st.warning(f"Formato de data desconhecido: {date_str}. Retornando None.")
+    return None
+
+def format_date_br(date_obj):
+    if pd.isna(date_obj) or not date_obj:
+        return "-"
+    if isinstance(date_obj, datetime):
+        return date_obj.strftime('%d/%m/%Y')
+    if isinstance(date_obj, date):
+        return date_obj.strftime('%d/%m/%Y')
+    return str(date_obj)
+
+def format_cpf(cpf_str):
+    if pd.isna(cpf_str) or not cpf_str:
+        return "-"
+    cpf_digits = re.sub(r'\D', '', str(cpf_str))
+    if len(cpf_digits) == 11:
+        return f"{cpf_digits[:3]}.{cpf_digits[3:6]}.{cpf_digits[6:9]}-{cpf_digits[9:]}"
+    return cpf_digits # Retorna apenas os dígitos para consistência com o ID
+
+def format_competencia_smart(competencia_str):
+    if pd.isna(competencia_str) or not competencia_str:
+        return "-"
+    competencia_str = str(competencia_str).strip()
+    if re.fullmatch(r'\d{4}-\d{2}', competencia_str): # Formato YYYY-MM
+        return datetime.strptime(competencia_str, '%Y-%m').strftime('%m/%Y')
+    if re.fullmatch(r'\d{2}/\d{4}', competencia_str): # Formato MM/YYYY
+        return competencia_str
+    if re.fullmatch(r'\d{6}', competencia_str): # Formato MMYYYY
+        return f"{competencia_str[:2]}/{competencia_str[2:]}"
+    return competencia_str
+
+def ler_planilha_inteligente(uploaded_file):
+    if uploaded_file is None:
+        return None
+
+    file_name = uploaded_file.name
+    df = None
+
+    try:
+        if file_name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file)
+        elif file_name.endswith(('.xls', '.xlsx')):
+            df = pd.read_excel(uploaded_file)
+        else:
+            st.error("Formato de arquivo não suportado. Por favor, envie um arquivo CSV ou Excel.")
+            return None
+    except Exception as e:
+        st.error(f"Erro ao ler o arquivo: {e}")
+        return None
+
+    # Padronizar nomes de colunas para minúsculas e sem acentos/caracteres especiais
+    df.columns = [re.sub(r'[^a-z0-9_]', '', col.lower().replace(' ', '_')) for col in df.columns]
+
+    return df
+
+def sort_historico_chronological(df_historico):
+    if 'data_alteracao' in df_historico.columns:
+        df_historico['data_alteracao'] = pd.to_datetime(df_historico['data_alteracao'], errors='coerce')
+        df_historico = df_historico.sort_values(by='data_alteracao', ascending=False).reset_index(drop=True)
+    elif 'data_inicio' in df_historico.columns:
+        df_historico['data_inicio'] = pd.to_datetime(df_historico['data_inicio'], errors='coerce')
+        df_historico = df_historico.sort_values(by='data_inicio', ascending=False).reset_index(drop=True)
+    return df_historico
+
+def get_current_month_year():
+    today = date.today()
+    return today.strftime("%m/%Y")
 
 # --- CONFIGURAÇÃO INICIAL DA APLICAÇÃO ---
 st.set_page_config(page_title="BRAGANÇA SYS", page_icon="🏗️", layout="wide")
 
 @st.cache_resource
 def get_engine():
-    return create_engine(st.secrets["DATABASE_URL"])
+    # Acessa a DATABASE_URL do Streamlit Secrets
+    # A estrutura é st.secrets["connections"]["supabase"]["database_url"] conforme o secrets.toml
+    try:
+        database_url = st.secrets["connections"]["supabase"]["database_url"]
+    except KeyError:
+        st.error("DATABASE_URL não encontrada nos Streamlit Secrets. Verifique a configuração.")
+        st.stop()
+    return create_engine(database_url)
 
 engine = get_engine()
 
@@ -203,11 +356,22 @@ try:
             if not df_colaboradores_com_afastamento.empty:
                 for index, row in df_colaboradores_com_afastamento.iterrows():
                     id_colaborador = row['id']
-                    data_inicio = row['data_afastamento'] if row['data_afastamento'] else row['admissao']
-                    data_fim = row['data_retorno']
+
+                    # --- CORREÇÃO AQUI: TRATAMENTO DE DATAS COM parse_br_date_smart ---
+                    raw_data_afastamento = row['data_afastamento']
+                    raw_admissao = row['admissao']
+
+                    # Prioriza data_afastamento, se não, usa admissao
+                    data_inicio_val = raw_data_afastamento if pd.notna(raw_data_afastamento) else raw_admissao
+                    data_inicio = parse_br_date_smart(data_inicio_val) # Usa a função auxiliar
+
+                    # Garante que data_fim seja um objeto date ou None
+                    data_fim = parse_br_date_smart(row['data_retorno']) # Usa a função auxiliar
+                    # --- FIM DA CORREÇÃO ---
+
                     tipo_afastamento = row['status_esocial']
 
-                    if data_inicio and tipo_afastamento:
+                    if data_inicio and tipo_afastamento: # Apenas insere se tiver data de início válida e tipo de afastamento
                         conn.execute(text("""
                             INSERT INTO historico_afastamentos (id_colaborador, data_inicio, data_fim, tipo_afastamento)
                             VALUES (:id_colaborador, :data_inicio, :data_fim, :tipo_afastamento)
@@ -235,148 +399,6 @@ try:
     st.success("Registros com ID nulo/vazio limpos em todas as tabelas.")
 except Exception as e:
     st.warning(f"Erro ao limpar registros com ID nulo/vazio: {e}")
-
-# --- FUNÇÕES AUXILIARES ---
-def format_brl_number(value):
-    if pd.isna(value): return "-"
-    return f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-def format_currency_brl(value):
-    if pd.isna(value): return "R$ -"
-    return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-def clean_money_to_db(money_str):
-    if isinstance(money_str, (int, float)):
-        return money_str
-    if not money_str:
-        return None
-    clean_str = money_str.replace("R$", "").replace(".", "").replace(",", ".").strip()
-    try:
-        return float(clean_str)
-    except ValueError:
-        return None
-
-def parse_br_date_smart(date_str):
-    if pd.isna(date_str) or not date_str:
-        return None
-    if isinstance(date_str, date):
-        return date_str
-    if isinstance(date_str, datetime):
-        return date_str.date()
-
-    date_str = str(date_str).strip()
-
-    # Tenta formatos comuns
-    for fmt in ('%d/%m/%Y', '%d-%m-%Y', '%Y-%m-%d'):
-        try:
-            return datetime.strptime(date_str, fmt).date()
-        except ValueError:
-            pass
-
-    # Tenta com ano de 2 dígitos
-    for fmt in ('%d/%m/%y', '%d-%m-%y'):
-        try:
-            return datetime.strptime(date_str, fmt).date()
-        except ValueError:
-            pass
-
-    # Tenta com mês abreviado (ex: 01-Jan-2023)
-    try:
-        return datetime.strptime(date_str, '%d-%b-%Y').date()
-    except ValueError:
-        pass
-
-    # Se for apenas o ano (ex: 2023), retorna o primeiro dia do ano
-    if re.fullmatch(r'\d{4}', date_str):
-        try:
-            return date(int(date_str), 1, 1)
-        except ValueError:
-            pass
-
-    # Se for apenas mês e ano (ex: 01/2023), retorna o primeiro dia do mês
-    if re.fullmatch(r'\d{2}/\d{4}', date_str):
-        try:
-            mes, ano = map(int, date_str.split('/'))
-            return date(ano, mes, 1)
-        except ValueError:
-            pass
-
-    # Se for um número que pode ser um timestamp (ex: 44927.0)
-    try:
-        if re.fullmatch(r'\d+\.?\d*', date_str):
-            excel_date = float(date_str)
-            return datetime.fromtimestamp((excel_date - 25569) * 86400).date() # Excel epoch is 1899-12-30
-    except ValueError:
-        pass
-
-    st.warning(f"Formato de data desconhecido: {date_str}. Retornando None.")
-    return None
-
-def format_date_br(date_obj):
-    if pd.isna(date_obj) or not date_obj:
-        return "-"
-    if isinstance(date_obj, datetime):
-        return date_obj.strftime('%d/%m/%Y')
-    if isinstance(date_obj, date):
-        return date_obj.strftime('%d/%m/%Y')
-    return str(date_obj)
-
-def format_cpf(cpf_str):
-    if pd.isna(cpf_str) or not cpf_str:
-        return "-"
-    cpf_digits = re.sub(r'\D', '', str(cpf_str))
-    if len(cpf_digits) == 11:
-        return f"{cpf_digits[:3]}.{cpf_digits[3:6]}.{cpf_digits[6:9]}-{cpf_digits[9:]}"
-    return cpf_digits # Retorna apenas os dígitos para consistência com o ID
-
-def format_competencia_smart(competencia_str):
-    if pd.isna(competencia_str) or not competencia_str:
-        return "-"
-    competencia_str = str(competencia_str).strip()
-    if re.fullmatch(r'\d{4}-\d{2}', competencia_str): # Formato YYYY-MM
-        return datetime.strptime(competencia_str, '%Y-%m').strftime('%m/%Y')
-    if re.fullmatch(r'\d{2}/\d{4}', competencia_str): # Formato MM/YYYY
-        return competencia_str
-    if re.fullmatch(r'\d{6}', competencia_str): # Formato MMYYYY
-        return f"{competencia_str[:2]}/{competencia_str[2:]}"
-    return competencia_str
-
-def ler_planilha_inteligente(uploaded_file):
-    if uploaded_file is None:
-        return None
-
-    file_name = uploaded_file.name
-    df = None
-
-    try:
-        if file_name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
-        elif file_name.endswith(('.xls', '.xlsx')):
-            df = pd.read_excel(uploaded_file)
-        else:
-            st.error("Formato de arquivo não suportado. Por favor, envie um arquivo CSV ou Excel.")
-            return None
-    except Exception as e:
-        st.error(f"Erro ao ler o arquivo: {e}")
-        return None
-
-    # Padronizar nomes de colunas para minúsculas e sem acentos/caracteres especiais
-    df.columns = [re.sub(r'[^a-z0-9_]', '', col.lower().replace(' ', '_')) for col in df.columns]
-
-    return df
-
-def sort_historico_chronological(df_historico):
-    if 'data_alteracao' in df_historico.columns:
-        df_historico['data_alteracao'] = pd.to_datetime(df_historico['data_alteracao'], errors='coerce')
-        df_historico = df_historico.sort_values(by='data_alteracao', ascending=False).reset_index(drop=True)
-    elif 'data_inicio' in df_historico.columns:
-        df_historico['data_inicio'] = pd.to_datetime(df_historico['data_inicio'], errors='coerce')
-        df_historico = df_historico.sort_values(by='data_inicio', ascending=False).reset_index(drop=True)
-    return df_historico
-
-def get_current_month_year():
-    today = date.today()
-    return today.strftime("%m/%Y")
 
 # --- LISTAS DE OPÇÕES ---
 LISTA_CARGOS = [
@@ -441,11 +463,13 @@ elif menu == "📥 Importação Inteligente":
 
 elif menu == "🛠️ Gestão de Cadastros":
     from pages.gestao_cadastros import render
-    render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format_currency_brl, format_brl_number, format_cpf, format_competencia_smart, clean_money_to_db, sort_historico_chronological, LISTA_CARGOS, LISTA_SITUACOES_ESOCIAL)
+    # injetar_autofoco não está definido neste app.py, então foi removido da chamada
+    render(engine, parse_br_date_smart, format_date_br, format_currency_brl, format_brl_number, format_cpf, format_competencia_smart, clean_money_to_db, sort_historico_chronological, LISTA_CARGOS, LISTA_SITUACOES_ESOCIAL)
 
 elif menu == "🏆 Gestão de Prêmios (ZAUT)":
     from pages.premios import render
-    render(engine, format_brl_number, format_currency_brl, clean_money_to_db, injetar_autofoco, LISTA_SERVICOS_PREMIO)
+    # injetar_autofoco não está definido neste app.py, então foi removido da chamada
+    render(engine, format_brl_number, format_currency_brl, clean_money_to_db, LISTA_SERVICOS_PREMIO)
 
 elif menu == "🔎 Auditoria CCT (IA)":
     from pages.auditoria import render
