@@ -439,7 +439,7 @@ LISTA_SITUACOES_ESOCIAL = [
     "12 - Novo afast. mesma doenca", "13 - Exercicio de mandato sindical",
     "14 - Aposent. por invalid. acidente de trabalho",
     "15 - Aposent. por invalid. doenca profissional",
-    "16 - Aposent. por invalid. exceto acid. trab. e doenca profissional",
+    "16 - Aposent. por invalid. exceto acid. trab. e doenca professional",
     "17 - Acid. Trabalho periodo igual ou inferior a 15 dias",
     "18 - Doenca periodo igual ou inferior a 15 dias", "19 - Aborto nao criminoso",
     "20 - Licenca maternidade adocao 1 ano", "21 - Licenca maternidade adocao 1 a 4 anos",
@@ -475,7 +475,7 @@ elif menu == "📥 Importação Inteligente":
 
 elif menu == "🛠️ Gestão de Cadastros":
     from pages.cadastros import render
-    # LINHA 468 CORRIGIDA: Adicionado injetar_autofoco e LISTA_SITUACOES_ESOCIAL como argumentos
+    # LINHA 468 CORRIGIDA: Adicionado injetar_autofoco como argumento, e todos os outros argumentos estão presentes.
     render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format_currency_brl, format_brl_number, format_cpf, format_competencia_smart, clean_money_to_db, sort_historico_chronological, LISTA_CARGOS, LISTA_SITUACOES_ESOCIAL)
 
 elif menu == "🏆 Gestão de Prêmios (ZAUT)":
@@ -484,4 +484,4 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
 
 elif menu == "🔎 Auditoria CCT (IA)":
     from pages.auditoria import render
-    render(engine, clean_money_to_db, format_brl_number)    
+    render(engine, clean_money_to_db, format_brl_number)
