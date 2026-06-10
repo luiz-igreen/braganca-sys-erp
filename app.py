@@ -162,7 +162,7 @@ def get_engine():
     # Acessa a DATABASE_URL do Streamlit Secrets
     # Agora busca diretamente a chave DATABASE_URL, como configurado nos secrets do Streamlit Cloud
     try:
-        database_url = st.secrets["DATABASE_URL"] # <-- LINHA CORRIGIDA
+        database_url = st.secrets["DATABASE_URL"]
     except KeyError:
         st.error("DATABASE_URL não encontrada nos Streamlit Secrets. Verifique a configuração.")
         st.stop()
@@ -462,7 +462,8 @@ elif menu == "📥 Importação Inteligente":
     render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, format_competencia_smart, LISTA_SITUACOES_ESOCIAL)
 
 elif menu == "🛠️ Gestão de Cadastros":
-    from pages.gestao_cadastros import render
+    # CORREÇÃO AQUI: O arquivo é 'cadastros.py', não 'gestao_cadastros.py'
+    from pages.cadastros import render
     # injetar_autofoco não está definido neste app.py, então foi removido da chamada
     render(engine, parse_br_date_smart, format_date_br, format_currency_brl, format_brl_number, format_cpf, format_competencia_smart, clean_money_to_db, sort_historico_chronological, LISTA_CARGOS, LISTA_SITUACOES_ESOCIAL)
 
