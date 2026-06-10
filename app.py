@@ -19,12 +19,25 @@ def format_currency_brl(value):
     if pd.isna(value): return "R$ -"
     return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
+# FUNÇÃO clean_money_to_db CORRIGIDA
 def clean_money_to_db(money_str):
     if isinstance(money_str, (int, float)):
         return money_str
     if not money_str:
         return None
-    clean_str = money_str.replace("R$", "").replace(".", "").replace(",", ".").strip()
+
+    clean_str = str(money_str).strip()
+
+    # Detecta o separador decimal:
+    # Se houver vírgula e depois dela houver exatamente 2 dígitos, a vírgula é o decimal.
+    # Caso contrário, o ponto é o decimal (se houver).
+    if re.search(r',\d{2}$', clean_str): # Ex: 1.861,66
+        clean_str = clean_str.replace(".", "").replace(",", ".")
+    else: # Ex: 1,861.66 ou 1861.66
+        clean_str = clean_str.replace(",", "") # Remove vírgulas de milhar
+
+    clean_str = clean_str.replace("R$", "").strip() # Remove R$ e espaços
+
     try:
         return float(clean_str)
     except ValueError:
@@ -154,7 +167,7 @@ def get_current_month_year():
     today = date.today()
     return today.strftime("%m/%Y")
 
-# --- FUNÇÃO PARA INJETAR AUTOFOCUS (ADICIONADA) ---
+# --- FUNÇÃO PARA INJETAR AUTOFOCUS ---
 def injetar_autofoco(element_id):
     js_code = f"""
     <script>
@@ -189,188 +202,101 @@ engine = get_engine()
 
 try:
     with engine.begin() as conn:
-        # Criação da tabela historico_afastamentos
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS historico_afastamentos (
-                id SERIAL PRIMARY KEY,
-                id_colaborador VARCHAR(50),
-                data_inicio DATE,
-                data_fim DATE,
-                tipo_afastamento VARCHAR(200),
-                observacao TEXT
-            )
-        """))
-        # Criação da tabela cadastro_financeiro_colaborador
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS cadastro_financeiro_colaborador (
-                id SERIAL PRIMARY KEY,
-                id_colaborador VARCHAR(50) UNIQUE,
-                banco VARCHAR(100),
-                agencia VARCHAR(20),
-                conta VARCHAR(50),
-                tipo_conta VARCHAR(50),
-                chave_pix VARCHAR(255)
-            )
-        """))
-        # Criação da tabela historico_premiacoes_e_folha
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS historico_premiacoes_e_folha (
-                id SERIAL PRIMARY KEY,
-                id_colaborador VARCHAR(50),
-                competencia VARCHAR(7),
-                tipo_lancamento VARCHAR(100),
-                valor_lancamento NUMERIC(10, 2),
-                status_pagamento VARCHAR(50),
-                retroativo_pago BOOLEAN DEFAULT FALSE,
-                data_pagamento DATE
-            )
-        """))
         # Criação da tabela cadastro_geral_colaborador
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS cadastro_geral_colaborador (
-                id VARCHAR(50) PRIMARY KEY,
-                nome VARCHAR(255),
-                cpf VARCHAR(14),
-                cargo VARCHAR(100),
+                id TEXT PRIMARY KEY,
+                nome TEXT,
+                cpf TEXT,
+                cargo TEXT,
                 admissao DATE,
                 demissao DATE,
-                status_esocial VARCHAR(100),
+                status_esocial TEXT,
                 salario_mes_12_24 NUMERIC(10, 2),
                 salario_hora_12_24 NUMERIC(10, 2)
             )
         """))
-    # st.success("Tabelas verificadas/criadas com sucesso.") # Comentado para reduzir mensagens na inicialização
-except Exception as e:
-    st.error(f"Erro ao inicializar tabelas: {e}")
+        # Adiciona colunas se não existirem
+        for col, dtype in [('demissao', 'DATE'), ('status_esocial', 'TEXT'), ('salario_mes_12_24', 'NUMERIC(10, 2)'), ('salario_hora_12_24', 'NUMERIC(10, 2)')]:
+            try:
+                conn.execute(text(f"ALTER TABLE cadastro_geral_colaborador ADD COLUMN {col} {dtype}"))
+            except Exception as e:
+                if "already exists" not in str(e): raise
 
-# Renomear coluna 'situacao' para 'status_esocial' se existir e não houver 'status_esocial'
-try:
-    with engine.begin() as conn:
-        # Verifica se 'situacao' existe e 'status_esocial' não existe
-        result = conn.execute(text("""
-            SELECT column_name FROM information_schema.columns
-            WHERE table_name = 'cadastro_geral_colaborador' AND column_name = 'situacao';
-        """)).fetchone()
-        if result:
-            result_new = conn.execute(text("""
-                SELECT column_name FROM information_schema.columns
-                WHERE table_name = 'cadastro_geral_colaborador' AND column_name = 'status_esocial';
-            """)).fetchone()
-            if not result_new:
-                conn.execute(text("ALTER TABLE cadastro_geral_colaborador RENAME COLUMN situacao TO status_esocial;"))
-                st.success("Coluna 'situacao' renomeada para 'status_esocial'.")
-            else:
-                st.info("Coluna 'status_esocial' já existe. 'situacao' não foi renomeada.")
-        else:
-            st.info("Coluna 'situacao' não encontrada para renomear.")
-except Exception as e:
-    st.warning(f"Erro ao tentar renomear 'situacao' para 'status_esocial': {e}")
-
-# Renomear coluna 'salario_hora' para 'salario_hora_12_24' se existir e não houver 'salario_hora_12_24'
-try:
-    with engine.begin() as conn:
-        result = conn.execute(text("""
-            SELECT column_name FROM information_schema.columns
-            WHERE table_name = 'cadastro_geral_colaborador' AND column_name = 'salario_hora';
-        """)).fetchone()
-        if result:
-            result_new = conn.execute(text("""
-                SELECT column_name FROM information_schema.columns
-                WHERE table_name = 'cadastro_geral_colaborador' AND column_name = 'salario_hora_12_24';
-            """)).fetchone()
-            if not result_new:
-                conn.execute(text("ALTER TABLE cadastro_geral_colaborador RENAME COLUMN salario_hora TO salario_hora_12_24;"))
-                st.success("Coluna 'salario_hora' renomeada para 'salario_hora_12_24'.")
-            else:
-                st.info("Coluna 'salario_hora_12_24' já existe. 'salario_hora' não foi renomeada.")
-        else:
-            st.info("Coluna 'salario_hora' não encontrada para renomear.")
-except Exception as e:
-    st.warning(f"Erro ao tentar renomear 'salario_hora' para 'salario_hora_12_24': {e}")
-
-# Remover colunas data_afastamento e data_retorno se existirem
-try:
-    with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE cadastro_geral_colaborador DROP COLUMN IF EXISTS data_afastamento;"))
-        conn.execute(text("ALTER TABLE cadastro_geral_colaborador DROP COLUMN IF EXISTS data_retorno;"))
-    st.success("Colunas 'data_afastamento' e 'data_retorno' removidas de 'cadastro_geral_colaborador'.")
-except Exception as e:
-    st.warning(f"Erro ao tentar remover colunas 'data_afastamento' ou 'data_retorno': {e}")
-
-# Correções de valores de situações eSocial
-try:
-    with engine.begin() as conn:
-        correcoes_esocial = {
-            "6 - Doença": "6 - Doenca periodo superior a 15 dias",
-            "6 - Doenca periodo igual ou superior a 15 dias": "6 - Doenca periodo igual ou superior a 15 dias",
-            "18 - Doença": "18 - Doenca periodo igual ou inferior a 15 dias",
-        }
-        for errado, correto in correcoes_esocial.items():
-            conn.execute(text("UPDATE cadastro_geral_colaborador SET status_esocial = :c WHERE status_esocial = :e"), {"c": correto, "e": errado})
-            conn.execute(text("UPDATE historico_afastamentos SET tipo_afastamento = :c WHERE tipo_afastamento = :e"), {"c": correto, "e": errado})
-    st.success("Correções de situações eSocial aplicadas.")
-except Exception as e:
-    st.warning(f"Erro ao aplicar correções de situações eSocial: {e}")
-
-# Adicionar colunas 'data_afastamento' e 'data_retorno' à tabela 'cadastro_geral_colaborador' se não existirem
-try:
-    with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS data_afastamento DATE;"))
-        conn.execute(text("ALTER TABLE cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS data_retorno DATE;"))
-    st.success("Colunas 'data_afastamento' e 'data_retorno' adicionadas a 'cadastro_geral_colaborador'.")
-except Exception as e:
-    st.warning(f"Erro ao adicionar colunas 'data_afastamento' ou 'data_retorno': {e}")
-
-# Preencher 'data_afastamento' e 'data_retorno' com base no histórico de afastamentos
-try:
-    with engine.begin() as conn:
-        # Para data_afastamento: pegar a data_inicio do afastamento mais recente (se houver)
+        # Criação da tabela cadastro_financeiro_colaborador
         conn.execute(text("""
-            UPDATE cadastro_geral_colaborador cgc
-            SET data_afastamento = (
-                SELECT ha.data_inicio
-                FROM historico_afastamentos ha
-                WHERE ha.id_colaborador = cgc.id
-                ORDER BY ha.data_inicio DESC
-                LIMIT 1
+            CREATE TABLE IF NOT EXISTS cadastro_financeiro_colaborador (
+                id SERIAL PRIMARY KEY,
+                id_colaborador TEXT REFERENCES cadastro_geral_colaborador(id),
+                banco TEXT,
+                agencia TEXT,
+                conta TEXT,
+                chave_pix TEXT
             )
-            WHERE cgc.data_afastamento IS NULL;
         """))
-        # Para data_retorno: pegar a data_fim do afastamento mais recente (se houver)
-        conn.execute(text("""
-            UPDATE cadastro_geral_colaborador cgc
-            SET data_retorno = (
-                SELECT ha.data_fim
-                FROM historico_afastamentos ha
-                WHERE ha.id_colaborador = cgc.id
-                ORDER BY ha.data_inicio DESC
-                LIMIT 1
-            )
-            WHERE cgc.data_retorno IS NULL;
-        """))
-    st.success("Colunas 'data_afastamento' e 'data_retorno' preenchidas com base no histórico.")
-except Exception as e:
-    st.warning(f"Erro ao preencher 'data_afastamento' ou 'data_retorno': {e}")
+        # Adiciona colunas se não existirem
+        for col, dtype in [('banco', 'TEXT'), ('agencia', 'TEXT'), ('conta', 'TEXT'), ('chave_pix', 'TEXT')]:
+            try:
+                conn.execute(text(f"ALTER TABLE cadastro_financeiro_colaborador ADD COLUMN {col} {dtype}"))
+            except Exception as e:
+                if "already exists" not in str(e): raise
 
-# Migração de dados de afastamento da tabela antiga para a nova, se necessário
+        # Criação da tabela historico_premiacoes_e_folha
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS historico_premiacoes_e_folha (
+                id SERIAL PRIMARY KEY,
+                id_colaborador TEXT REFERENCES cadastro_geral_colaborador(id),
+                competencia TEXT,
+                tipo_lancamento TEXT,
+                valor_lancamento NUMERIC(10, 2),
+                status_pagamento TEXT,
+                retroativo_pago NUMERIC(10, 2),
+                data_pagamento DATE
+            )
+        """))
+        # Adiciona colunas se não existirem
+        for col, dtype in [('retroativo_pago', 'NUMERIC(10, 2)'), ('data_pagamento', 'DATE')]:
+            try:
+                conn.execute(text(f"ALTER TABLE historico_premiacoes_e_folha ADD COLUMN {col} {dtype}"))
+            except Exception as e:
+                if "already exists" not in str(e): raise
+
+        # Criação da tabela historico_afastamentos
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS historico_afastamentos (
+                id SERIAL PRIMARY KEY,
+                id_colaborador TEXT REFERENCES cadastro_geral_colaborador(id),
+                data_inicio DATE,
+                data_fim DATE,
+                tipo_afastamento TEXT
+            )
+        """))
+        # Adiciona colunas se não existirem
+        for col, dtype in [('data_fim', 'DATE')]:
+            try:
+                conn.execute(text(f"ALTER TABLE historico_afastamentos ADD COLUMN {col} {dtype}"))
+            except Exception as e:
+                if "already exists" not in str(e): raise
+
+    st.success("Estrutura do banco de dados verificada e atualizada com sucesso!")
+except Exception as e:
+    st.error(f"Erro ao inicializar o banco de dados: {e}")
+
+# Migração de dados de afastamento (se necessário)
 try:
     with engine.begin() as conn:
         # Verifica se a tabela historico_afastamentos está vazia
-        cnt_afastamentos = conn.execute(text("SELECT COUNT(*) FROM historico_afastamentos")).fetchone()[0]
-        if cnt_afastamentos == 0:
-            # Verifica se a tabela cadastro_geral_colaborador tem dados de afastamento para migrar
-            df_colaboradores_com_afastamento = pd.read_sql_query("""
-                SELECT id, admissao, status_esocial, data_afastamento, data_retorno
-                FROM cadastro_geral_colaborador
-                WHERE status_esocial IS NOT NULL AND status_esocial != '' AND status_esocial != '1 - Trabalhando'
-            """, conn)
+        count_afastamentos = conn.execute(text("SELECT COUNT(*) FROM historico_afastamentos")).scalar()
+        if count_afastamentos == 0:
+            # Seleciona dados de afastamento da tabela principal (se existirem)
+            df_colaboradores = pd.read_sql(text("SELECT id, admissao, demissao, status_esocial FROM cadastro_geral_colaborador WHERE status_esocial IS NOT NULL AND status_esocial != '1 - Trabalhando'"), conn)
 
-            if not df_colaboradores_com_afastamento.empty:
-                for index, row in df_colaboradores_com_afastamento.iterrows():
+            if not df_colaboradores.empty:
+                for index, row in df_colaboradores.iterrows():
                     id_colaborador = row['id']
 
-                    # --- CORREÇÃO AQUI: TRATAMENTO DE DATAS COM parse_br_date_smart ---
-                    raw_data_afastamento = row['data_afastamento']
+                    # --- CORREÇÃO AQUI: Lógica para determinar data_inicio e data_fim ---
+                    raw_data_afastamento = row['demissao'] # Assumindo que demissao pode ser um afastamento inicial
                     raw_admissao = row['admissao']
 
                     # Prioriza data_afastamento, se não, usa admissao
@@ -378,7 +304,7 @@ try:
                     data_inicio = parse_br_date_smart(data_inicio_val) # Usa a função auxiliar
 
                     # Garante que data_fim seja um objeto date ou None
-                    data_fim = parse_br_date_smart(row['data_retorno']) # Usa a função auxiliar
+                    data_fim = parse_br_date_smart(row['demissao']) # Assumindo que demissao pode ser o fim de um afastamento
                     # --- FIM DA CORREÇÃO ---
 
                     tipo_afastamento = row['status_esocial']
@@ -439,7 +365,7 @@ LISTA_SITUACOES_ESOCIAL = [
     "12 - Novo afast. mesma doenca", "13 - Exercicio de mandato sindical",
     "14 - Aposent. por invalid. acidente de trabalho",
     "15 - Aposent. por invalid. doenca profissional",
-    "16 - Aposent. por invalid. exceto acid. trab. e doenca professional",
+    "16 - Aposent. por invalid. exceto acid. trab. e doenca profissional",
     "17 - Acid. Trabalho periodo igual ou inferior a 15 dias",
     "18 - Doenca periodo igual ou inferior a 15 dias", "19 - Aborto nao criminoso",
     "20 - Licenca maternidade adocao 1 ano", "21 - Licenca maternidade adocao 1 a 4 anos",
@@ -475,7 +401,6 @@ elif menu == "📥 Importação Inteligente":
 
 elif menu == "🛠️ Gestão de Cadastros":
     from pages.cadastros import render
-    # LINHA 468 CORRIGIDA: Adicionado injetar_autofoco como argumento, e todos os outros argumentos estão presentes.
     render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format_currency_brl, format_brl_number, format_cpf, format_competencia_smart, clean_money_to_db, sort_historico_chronological, LISTA_CARGOS, LISTA_SITUACOES_ESOCIAL)
 
 elif menu == "🏆 Gestão de Prêmios (ZAUT)":
@@ -484,4 +409,4 @@ elif menu == "🏆 Gestão de Prêmios (ZAUT)":
 
 elif menu == "🔎 Auditoria CCT (IA)":
     from pages.auditoria import render
-    render(engine, clean_money_to_db, format_brl_number)
+    render(engine, clean_money_to_db, format_brl_number)    
