@@ -119,7 +119,7 @@ def import_cadastro_geral_colaborador(file_path):
                                 demissao = EXCLUDED.demissao,
                                 status_esocial = EXCLUDED.status_esocial,
                                 salario_mes_12_24 = EXCLUDED.salario_mes_12_24,
-                                salario_hora_12_24 = EXCLUDED.salario_hora_12_24
+                                salario_hora_12_24 = EXCLUDED.salario_mes_12_24
                         """),
                         row.to_dict()
                     )
