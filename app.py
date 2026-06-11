@@ -357,7 +357,7 @@ LISTA_SITUACOES_ESOCIAL = [
     "11 - Antecipacao e/ou prorrogacao Licenca Maternidade",
     "12 - Novo afast. mesma doenca", "13 - Exercicio de mandato sindical",
     "14 - Aposent. por invalid. acidente de trabalho",
-    "15 - Aposent. por invalid. doenca profissional",
+    "15 - Aposent. por invalid. doenca professional",
     "16 - Aposent. por invalid. exceto acid. trab. e doenca professional",
     "17 - Acid. Trabalho periodo igual ou inferior a 15 dias",
     "18 - Doenca periodo igual ou inferior a 15 dias", "19 - Aborto nao criminoso",
@@ -389,7 +389,8 @@ if menu == "👥 Visão Geral":
     render(engine, parse_br_date_smart, format_currency_brl, format_cpf, clean_money_to_db)
 
 elif menu == "📥 Importação Inteligente":
-    from pages.importacao import render
+    # AQUI ESTÁ A ALTERAÇÃO: importando do arquivo renomeado
+    from pages.importacao_inteligente import render
     render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, format_competencia_smart, LISTA_SITUACOES_ESOCIAL)
 
 elif menu == "🛠️ Gestão de Cadastros":
