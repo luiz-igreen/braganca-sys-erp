@@ -262,6 +262,31 @@ try:
         add_column_if_not_exists(conn, 'historico_premiacoes_e_folha', 'retroativo_pago', 'NUMERIC(10, 2)')
         add_column_if_not_exists(conn, 'historico_premiacoes_e_folha', 'data_pagamento', 'DATE')
 
+        # --- AQUI ESTÁ A CRIAÇÃO DA TABELA premios_funcionarios ---
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS premios_funcionarios (
+                id SERIAL PRIMARY KEY,
+                id_colaborador TEXT REFERENCES cadastro_geral_colaborador(id),
+                nome_colaborador TEXT,
+                salario_hora NUMERIC(10, 2),
+                horas_premio NUMERIC(10, 2),
+                descricao_servico TEXT,
+                data_lancamento DATE,
+                valor_total_premio NUMERIC(10, 2),
+                status_pagamento TEXT
+            )
+        """))
+        # Adicionando colunas se não existirem (para garantir compatibilidade)
+        add_column_if_not_exists(conn, 'premios_funcionarios', 'id_colaborador', 'TEXT REFERENCES cadastro_geral_colaborador(id)')
+        add_column_if_not_exists(conn, 'premios_funcionarios', 'nome_colaborador', 'TEXT')
+        add_column_if_not_exists(conn, 'premios_funcionarios', 'salario_hora', 'NUMERIC(10, 2)')
+        add_column_if_not_exists(conn, 'premios_funcionarios', 'horas_premio', 'NUMERIC(10, 2)')
+        add_column_if_not_exists(conn, 'premios_funcionarios', 'descricao_servico', 'TEXT')
+        add_column_if_not_exists(conn, 'premios_funcionarios', 'data_lancamento', 'DATE')
+        add_column_if_not_exists(conn, 'premios_funcionarios', 'valor_total_premio', 'NUMERIC(10, 2)')
+        add_column_if_not_exists(conn, 'premios_funcionarios', 'status_pagamento', 'TEXT')
+
+
         # Criação da tabela historico_afastamentos
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS historico_afastamentos (
@@ -326,6 +351,7 @@ try:
         conn.execute(text("DELETE FROM historico_afastamentos WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
         conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
         conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
+        conn.execute(text("DELETE FROM premios_funcionarios WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'")) # Adicionado para premios_funcionarios
         conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id IS NULL OR TRIM(CAST(id AS TEXT)) = '' OR CAST(id AS TEXT) ILIKE 'nan' OR CAST(id AS TEXT) ILIKE 'none'"))
     st.success("Registros com ID nulo/vazio limpos em todas as tabelas.")
 except Exception as e:
