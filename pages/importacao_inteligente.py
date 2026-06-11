@@ -302,23 +302,39 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                 v_id_colaborador = row['id_colaborador'].strip()
                                 v_nome_colaborador = row['nome_colaborador'].strip() if pd.notna(row['nome_colaborador']) else None
 
+                                # --- AQUI ESTÁ A CORREÇÃO PARA A CONVERSÃO NUMÉRICA ---
                                 # Limpar e converter salario_hora
                                 sal_hora_raw = str(row['salario_hora']).replace('R$', '').replace('.', '').replace(',', '.').strip() if pd.notna(row['salario_hora']) else '0'
                                 try:
-                                    v_salario_hora = float(sal_hora_raw)
+                                    # Arredonda para 2 casas decimais para evitar overflow no NUMERIC(10,2)
+                                    v_salario_hora = round(float(sal_hora_raw), 2)
+                                    # Verifica se o valor é muito grande para NUMERIC(10,2) antes de inserir
+                                    if abs(v_salario_hora) >= 10**8: # 10^8 é o limite para 10 dígitos com 2 decimais (99,999,999.99)
+                                        st.warning(f"Salário por hora ({v_salario_hora}) para ID {v_id_colaborador} é muito grande. Ajustando para 0.0.")
+                                        v_salario_hora = 0.0
                                 except ValueError:
                                     v_salario_hora = 0.0
 
                                 # Limpar e converter horas_premio
                                 horas_premio_raw = str(row['horas_premio']).replace(',', '.').strip() if pd.notna(row['horas_premio']) else '0'
                                 try:
-                                    v_horas_premio = float(horas_premio_raw)
+                                    # Arredonda para 2 casas decimais
+                                    v_horas_premio = round(float(horas_premio_raw), 2)
+                                    if abs(v_horas_premio) >= 10**8:
+                                        st.warning(f"Horas prêmio ({v_horas_premio}) para ID {v_id_colaborador} é muito grande. Ajustando para 0.0.")
+                                        v_horas_premio = 0.0
                                 except ValueError:
                                     v_horas_premio = 0.0
 
                                 v_descricao_servico = row['descricao_servico'].strip() if pd.notna(row['descricao_servico']) else None
                                 v_data_lancamento = datetime.now().date() # Data atual da importação
-                                v_valor_total_premio = v_salario_hora * v_horas_premio
+
+                                # Calcula valor_total_premio e arredonda para 2 casas decimais
+                                v_valor_total_premio = round(v_salario_hora * v_horas_premio, 2)
+                                if abs(v_valor_total_premio) >= 10**8:
+                                    st.warning(f"Valor total do prêmio ({v_valor_total_premio}) para ID {v_id_colaborador} é muito grande. Ajustando para 0.0.")
+                                    v_valor_total_premio = 0.0
+
                                 v_status_pagamento = 'Pago' # Padrão
 
                                 if not v_id_colaborador or v_id_colaborador == 'nan': continue # Ignora linhas sem ID válido
