@@ -4,7 +4,7 @@ from sqlalchemy import text
 import re
 from datetime import datetime, date
 
-def render(engine, parse_br_date_smart, format_currency_brl, format_cpf, clean_money_to_db):
+def render(engine, parse_br_date_smart, format_currency_brl, format_cpf, clean_money_to_db, LISTA_SITUACOES_ESOCIAL): # Adicionado LISTA_SITUACOES_ESOCIAL
     st.subheader("👥 Visão Geral dos Colaboradores")
 
     # --- FILTROS ---
@@ -14,7 +14,8 @@ def render(engine, parse_br_date_smart, format_currency_brl, format_cpf, clean_m
     with col2:
         filtro_cpf = st.text_input("Filtrar por CPF:", key="filtro_cpf_visao_geral")
     with col3:
-        filtro_status = st.selectbox("Filtrar por Status eSocial:", ["Todos", "1 - Trabalhando", "8 - Demitido", "Outros Afastamentos"], key="filtro_status_visao_geral")
+        # Usar a LISTA_SITUACOES_ESOCIAL completa para o filtro
+        filtro_status = st.selectbox("Filtrar por Status eSocial:", ["Todos"] + LISTA_SITUACOES_ESOCIAL, key="filtro_status_visao_geral")
 
     # --- CARREGAR DADOS ---
     @st.cache_data(ttl=600) # Cache por 10 minutos
@@ -35,10 +36,9 @@ def render(engine, parse_br_date_smart, format_currency_brl, format_cpf, clean_m
     if filtro_cpf:
         df_filtrado = df_filtrado[df_filtrado['cpf'].str.contains(filtro_cpf, case=False, na=False)]
     if filtro_status != "Todos":
-        if filtro_status == "Outros Afastamentos":
-            df_filtrado = df_filtrado[~df_filtrado['status_esocial'].isin(["1 - Trabalhando", "8 - Demitido"])]
-        else:
-            df_filtrado = df_filtrado[df_filtrado['status_esocial'] == filtro_status]
+        # A lógica "Outros Afastamentos" não é mais necessária se a lista completa for usada
+        # O filtro agora compara diretamente com o status selecionado
+        df_filtrado = df_filtrado[df_filtrado['status_esocial'] == filtro_status]
 
     st.write(f"Total de colaboradores encontrados: **{len(df_filtrado)}**")
 
@@ -46,8 +46,9 @@ def render(engine, parse_br_date_smart, format_currency_brl, format_cpf, clean_m
     if not df_filtrado.empty:
         df_display = df_filtrado.copy()
         df_display['cpf'] = df_display['cpf'].apply(format_cpf)
-        df_display['admissao'] = df_display['admissao'].apply(lambda x: x.strftime('%d/%m/%Y') if pd.notna(x) else '')
-        df_display['demissao'] = df_display['demissao'].apply(lambda x: x.strftime('%d/%m/%Y') if pd.notna(x) else '')
+        # Usar a função format_date_br para admissao e demissao
+        df_display['admissao'] = df_display['admissao'].apply(lambda x: format_date_br(x) if pd.notna(x) else '-')
+        df_display['demissao'] = df_display['demissao'].apply(lambda x: format_date_br(x) if pd.notna(x) else '-')
         df_display['salario_mes_12_24'] = df_display['salario_mes_12_24'].apply(format_currency_brl)
         df_display['salario_hora_12_24'] = df_display['salario_hora_12_24'].apply(format_currency_brl)
 
