@@ -286,11 +286,11 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                     # As colunas do CSV são: 'id', 'nome', 'sal_hora', 'Horas Prêmio (HP)', 'Descrição do Serviço'
                     df_temp_premios = pd.DataFrame()
                     if df_premios.shape[1] >= 5:
-                        df_temp_premios['id_colaborador'] = df_premios.iloc[:, 0].astype(str) # Coluna 'id' do CSV
-                        df_temp_premios['nome_colaborador'] = df_premios.iloc[:, 1].astype(str) # Coluna 'nome' do CSV
-                        df_temp_premios['salario_hora'] = df_premios.iloc[:, 2] # Coluna 'sal_hora' do CSV
-                        df_temp_premios['horas_premio'] = df_premios.iloc[:, 3] # Coluna 'Horas Prêmio (HP)' do CSV
-                        df_temp_premios['descricao_servico'] = df_premios.iloc[:, 4].astype(str) # Coluna 'Descrição do Serviço' do CSV
+                        df_temp_premios['id_colaborador_csv'] = df_premios.iloc[:, 0].astype(str) # Coluna 'id' do CSV
+                        df_temp_premios['nome_colaborador_csv'] = df_premios.iloc[:, 1].astype(str) # Coluna 'nome' do CSV
+                        df_temp_premios['salario_hora_csv'] = df_premios.iloc[:, 2] # Coluna 'sal_hora' do CSV
+                        df_temp_premios['horas_premio_csv'] = df_premios.iloc[:, 3] # Coluna 'Horas Prêmio (HP)' do CSV
+                        df_temp_premios['descricao_servico_csv'] = df_premios.iloc[:, 4].astype(str) # Coluna 'Descrição do Serviço' do CSV
                     else:
                         st.error("O arquivo CSV de Prêmios não possui o número esperado de colunas (mínimo 5). Verifique o formato.")
                         return
@@ -299,69 +299,62 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                     with engine.begin() as conn:
                         for _, row in df_temp_premios.iterrows():
                             try:
-                                v_id_colaborador = row['id_colaborador'].strip()
-                                v_nome_colaborador = row['nome_colaborador'].strip() if pd.notna(row['nome_colaborador']) else None
+                                # --- USANDO OS NOMES DE COLUNAS DO SEU SUPABASE ---
+                                v_codigo_funcionario = row['id_colaborador_csv'].strip()
+                                v_nome_funcionario = row['nome_colaborador_csv'].strip() if pd.notna(row['nome_colaborador_csv']) else None
 
-                                # --- AQUI ESTÁ A CORREÇÃO PARA A CONVERSÃO NUMÉRICA ---
                                 # Limpar e converter salario_hora
-                                sal_hora_raw = str(row['salario_hora']).replace('R$', '').replace('.', '').replace(',', '.').strip() if pd.notna(row['salario_hora']) else '0'
+                                sal_hora_raw = str(row['salario_hora_csv']).replace('R$', '').replace('.', '').replace(',', '.').strip() if pd.notna(row['salario_hora_csv']) else '0'
                                 try:
-                                    # Arredonda para 2 casas decimais para evitar overflow no NUMERIC(10,2)
                                     v_salario_hora = round(float(sal_hora_raw), 2)
-                                    # Verifica se o valor é muito grande para NUMERIC(10,2) antes de inserir
-                                    if abs(v_salario_hora) >= 10**8: # 10^8 é o limite para 10 dígitos com 2 decimais (99,999,999.99)
-                                        st.warning(f"Salário por hora ({v_salario_hora}) para ID {v_id_colaborador} é muito grande. Ajustando para 0.0.")
+                                    if abs(v_salario_hora) >= 10**8:
+                                        st.warning(f"Salário por hora ({v_salario_hora}) para ID {v_codigo_funcionario} é muito grande. Ajustando para 0.0.")
                                         v_salario_hora = 0.0
                                 except ValueError:
                                     v_salario_hora = 0.0
 
                                 # Limpar e converter horas_premio
-                                horas_premio_raw = str(row['horas_premio']).replace(',', '.').strip() if pd.notna(row['horas_premio']) else '0'
+                                horas_premio_raw = str(row['horas_premio_csv']).replace(',', '.').strip() if pd.notna(row['horas_premio_csv']) else '0'
                                 try:
-                                    # Arredonda para 2 casas decimais
                                     v_horas_premio = round(float(horas_premio_raw), 2)
                                     if abs(v_horas_premio) >= 10**8:
-                                        st.warning(f"Horas prêmio ({v_horas_premio}) para ID {v_id_colaborador} é muito grande. Ajustando para 0.0.")
+                                        st.warning(f"Horas prêmio ({v_horas_premio}) para ID {v_codigo_funcionario} é muito grande. Ajustando para 0.0.")
                                         v_horas_premio = 0.0
                                 except ValueError:
                                     v_horas_premio = 0.0
 
-                                v_descricao_servico = row['descricao_servico'].strip() if pd.notna(row['descricao_servico']) else None
+                                v_descricao_servico = row['descricao_servico_csv'].strip() if pd.notna(row['descricao_servico_csv']) else None
                                 v_data_lancamento = datetime.now().date() # Data atual da importação
 
-                                # Calcula valor_total_premio e arredonda para 2 casas decimais
                                 v_valor_total_premio = round(v_salario_hora * v_horas_premio, 2)
                                 if abs(v_valor_total_premio) >= 10**8:
-                                    st.warning(f"Valor total do prêmio ({v_valor_total_premio}) para ID {v_id_colaborador} é muito grande. Ajustando para 0.0.")
+                                    st.warning(f"Valor total do prêmio ({v_valor_total_premio}) para ID {v_codigo_funcionario} é muito grande. Ajustando para 0.0.")
                                     v_valor_total_premio = 0.0
 
                                 v_status_pagamento = 'Pago' # Padrão
+                                v_cargo = 'N/A' # A coluna 'cargo' existe na sua tabela, mas não no CSV de prêmios. Usando um valor padrão.
 
-                                if not v_id_colaborador or v_id_colaborador == 'nan': continue # Ignora linhas sem ID válido
+                                if not v_codigo_funcionario or v_codigo_funcionario == 'nan': continue # Ignora linhas sem ID válido
 
-                                # AQUI ESTÁ A CORREÇÃO: Removendo ON CONFLICT para usar INSERT simples
-                                # Se a tabela premios_funcionarios não tem uma PRIMARY KEY ou UNIQUE CONSTRAINT
-                                # na combinação de id_colaborador, data_lancamento e descricao_servico,
-                                # o ON CONFLICT falha. A forma mais segura é fazer um INSERT simples.
-                                # Se você precisar de idempotência (evitar duplicatas), precisaremos
-                                # adicionar uma UNIQUE CONSTRAINT no banco de dados.
+                                # --- COMANDO SQL AJUSTADO PARA AS COLUNAS DO SEU SUPABASE ---
                                 conn.execute(text("""
                                     INSERT INTO premios_funcionarios
-                                    (id_colaborador, nome_colaborador, salario_hora, horas_premio, descricao_servico, data_lancamento, valor_total_premio, status_pagamento)
-                                    VALUES (:id_colaborador, :nome_colaborador, :salario_hora, :horas_premio, :descricao_servico, :data_lancamento, :valor_total_premio, :status_pagamento)
+                                    (codigo_funcionario, nome_funcionario, salario_hora, horas_premio, descricao_servico, data_lancamento, valor_total_premio, status_pagamento, cargo)
+                                    VALUES (:codigo_funcionario, :nome_funcionario, :salario_hora, :horas_premio, :descricao_servico, :data_lancamento, :valor_total_premio, :status_pagamento, :cargo)
                                 """), {
-                                    "id_colaborador": v_id_colaborador,
-                                    "nome_colaborador": v_nome_colaborador,
+                                    "codigo_funcionario": v_codigo_funcionario,
+                                    "nome_funcionario": v_nome_funcionario,
                                     "salario_hora": v_salario_hora,
                                     "horas_premio": v_horas_premio,
                                     "descricao_servico": v_descricao_servico,
                                     "data_lancamento": v_data_lancamento,
                                     "valor_total_premio": v_valor_total_premio,
-                                    "status_pagamento": v_status_pagamento
+                                    "status_pagamento": v_status_pagamento,
+                                    "cargo": v_cargo
                                 })
                                 inserts_count += 1
                             except Exception as inner_e:
-                                st.warning(f"Linha de prêmio ignorada (ID: {v_id_colaborador if 'v_id_colaborador' in locals() else 'N/A'}): {inner_e}")
+                                st.warning(f"Linha de prêmio ignorada (ID: {v_codigo_funcionario if 'v_codigo_funcionario' in locals() else 'N/A'}): {inner_e}")
                         st.cache_data.clear() # Limpa o cache
                         st.success(f"Ingestão de Prêmios executada com sucesso! {inserts_count} registros inseridos/atualizados.")
                 except Exception as e:
