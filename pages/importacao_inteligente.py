@@ -164,71 +164,69 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                     if dt_adm and dt_coluna < dt_adm: continue
                                     if dt_dem and dt_coluna > dt_dem: continue
                                     try:
-                                        val_float = float(val) if not isinstance(val, str) else float(val.upper().replace('R$', '').replace('.', '').replace(',', '.').strip())
-                                    except: continue
-                                    if val_float > 0:
-                                        inserts_pendentes.append({"id_colab": colab['id'], "comp": f"{dt_coluna.month:02d}/{dt_coluna.year}", "tipo": "Salário Mensal", "valor": val_float})
+                                        val_float = float(str(val).replace('.', '').replace(',', '.'))
+                                    except ValueError:
+                                        val_float = 0.0
+                                    inserts_pendentes.append({
+                                        "id_colaborador": colab['id'],
+                                        "competencia": dt_coluna.strftime('%m/%Y'),
+                                        "tipo_lancamento": "Salário Mensal",
+                                        "valor_lancamento": val_float,
+                                        "status_pagamento": "Pago",
+                                        "retroativo_pago": 0.0,
+                                        "data_pagamento": None
+                                    })
                             linhas_processadas += 1
-
-                        if inserts_pendentes:
-                            with engine.begin() as conn:
-                                for item in inserts_pendentes:
-                                    # O campo 'competencia' no banco é DATE, precisa ser convertido
-                                    comp_date = datetime.strptime(item['comp'], '%m/%Y').date()
-                                    if not conn.execute(text("SELECT 1 FROM historico_premiacoes_e_folha WHERE id_colaborador = :id_colab AND competencia = :comp AND tipo_lancamento = :tipo"), {"id_colab": item['id_colab'], "comp": comp_date, "tipo": item['tipo']}).fetchone():
-                                        conn.execute(text("INSERT INTO historico_premiacoes_e_folha (id_colaborador, competencia, tipo_lancamento, valor, status_pagamento) VALUES (:id_colab, :comp, :tipo, :valor, 'Pago')"), {"id_colab": item['id_colab'], "comp": comp_date, "tipo": item['tipo'], "valor": item['valor']})
-                            st.cache_data.clear() # Limpa o cache
-                            st.success(f"✅ Lidos {linhas_processadas} colaboradores. Injetados {len(inserts_pendentes)} registros reais.")
-                        else:
-                            st.warning("Nenhum registro novo importado.")
+                        with engine.begin() as conn:
+                            for insert_data in inserts_pendentes:
+                                conn.execute(text("""
+                                    INSERT INTO historico_premiacoes_e_folha
+                                    (id_colaborador, competencia, tipo_lancamento, valor_lancamento, status_pagamento, retroativo_pago, data_pagamento)
+                                    VALUES (:id_colaborador, :competencia, :tipo_lancamento, :valor_lancamento, :status_pagamento, :retroativo_pago, :data_pagamento)
+                                    ON CONFLICT (id_colaborador, competencia, tipo_lancamento) DO UPDATE SET
+                                    valor_lancamento = EXCLUDED.valor_lancamento,
+                                    status_pagamento = EXCLUDED.status_pagamento,
+                                    retroativo_pago = EXCLUDED.retroativo_pago,
+                                    data_pagamento = EXCLUDED.data_pagamento
+                                """), insert_data)
+                        st.cache_data.clear() # Limpa o cache
+                        st.success(f"🚀 {linhas_processadas} linhas processadas. Histórico injetado com sucesso!")
                 except Exception as e:
-                    st.error(f"Falha: {e}")
+                    st.error(f"Erro ao processar o ficheiro: {e}")
 
     with aba_imp3:
-        st.subheader("🔄 Sincronização Automática de Afastamentos (eSocial)")
-        st.info("Faça o upload do seu relatório da Domínio. O sistema vai ignorar falsos-excels, achar o cabeçalho e atualizar todo o histórico num piscar de olhos!")
-        arquivo_st = st.file_uploader("Selecione a Relação de Empregados (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="up_st")
-        if arquivo_st and st.button("🚀 Processar Situações (Varredura Massiva)", type="primary"):
-            with st.spinner("⏳ Mapeando colunas e varrendo dados..."):
+        st.subheader("🔄 Sincronização de Situações eSocial")
+        st.info("Envie a planilha de histórico de situações do eSocial. O robô vai atualizar os status dos colaboradores e a linha do tempo de afastamentos.")
+        arquivo_esocial = st.file_uploader("Selecione a Planilha (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="up_esocial")
+        if arquivo_esocial and st.button("🚀 Iniciar Sincronização eSocial", type="primary"):
+            with st.spinner("⏳ Analisando e sincronizando situações..."):
                 try:
-                    df_st = ler_planilha_inteligente(arquivo_st)
-                    col_id = next((c for c in df_st.columns if str(c).strip().upper() in ['CÓDIGO', 'CODIGO', 'ID', 'MATRICULA', 'ID/MATRÍCULA']), None)
-                    col_s = next((c for c in df_st.columns if str(c).strip().upper() in ['S', 'ST', 'SITUAÇÃO', 'SITUACAO']), None)
-                    col_dt = next((c for c in df_st.columns if 'DATA ST' in str(c).strip().upper() or 'DATA' in str(c).strip().upper()), None)
-
-                    if not col_id or not col_s or not col_dt:
-                        st.error(f"⚠️ As colunas exatas não foram encontradas. Colunas que o sistema viu: {list(df_st.columns)}.")
-                    else:
-                        mapa_st = {str(item.split(' - ')[0]).strip(): item for item in LISTA_SITUACOES_ESOCIAL}
-                        sucessos = 0
-                        with engine.begin() as conn:
-                            for _, row in df_st.iterrows():
-                                v_id = str(row[col_id]).strip()
-                                v_s = str(row[col_s]).strip().replace('.0', '')
-                                v_dt_raw = row[col_dt]
-                                if not v_id or v_id == 'nan' or not v_s or v_s == 'nan': continue
-                                dt_st_obj = parse_br_date_smart(v_dt_raw)
-                                dt_str = dt_st_obj.strftime('%Y-%m-%d') if dt_st_obj else None
-                                sit_completa = mapa_st.get(v_s, "1 - Trabalhando")
-                                existe = conn.execute(text("SELECT 1 FROM cadastro_geral_colaborador WHERE id = :id"), {"id": v_id}).fetchone()
-                                if existe:
-                                    # Atualizado para usar 'status_esocial' em vez de 'situacao'
-                                    if sit_completa.startswith('8'):
-                                        conn.execute(text("UPDATE cadastro_geral_colaborador SET status_esocial = :sit, demissao = :dt WHERE id = :id"), {"sit": sit_completa, "dt": dt_str, "id": v_id})
-                                    elif sit_completa.startswith('1 - '):
-                                        conn.execute(text("UPDATE cadastro_geral_colaborador SET status_esocial = :sit WHERE id = :id"), {"sit": sit_completa, "id": v_id})
-                                        # data_retorno não existe mais na tabela, remover ou ajustar
-                                    else:
-                                        conn.execute(text("UPDATE cadastro_geral_colaborador SET status_esocial = :sit WHERE id = :id"), {"sit": sit_completa, "id": v_id})
-                                        # data_afastamento e data_retorno não existem mais na tabela, remover ou ajustar
-                                    if dt_str:
-                                        # O campo 'codigo_situacao' na tabela historico_afastamentos é 'tipo_afastamento'
-                                        ja_tem = conn.execute(text("SELECT 1 FROM historico_afastamentos WHERE id_colaborador = :id AND data_inicio = :dt AND tipo_afastamento = :desc"), {"id": v_id, "dt": dt_str, "desc": sit_completa}).fetchone()
-                                        if not ja_tem:
-                                            conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, tipo_afastamento) VALUES (:id, :dt, :desc)"), {"id": v_id, "dt": dt_str, "desc": sit_completa})
-                                            sucessos += 1
-                        st.cache_data.clear() # Limpa o cache
-                        st.success(f"✅ Missão Cumprida! A varredura analisou os dados e inseriu {sucessos} novos eventos na Linha do Tempo dos colaboradores.")
+                    df_esocial = ler_planilha_inteligente(arquivo_esocial)
+                    sucessos = 0
+                    with engine.begin() as conn:
+                        for _, row in df_esocial.iterrows():
+                            v_id = str(row['id']).strip().replace('.0', '')
+                            v_data = parse_br_date_smart(row['data'])
+                            v_situacao = str(row['situacao']).strip()
+                            if not v_id or not v_data or not v_situacao: continue
+                            sit_completa = next((s for s in LISTA_SITUACOES_ESOCIAL if s.startswith(v_situacao.split(' ')[0])), v_situacao)
+                            dt_str = v_data.strftime('%Y-%m-%d')
+                            if sit_completa.startswith('8 - '):
+                                conn.execute(text("UPDATE cadastro_geral_colaborador SET status_esocial = :sit, demissao = :dt WHERE id = :id"), {"sit": sit_completa, "dt": dt_str, "id": v_id})
+                            elif sit_completa.startswith('1 - '):
+                                conn.execute(text("UPDATE cadastro_geral_colaborador SET status_esocial = :sit WHERE id = :id"), {"sit": sit_completa, "id": v_id})
+                                # data_retorno não existe mais na tabela, remover ou ajustar
+                            else:
+                                conn.execute(text("UPDATE cadastro_geral_colaborador SET status_esocial = :sit WHERE id = :id"), {"sit": sit_completa, "id": v_id})
+                                # data_afastamento e data_retorno não existem mais na tabela, remover ou ajustar
+                            if dt_str:
+                                # O campo 'codigo_situacao' na tabela historico_afastamentos é 'tipo_afastamento'
+                                ja_tem = conn.execute(text("SELECT 1 FROM historico_afastamentos WHERE id_colaborador = :id AND data_inicio = :dt AND tipo_afastamento = :desc"), {"id": v_id, "dt": dt_str, "desc": sit_completa}).fetchone()
+                                if not ja_tem:
+                                    conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, tipo_afastamento) VALUES (:id, :dt, :desc)"), {"id": v_id, "dt": dt_str, "desc": sit_completa})
+                                    sucessos += 1
+                    st.cache_data.clear() # Limpa o cache
+                    st.success(f"✅ Missão Cumprida! A varredura analisou os dados e inseriu {sucessos} novos eventos na Linha do Tempo dos colaboradores.")
                 except Exception as e:
                     st.error(f"Erro ao processar o ficheiro: {e}")
 
@@ -325,16 +323,16 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
 
                                 if not v_id_colaborador or v_id_colaborador == 'nan': continue # Ignora linhas sem ID válido
 
+                                # AQUI ESTÁ A CORREÇÃO: Removendo ON CONFLICT para usar INSERT simples
+                                # Se a tabela premios_funcionarios não tem uma PRIMARY KEY ou UNIQUE CONSTRAINT
+                                # na combinação de id_colaborador, data_lancamento e descricao_servico,
+                                # o ON CONFLICT falha. A forma mais segura é fazer um INSERT simples.
+                                # Se você precisar de idempotência (evitar duplicatas), precisaremos
+                                # adicionar uma UNIQUE CONSTRAINT no banco de dados.
                                 conn.execute(text("""
                                     INSERT INTO premios_funcionarios
                                     (id_colaborador, nome_colaborador, salario_hora, horas_premio, descricao_servico, data_lancamento, valor_total_premio, status_pagamento)
                                     VALUES (:id_colaborador, :nome_colaborador, :salario_hora, :horas_premio, :descricao_servico, :data_lancamento, :valor_total_premio, :status_pagamento)
-                                    ON CONFLICT (id_colaborador, data_lancamento, descricao_servico) DO UPDATE SET
-                                    nome_colaborador = EXCLUDED.nome_colaborador,
-                                    salario_hora = EXCLUDED.salario_hora,
-                                    horas_premio = EXCLUDED.horas_premio,
-                                    valor_total_premio = EXCLUDED.valor_total_premio,
-                                    status_pagamento = EXCLUDED.status_pagamento
                                 """), {
                                     "id_colaborador": v_id_colaborador,
                                     "nome_colaborador": v_nome_colaborador,
