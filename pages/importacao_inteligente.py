@@ -275,75 +275,55 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
 
     with aba_imp5: # Nova aba para Lançamento de Prêmios
         st.subheader("🏆 Importação de Lançamento de Prêmios")
-        st.info("Faça o upload da planilha de Lançamento de Prêmios. Os dados serão inseridos na tabela 'premios_funcionarios'.")
+        st.info("Faça o upload da planilha de Lançamento de Prêmios (baseada na sua planilha do Drive). Os dados serão inseridos na tabela 'premios_funcionarios'.")
         arquivo_premios = st.file_uploader("Selecione a Planilha de Prêmios (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="up_premios")
         if arquivo_premios and st.button("🚀 Executar Ingestão de Prêmios", key="btn_imp_premios", type="primary"):
             with st.spinner("⏳ Processando arquivo e inserindo prêmios..."):
                 try:
                     df_premios = ler_planilha_inteligente(arquivo_premios)
 
-                    # --- Mapeamento das colunas da sua planilha do Google Drive ---
-                    # As colunas da planilha são: 'COMP.', 'Nome', 'Salário MÊS', 'Salário HORA', 'Total HP', 'VLR PRÊMIO', 'Valor R$', 'DESCRIÇÃO PREMIO', 'PIX', 'Taxa Manutenção' (nova)
-                    # O código espera 10 colunas no total, incluindo a nova coluna para o ID do colaborador (que não está no CSV, mas pode ser inferido ou adicionado)
+                    # --- NOVO MAPEAMENTO DE COLUNAS BASEADO NA PLANILHA DO DRIVE ---
+                    # Assumindo a ordem das colunas no CSV exportado do Drive:
+                    # 0: Matrícula (ID do Colaborador)
+                    # 1: COMP. (Competência)
+                    # 2: Nome
+                    # 3: Salário MÊS
+                    # 4: Salário HORA
+                    # 5: Total VLR (Valor Total do Prêmio, talvez já com a taxa?)
+                    # 6: VLR PRÊMIO (Valor do Prêmio sem a taxa?)
+                    # 7: Descrição PRÊMIO
+                    # 8: PIX
+                    # (A coluna R$ 1,00 é uma taxa fixa, não precisa ser lida do CSV)
 
-                    # Vamos assumir que o ID do colaborador virá de uma coluna 'Matrícula' ou 'ID' no CSV,
-                    # ou que ele será o primeiro elemento do CSV (iloc[:,0])
-                    # Se o CSV não tiver o ID do colaborador, precisaremos de um mapeamento ou geração.
-                    # Por enquanto, vou usar a primeira coluna do CSV como ID do colaborador.
-
-                    # Verificando se o DataFrame tem colunas suficientes (agora esperamos pelo menos 9 colunas da planilha + 1 para ID)
-                    # Se o ID do colaborador for a primeira coluna do CSV, então esperamos 10 colunas.
-                    # Se o ID do colaborador for uma coluna 'Matrícula' ou 'ID' dentro das 9, então esperamos 9 colunas.
-                    # Pelo print da planilha, o ID do colaborador não está lá.
-                    # Vamos ajustar para esperar as colunas que você tem na planilha e adicionar o ID do colaborador de outra forma, se necessário.
-
-                    # Ajuste para o número de colunas da sua planilha (9 colunas visíveis + 1 para ID = 10)
-                    # Se o CSV não tiver o ID do colaborador, precisaremos de um mapeamento ou geração.
-                    # Pelo print da planilha, o ID do colaborador não está lá.
-                    # Vamos ajustar para esperar as colunas que você tem na planilha e adicionar o ID do colaborador de outra forma, se necessário.
-
-                    # Mapeamento das colunas da planilha para o DataFrame temporário
-                    # Colunas da planilha: 'COMP.', 'Nome', 'Salário MÊS', 'Salário HORA', 'Total HP', 'VLR PRÊMIO', 'Valor R$', 'DESCRIÇÃO PREMIO', 'PIX', 'Taxa Manutenção'
-                    # Assumindo que o CSV terá pelo menos 9 colunas (as da planilha + a taxa)
-                    if df_premios.shape[1] < 9: # Ajustado para 9 colunas mínimas da planilha
-                        st.error("O arquivo de Prêmios não possui o número esperado de colunas (mínimo 9). Verifique o formato da sua planilha do Google Drive.")
+                    # Verificando se o DataFrame tem o número mínimo de colunas esperado (9)
+                    if df_premios.shape[1] < 9:
+                        st.error(f"O arquivo de Prêmios não possui o número esperado de colunas (mínimo 9). Encontrado: {df_premios.shape[1]}. Verifique o formato da sua planilha do Drive.")
                         return
 
                     df_temp_premios = pd.DataFrame()
-                    df_temp_premios['competencia_csv'] = df_premios.iloc[:, 0].astype(str) # COMP.
-                    df_temp_premios['nome_colaborador_csv'] = df_premios.iloc[:, 1].astype(str) # Nome
-                    df_temp_premios['salario_mes_csv'] = df_premios.iloc[:, 2] # Salário MÊS
-                    df_temp_premios['salario_hora_csv'] = df_premios.iloc[:, 3] # Salário HORA
-                    df_temp_premios['total_hp_csv'] = df_premios.iloc[:, 4] # Total HP
-                    df_temp_premios['vlr_premio_csv'] = df_premios.iloc[:, 5] # VLR PRÊMIO
-                    df_temp_premios['valor_rs_csv'] = df_premios.iloc[:, 6] # Valor R$
-                    df_temp_premios['descricao_premio_csv'] = df_premios.iloc[:, 7].astype(str) # DESCRIÇÃO PREMIO
-                    df_temp_premios['pix_csv'] = df_premios.iloc[:, 8] # PIX
-                    # Adicionando a coluna da taxa de manutenção, se ela existir no CSV
-                    if df_premios.shape[1] > 9: # Se houver uma 10ª coluna para a taxa
-                        df_temp_premios['taxa_manutencao_csv'] = df_premios.iloc[:, 9]
-                    else:
-                        df_temp_premios['taxa_manutencao_csv'] = 1.0 # Valor padrão de R$ 1,00 se a coluna não existir
-
-                    # Carregar IDs e nomes de colaboradores do banco de dados para mapeamento
-                    db_colaboradores = carregar_dados_colaboradores_importacao(engine)
-                    # Criar um dicionário para mapear nome do colaborador para ID
-                    nome_para_id = {str(c.nome).strip().upper(): str(c.id) for c in db_colaboradores if c.nome}
+                    df_temp_premios['matricula'] = df_premios.iloc[:, 0].astype(str)
+                    df_temp_premios['competencia'] = df_premios.iloc[:, 1].astype(str)
+                    df_temp_premios['nome_colaborador'] = df_premios.iloc[:, 2].astype(str)
+                    df_temp_premios['salario_mes'] = df_premios.iloc[:, 3]
+                    df_temp_premios['salario_hora'] = df_premios.iloc[:, 4]
+                    df_temp_premios['total_vlr_planilha'] = df_premios.iloc[:, 5] # Valor Total do Prêmio da planilha
+                    df_temp_premios['vlr_premio_base'] = df_premios.iloc[:, 6] # Valor do Prêmio base da planilha
+                    df_temp_premios['descricao_premio'] = df_premios.iloc[:, 7].astype(str)
+                    df_temp_premios['pix'] = df_premios.iloc[:, 8].astype(str)
 
 
                     inserts_count = 0
+                    TAXA_ZAUT = 1.00 # Valor fixo da taxa ZAUT
+
                     with engine.begin() as conn:
                         for _, row in df_temp_premios.iterrows():
                             try:
-                                v_nome_colaborador = row['nome_colaborador_csv'].strip().upper()
-                                v_codigo_funcionario = nome_para_id.get(v_nome_colaborador)
-
-                                if not v_codigo_funcionario:
-                                    st.warning(f"Colaborador '{v_nome_colaborador}' não encontrado no cadastro geral. Linha ignorada.")
-                                    continue # Ignora a linha se o colaborador não for encontrado
+                                v_codigo_funcionario = row['matricula'].strip()
+                                v_nome_funcionario = row['nome_colaborador'].strip() if pd.notna(row['nome_colaborador']) else None
+                                v_competencia = row['competencia'].strip() if pd.notna(row['competencia']) else None
 
                                 # Limpar e converter salario_hora
-                                sal_hora_raw = str(row['salario_hora_csv']).replace('R$', '').replace('.', '').replace(',', '.').strip() if pd.notna(row['salario_hora_csv']) else '0'
+                                sal_hora_raw = str(row['salario_hora']).replace('R$', '').replace('.', '').replace(',', '.').strip() if pd.notna(row['salario_hora']) else '0'
                                 try:
                                     v_salario_hora = round(float(sal_hora_raw), 2)
                                     if abs(v_salario_hora) >= 10**8:
@@ -352,34 +332,22 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                 except ValueError:
                                     v_salario_hora = 0.0
 
-                                # Limpar e converter horas_premio (Total HP)
-                                horas_premio_raw = str(row['total_hp_csv']).replace(',', '.').strip() if pd.notna(row['total_hp_csv']) else '0'
+                                # Limpar e converter vlr_premio_base (que será o 'horas_premio' na tabela)
+                                vlr_premio_base_raw = str(row['vlr_premio_base']).replace('R$', '').replace('.', '').replace(',', '.').strip() if pd.notna(row['vlr_premio_base']) else '0'
                                 try:
-                                    v_horas_premio = round(float(horas_premio_raw), 2)
+                                    v_horas_premio = round(float(vlr_premio_base_raw), 2) # Usando VLR PRÊMIO como base para horas_premio
                                     if abs(v_horas_premio) >= 10**8:
-                                        st.warning(f"Horas prêmio ({v_horas_premio}) para ID {v_codigo_funcionario} é muito grande. Ajustando para 0.0.")
+                                        st.warning(f"Valor base do prêmio ({v_horas_premio}) para ID {v_codigo_funcionario} é muito grande. Ajustando para 0.0.")
                                         v_horas_premio = 0.0
                                 except ValueError:
                                     v_horas_premio = 0.0
 
-                                # Limpar e converter VLR PRÊMIO (valor base do prêmio)
-                                vlr_premio_raw = str(row['vlr_premio_csv']).replace('R$', '').replace('.', '').replace(',', '.').strip() if pd.notna(row['vlr_premio_csv']) else '0'
-                                try:
-                                    v_valor_base_premio = round(float(vlr_premio_raw), 2)
-                                    if abs(v_valor_base_premio) >= 10**8:
-                                        st.warning(f"Valor base do prêmio ({v_valor_base_premio}) para ID {v_codigo_funcionario} é muito grande. Ajustando para 0.0.")
-                                        v_valor_base_premio = 0.0
-                                except ValueError:
-                                    v_valor_base_premio = 0.0
-
-                                v_descricao_servico = row['descricao_premio_csv'].strip() if pd.notna(row['descricao_premio_csv']) else None
+                                v_descricao_servico = row['descricao_premio'].strip() if pd.notna(row['descricao_premio']) else None
                                 v_data_lancamento = datetime.now().date() # Data atual da importação
 
-                                # Lógica da taxa de manutenção de R$ 1,00
-                                v_taxa_manutencao = round(float(str(row['taxa_manutencao_csv']).replace('R$', '').replace('.', '').replace(',', '.').strip()), 2) if pd.notna(row['taxa_manutencao_csv']) else 1.0
-
-                                # Calcula valor_total_premio (VLR PRÊMIO + Taxa de Manutenção)
-                                v_valor_total_premio = round(v_valor_base_premio + v_taxa_manutencao, 2)
+                                # --- CÁLCULO DO VALOR TOTAL DO PRÊMIO COM A TAXA ZAUT ---
+                                # Assumindo que 'vlr_premio_base' é o valor antes da taxa.
+                                v_valor_total_premio = round(v_horas_premio + TAXA_ZAUT, 2)
                                 if abs(v_valor_total_premio) >= 10**8:
                                     st.warning(f"Valor total do prêmio ({v_valor_total_premio}) para ID {v_codigo_funcionario} é muito grande. Ajustando para 0.0.")
                                     v_valor_total_premio = 0.0
@@ -396,12 +364,12 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                     VALUES (:codigo_funcionario, :nome_funcionario, :salario_hora, :horas_premio, :descricao_servico, :data_lancamento, :valor_total_premio, :status_pagamento, :cargo)
                                 """), {
                                     "codigo_funcionario": v_codigo_funcionario,
-                                    "nome_funcionario": v_nome_colaborador, # Usando o nome do CSV
+                                    "nome_funcionario": v_nome_funcionario,
                                     "salario_hora": v_salario_hora,
-                                    "horas_premio": v_horas_premio,
+                                    "horas_premio": v_horas_premio, # Agora este é o VLR PRÊMIO base
                                     "descricao_servico": v_descricao_servico,
                                     "data_lancamento": v_data_lancamento,
-                                    "valor_total_premio": v_valor_total_premio,
+                                    "valor_total_premio": v_valor_total_premio, # Este é o valor com a taxa ZAUT
                                     "status_pagamento": v_status_pagamento,
                                     "cargo": v_cargo
                                 })
