@@ -17,8 +17,9 @@ def carregar_cpfs_atuais(_engine):
 def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, format_competencia_smart, LISTA_SITUACOES_ESOCIAL):
     st.title("📥 Central de Ingestão de Dados")
 
-    aba_imp1, aba_imp2, aba_imp3, aba_imp4, aba_imp5 = st.tabs([
-        "📋 Carga Base", "💰 Motor ETL", "🔄 Sincronizar eSocial", "🪪 Injeção de CPFs", "🤖 Leitor IA (Chat)"
+    # Adicionando uma nova aba para Prêmios, totalizando 6 abas
+    aba_imp1, aba_imp2, aba_imp3, aba_imp4, aba_imp5, aba_imp6 = st.tabs([
+        "📋 Carga Base", "💰 Motor ETL", "🔄 Sincronizar eSocial", "🪪 Injeção de CPFs", "🏆 Lançamento de Prêmios", "🤖 Leitor IA (Chat)"
     ])
 
     with aba_imp1:
@@ -209,7 +210,7 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                 dt_st_obj = parse_br_date_smart(v_dt_raw)
                                 dt_str = dt_st_obj.strftime('%Y-%m-%d') if dt_st_obj else None
                                 sit_completa = mapa_st.get(v_s, "1 - Trabalhando")
-                                existe = conn.execute(text("SELECT id FROM cadastro_geral_colaborador WHERE id = :id"), {"id": v_id}).fetchone()
+                                existe = conn.execute(text("SELECT 1 FROM cadastro_geral_colaborador WHERE id = :id"), {"id": v_id}).fetchone()
                                 if existe:
                                     # Atualizado para usar 'status_esocial' em vez de 'situacao'
                                     if sit_completa.startswith('8'):
@@ -274,7 +275,85 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                 except Exception as e:
                     st.error(f"Erro ao ler os CPFs: {e}")
 
-    with aba_imp5:
+    with aba_imp5: # Nova aba para Lançamento de Prêmios
+        st.subheader("🏆 Importação de Lançamento de Prêmios")
+        st.info("Faça o upload da planilha de Lançamento de Prêmios. Os dados serão inseridos na tabela 'premios_funcionarios'.")
+        arquivo_premios = st.file_uploader("Selecione a Planilha de Prêmios (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="up_premios")
+        if arquivo_premios and st.button("🚀 Executar Ingestão de Prêmios", key="btn_imp_premios", type="primary"):
+            with st.spinner("⏳ Processando arquivo e inserindo prêmios..."):
+                try:
+                    df_premios = ler_planilha_inteligente(arquivo_premios)
+
+                    # Mapeamento das colunas do CSV para o DataFrame
+                    # As colunas do CSV são: 'id', 'nome', 'sal_hora', 'Horas Prêmio (HP)', 'Descrição do Serviço'
+                    df_temp_premios = pd.DataFrame()
+                    if df_premios.shape[1] >= 5:
+                        df_temp_premios['id_colaborador'] = df_premios.iloc[:, 0].astype(str) # Coluna 'id' do CSV
+                        df_temp_premios['nome_colaborador'] = df_premios.iloc[:, 1].astype(str) # Coluna 'nome' do CSV
+                        df_temp_premios['salario_hora'] = df_premios.iloc[:, 2] # Coluna 'sal_hora' do CSV
+                        df_temp_premios['horas_premio'] = df_premios.iloc[:, 3] # Coluna 'Horas Prêmio (HP)' do CSV
+                        df_temp_premios['descricao_servico'] = df_premios.iloc[:, 4].astype(str) # Coluna 'Descrição do Serviço' do CSV
+                    else:
+                        st.error("O arquivo CSV de Prêmios não possui o número esperado de colunas (mínimo 5). Verifique o formato.")
+                        return
+
+                    inserts_count = 0
+                    with engine.begin() as conn:
+                        for _, row in df_temp_premios.iterrows():
+                            try:
+                                v_id_colaborador = row['id_colaborador'].strip()
+                                v_nome_colaborador = row['nome_colaborador'].strip() if pd.notna(row['nome_colaborador']) else None
+
+                                # Limpar e converter salario_hora
+                                sal_hora_raw = str(row['salario_hora']).replace('R$', '').replace('.', '').replace(',', '.').strip() if pd.notna(row['salario_hora']) else '0'
+                                try:
+                                    v_salario_hora = float(sal_hora_raw)
+                                except ValueError:
+                                    v_salario_hora = 0.0
+
+                                # Limpar e converter horas_premio
+                                horas_premio_raw = str(row['horas_premio']).replace(',', '.').strip() if pd.notna(row['horas_premio']) else '0'
+                                try:
+                                    v_horas_premio = float(horas_premio_raw)
+                                except ValueError:
+                                    v_horas_premio = 0.0
+
+                                v_descricao_servico = row['descricao_servico'].strip() if pd.notna(row['descricao_servico']) else None
+                                v_data_lancamento = datetime.now().date() # Data atual da importação
+                                v_valor_total_premio = v_salario_hora * v_horas_premio
+                                v_status_pagamento = 'Pago' # Padrão
+
+                                if not v_id_colaborador or v_id_colaborador == 'nan': continue # Ignora linhas sem ID válido
+
+                                conn.execute(text("""
+                                    INSERT INTO premios_funcionarios
+                                    (id_colaborador, nome_colaborador, salario_hora, horas_premio, descricao_servico, data_lancamento, valor_total_premio, status_pagamento)
+                                    VALUES (:id_colaborador, :nome_colaborador, :salario_hora, :horas_premio, :descricao_servico, :data_lancamento, :valor_total_premio, :status_pagamento)
+                                    ON CONFLICT (id_colaborador, data_lancamento, descricao_servico) DO UPDATE SET
+                                    nome_colaborador = EXCLUDED.nome_colaborador,
+                                    salario_hora = EXCLUDED.salario_hora,
+                                    horas_premio = EXCLUDED.horas_premio,
+                                    valor_total_premio = EXCLUDED.valor_total_premio,
+                                    status_pagamento = EXCLUDED.status_pagamento
+                                """), {
+                                    "id_colaborador": v_id_colaborador,
+                                    "nome_colaborador": v_nome_colaborador,
+                                    "salario_hora": v_salario_hora,
+                                    "horas_premio": v_horas_premio,
+                                    "descricao_servico": v_descricao_servico,
+                                    "data_lancamento": v_data_lancamento,
+                                    "valor_total_premio": v_valor_total_premio,
+                                    "status_pagamento": v_status_pagamento
+                                })
+                                inserts_count += 1
+                            except Exception as inner_e:
+                                st.warning(f"Linha de prêmio ignorada (ID: {v_id_colaborador if 'v_id_colaborador' in locals() else 'N/A'}): {inner_e}")
+                        st.cache_data.clear() # Limpa o cache
+                        st.success(f"Ingestão de Prêmios executada com sucesso! {inserts_count} registros inseridos/atualizados.")
+                except Exception as e:
+                    st.error(f"Erro Crítico na importação de Prêmios: {e}")
+
+    with aba_imp6: # A aba antiga 'aba_imp5' agora é aba_imp6
         st.subheader("🤖 Injeção Universal de Histórico via IA")
         st.info("Cole na caixa abaixo o 'Pacote de Dados' (Código) gerado pelo seu Assistente de IA no chat.")
         pacote_ia = st.text_area("Pacote de Dados (JSON)", height=200, placeholder='Ex: [{"id": "9", "eventos": [["2022-06-14", "18 - Doenca..."], ...]}]')
