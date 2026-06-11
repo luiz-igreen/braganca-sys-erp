@@ -1,135 +1,76 @@
 import streamlit as st
-import pandas as pd
 from sqlalchemy import create_engine, text
+import pandas as pd
+from datetime import datetime
 import re
-from datetime import datetime, date
-import calendar
-import uuid
-import io
-import json
-import streamlit.components.v1 as components
-import numpy as np # Adicionado para pd.NA e np.nan
+import os
 
-# --- FUNÇÕES AUXILIARES (MOVIDAS PARA O INÍCIO) ---
-def format_brl_number(value):
-    if pd.isna(value): return "-"
-    return f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+# Importa as páginas do aplicativo
+from pages import importacao_inteligente
+from pages import gestao_cadastros
+from pages import premios as premios_page # Renomeado para evitar conflito com a variável 'premios'
 
-def format_currency_brl(value):
-    if pd.isna(value): return "R$ -"
-    return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+# --- Configurações do Banco de Dados ---
+# Carrega as variáveis de ambiente do Supabase
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT")
+DB_NAME = os.getenv("DB_NAME")
 
-def clean_money_to_db(money_str):
-    if isinstance(money_str, (int, float)):
-        return money_str
-    if not money_str:
-        return None
+# Constrói a string de conexão
+DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-    clean_str = str(money_str).strip()
+# Cria o engine SQLAlchemy
+engine = create_engine(DATABASE_URL)
 
-    # Detecta o separador decimal:
-    # Se houver vírgula e depois dela houver exatamente 2 dígitos, a vírgula é o decimal.
-    # Caso contrário, o ponto é o decimal (se houver).
-    if re.search(r',\d{2}$', clean_str): # Ex: 1.861,66
-        clean_str = clean_str.replace(".", "").replace(",", ".")
-    else: # Ex: 1,861.66 ou 1861.66
-        clean_str = clean_str.replace(",", "") # Remove vírgulas de milhar
+# --- Constantes ---
+LISTA_SITUACOES_ESOCIAL = [
+    "1 - Trabalhando",
+    "2 - Afastamento Temporário - Doença",
+    "3 - Afastamento Temporário - Acidente de Trabalho",
+    "4 - Afastamento Temporário - Licença Maternidade",
+    "5 - Afastamento Temporário - Serviço Militar",
+    "6 - Afastamento Temporário - Outros",
+    "7 - Afastamento Definitivo - Aposentadoria",
+    "8 - Afastamento Definitivo - Demissão",
+    "9 - Férias" # Adicionado Status eSocial Férias
+]
 
-    clean_str = clean_str.replace("R$", "").strip() # Remove R$ e espaços
-
-    try:
-        return float(clean_str)
-    except ValueError:
-        return None
-
+# --- Funções Utilitárias ---
 def parse_br_date_smart(date_str):
     if pd.isna(date_str) or not date_str:
         return None
-    if isinstance(date_str, date):
-        return date_str
-    if isinstance(date_str, datetime):
-        return date_str.date()
-
     date_str = str(date_str).strip()
-
-    # Tenta formatos comuns
-    for fmt in ('%d/%m/%Y', '%d-%m-%Y', '%Y-%m-%d'):
+    for fmt in ('%d/%m/%Y', '%d-%m-%Y', '%Y-%m-%d', '%d/%m/%y'):
         try:
             return datetime.strptime(date_str, fmt).date()
         except ValueError:
             pass
-
-    # Tenta com ano de 2 dígitos
-    for fmt in ('%d/%m/%y', '%d-%m-%y'):
-        try:
-            return datetime.strptime(date_str, fmt).date()
-        except ValueError:
-            pass
-
-    # Tenta com mês abreviado (ex: 01-Jan-2023)
-    try:
-        return datetime.strptime(date_str, '%d-%b-%Y').date()
-    except ValueError:
-        pass
-
-    # Se for apenas o ano (ex: 2023), retorna o primeiro dia do ano
-    if re.fullmatch(r'\d{4}', date_str):
-        try:
-            return date(int(date_str), 1, 1)
-        except ValueError:
-            pass
-
-    # Se for apenas mês e ano (ex: 01/2023), retorna o primeiro dia do mês
-    if re.fullmatch(r'\d{2}/\d{4}', date_str):
-        try:
-            mes, ano = map(int, date_str.split('/'))
-            return date(ano, mes, 1)
-        except ValueError:
-            pass
-
-    # Se for um número que pode ser um timestamp (ex: 44927.0)
-    try:
-        if re.fullmatch(r'\d+\.?\d*', date_str):
-            excel_date = float(date_str)
-            # Excel epoch is 1899-12-30. Python's epoch is 1970-01-01.
-            # Convert Excel serial date to datetime object
-            return datetime.fromordinal(datetime(1900, 1, 1).toordinal() + int(excel_date) - 2).date()
-    except ValueError:
-        pass
-
-    st.warning(f"Formato de data desconhecido: {date_str}. Retornando None.")
     return None
-
-def format_date_br(date_obj):
-    if pd.isna(date_obj) or not date_obj:
-        return "-"
-    if isinstance(date_obj, datetime):
-        return date_obj.strftime('%d/%m/%Y')
-    if isinstance(date_obj, date):
-        return date_obj.strftime('%d/%m/%Y')
-    return str(date_obj)
 
 def format_cpf(cpf_str):
     if pd.isna(cpf_str) or not cpf_str:
-        return "-"
-    cpf_digits = re.sub(r'\D', '', str(cpf_str))
-    if len(cpf_digits) == 11:
-        return f"{cpf_digits[:3]}.{cpf_digits[3:6]}.{cpf_digits[6:9]}-{cpf_digits[9:]}"
-    return cpf_digits # Retorna apenas os dígitos para consistência com o ID
+        return None
+    cpf_str = str(cpf_str).replace('.', '').replace('-', '').strip()
+    if len(cpf_str) == 11 and cpf_str.isdigit():
+        return f"{cpf_str[:3]}.{cpf_str[3:6]}.{cpf_str[6:9]}-{cpf_str[9:]}"
+    return None
 
-def format_competencia_smart(competencia_str):
-    if pd.isna(competencia_str) or not competencia_str:
-        return "-"
-    competencia_str = str(competencia_str).strip()
-    if re.fullmatch(r'\d{4}-\d{2}', competencia_str): # Formato YYYY-MM
-        return datetime.strptime(competencia_str, '%Y-%m').strftime('%m/%Y')
-    if re.fullmatch(r'\d{2}/\d{4}', competencia_str): # Formato MM/YYYY
-        return competencia_str
-    if re.fullmatch(r'\d{6}', competencia_str): # Formato MMYYYY
-        return f"{competencia_str[:2]}/{competencia_str[2:]}"
-    return competencia_str
+def format_competencia_smart(comp_str):
+    if pd.isna(comp_str) or not comp_str:
+        return None
+    comp_str = str(comp_str).strip()
+    match = re.match(r'(\d{2})/(\d{4})', comp_str)
+    if match:
+        return comp_str
+    match = re.match(r'(\d{2})(\d{4})', comp_str)
+    if match:
+        return f"{match.group(1)}/{match.group(2)}"
+    return None
 
-def ler_planilha_inteligente(uploaded_file):
+# --- Função de Leitura de Planilha Inteligente (Ajustada para CSV) ---
+def ler_planilha_inteligente(uploaded_file, nrows=None, header='infer'):
     if uploaded_file is None:
         return None
 
@@ -138,9 +79,32 @@ def ler_planilha_inteligente(uploaded_file):
 
     try:
         if file_name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
+            # Tenta diferentes separadores e engines para CSV
+            # Tenta com ponto e vírgula, engine 'python' para lidar com aspas e EOF
+            try:
+                uploaded_file.seek(0) # Garante que o ponteiro está no início
+                df = pd.read_csv(uploaded_file, sep=';', nrows=nrows, header=header, encoding='utf-8', engine='python')
+            except Exception as e_semicolon:
+                uploaded_file.seek(0) # Volta o ponteiro do arquivo para o início
+                # Tenta com vírgula, engine 'python'
+                try:
+                    df = pd.read_csv(uploaded_file, sep=',', nrows=nrows, header=header, encoding='utf-8', engine='python')
+                except Exception as e_comma:
+                    uploaded_file.seek(0) # Volta o ponteiro do arquivo para o início
+                    # Tenta com ponto e vírgula, engine 'c' (padrão)
+                    try:
+                        df = pd.read_csv(uploaded_file, sep=';', nrows=nrows, header=header, encoding='utf-8')
+                    except Exception as e_semicolon_c:
+                        uploaded_file.seek(0) # Volta o ponteiro do arquivo para o início
+                        # Tenta com vírgula, engine 'c' (padrão)
+                        try:
+                            df = pd.read_csv(uploaded_file, sep=',', nrows=nrows, header=header, encoding='utf-8')
+                        except Exception as e_final:
+                            st.error(f"Não foi possível ler o arquivo CSV com nenhum separador ou engine. Erros: [;python]: {e_semicolon}, [,python]: {e_comma}, [;c]: {e_semicolon_c}, [,c]: {e_final}")
+                            return None
         elif file_name.endswith(('.xls', '.xlsx')):
-            df = pd.read_excel(uploaded_file)
+            uploaded_file.seek(0) # Garante que o ponteiro está no início
+            df = pd.read_excel(uploaded_file, nrows=nrows, header=header)
         else:
             st.error("Formato de arquivo não suportado. Por favor, envie um arquivo CSV ou Excel.")
             return None
@@ -148,286 +112,118 @@ def ler_planilha_inteligente(uploaded_file):
         st.error(f"Erro ao ler o arquivo: {e}")
         return None
 
+    if df is None: # Se df ainda for None após as tentativas de leitura
+        return None
+
     # Padronizar nomes de colunas para minúsculas e sem acentos/caracteres especiais
+    # Isso é importante para que o código possa referenciar as colunas de forma consistente
     df.columns = [re.sub(r'[^a-z0-9_]', '', col.lower().replace(' ', '_')) for col in df.columns]
 
     return df
 
-def sort_historico_chronological(df_historico):
-    if 'data_alteracao' in df_historico.columns:
-        df_historico['data_alteracao'] = pd.to_datetime(df_historico['data_alteracao'], errors='coerce')
-        df_historico = df_historico.sort_values(by='data_alteracao', ascending=False).reset_index(drop=True)
-    elif 'data_inicio' in df_historico.columns:
-        df_historico['data_inicio'] = pd.to_datetime(df_historico['data_inicio'], errors='coerce')
-        df_historico = df_historico.sort_values(by='data_inicio', ascending=False).reset_index(drop=True)
-    return df_historico
-
-def get_current_month_year():
-    today = date.today()
-    return today.strftime("%m/%Y")
-
-# --- FUNÇÃO PARA INJETAR AUTOFOCUS ---
-def injetar_autofoco(element_id):
-    js_code = f"""
-    <script>
-        var element = window.parent.document.getElementById('{element_id}');
-        if (element) {{
-            element.focus();
-        }}
-    </script>
-    """
-    components.html(js_code, height=0, width=0)
-
-# --- CONFIGURAÇÃO INICIAL DA APLICAÇÃO ---
-st.set_page_config(page_title="BRAGANÇA SYS", page_icon="🏗️", layout="wide")
-
-@st.cache_resource
-def get_engine():
-    # Acessa a DATABASE_URL do Streamlit Secrets
-    try:
-        database_url = st.secrets["DATABASE_URL"]
-    except KeyError:
-        st.error("DATABASE_URL não encontrada nos Streamlit Secrets. Verifique a configuração.")
-        st.stop()
-    return create_engine(database_url)
-
-engine = get_engine()
-
-# --- MIGRAÇÃO AUTOMÁTICA E AJUSTES DE TABELAS ---
-# Esta seção tenta criar tabelas e ajustar colunas.
-# As mensagens de sucesso/erro são importantes para depuração inicial,
-# mas podem ser removidas ou transformadas em logs mais tarde.
-
-try:
-    with engine.begin() as conn:
-        # Criação da tabela cadastro_geral_colaborador
-        conn.execute(text("""
+# --- Criação de Tabelas no Banco de Dados (se não existirem) ---
+def criar_tabelas():
+    with engine.connect() as connection:
+        connection.execute(text("""
             CREATE TABLE IF NOT EXISTS cadastro_geral_colaborador (
                 id TEXT PRIMARY KEY,
-                nome TEXT,
-                cpf TEXT,
+                nome TEXT NOT NULL,
+                cpf TEXT UNIQUE,
                 cargo TEXT,
                 admissao DATE,
                 demissao DATE,
                 status_esocial TEXT,
                 salario_mes_12_24 NUMERIC(10, 2),
                 salario_hora_12_24 NUMERIC(10, 2)
-            )
+            );
         """))
-
-        # --- LÓGICA MELHORADA PARA ADICIONAR COLUNAS SE NÃO EXISTIREM ---
-        # Verifica se a coluna existe antes de tentar adicioná-la
-        def add_column_if_not_exists(connection, table_name, column_name, column_type):
-            result = connection.execute(text(f"SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='{table_name}' AND column_name='{column_name}')")).scalar()
-            if not result:
-                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"))
-                # st.toast(f"Coluna '{column_name}' adicionada à tabela '{table_name}'.") # Opcional para feedback
-            # else:
-                # st.toast(f"Coluna '{column_name}' já existe na tabela '{table_name}'.") # Opcional para feedback
-
-        add_column_if_not_exists(conn, 'cadastro_geral_colaborador', 'demissao', 'DATE')
-        add_column_if_not_exists(conn, 'cadastro_geral_colaborador', 'status_esocial', 'TEXT')
-        add_column_if_not_exists(conn, 'cadastro_geral_colaborador', 'salario_mes_12_24', 'NUMERIC(10, 2)')
-        add_column_if_not_exists(conn, 'cadastro_geral_colaborador', 'salario_hora_12_24', 'NUMERIC(10, 2)')
-
-        # Criação da tabela cadastro_financeiro_colaborador
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS cadastro_financeiro_colaborador (
+        connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS historico_afastamentos (
                 id SERIAL PRIMARY KEY,
-                id_colaborador TEXT REFERENCES cadastro_geral_colaborador(id),
-                banco TEXT,
-                agencia TEXT,
-                conta TEXT,
-                chave_pix TEXT
-            )
+                id_colaborador TEXT NOT NULL,
+                data_inicio DATE NOT NULL,
+                tipo_afastamento TEXT NOT NULL,
+                FOREIGN KEY (id_colaborador) REFERENCES cadastro_geral_colaborador(id)
+            );
         """))
-        add_column_if_not_exists(conn, 'cadastro_financeiro_colaborador', 'banco', 'TEXT')
-        add_column_if_not_exists(conn, 'cadastro_financeiro_colaborador', 'agencia', 'TEXT')
-        add_column_if_not_exists(conn, 'cadastro_financeiro_colaborador', 'conta', 'TEXT')
-        add_column_if_not_exists(conn, 'cadastro_financeiro_colaborador', 'chave_pix', 'TEXT')
-
-        # Criação da tabela historico_premiacoes_e_folha
-        conn.execute(text("""
+        connection.execute(text("""
             CREATE TABLE IF NOT EXISTS historico_premiacoes_e_folha (
                 id SERIAL PRIMARY KEY,
-                id_colaborador TEXT REFERENCES cadastro_geral_colaborador(id),
-                competencia TEXT,
-                tipo_lancamento TEXT,
-                valor_lancamento NUMERIC(10, 2),
+                id_colaborador TEXT NOT NULL,
+                competencia TEXT NOT NULL,
+                tipo_lancamento TEXT NOT NULL,
+                valor_lancamento NUMERIC(10, 2) NOT NULL,
                 status_pagamento TEXT,
                 retroativo_pago NUMERIC(10, 2),
-                data_pagamento DATE
-            )
+                data_pagamento DATE,
+                FOREIGN KEY (id_colaborador) REFERENCES cadastro_geral_colaborador(id),
+                UNIQUE (id_colaborador, competencia, tipo_lancamento)
+            );
         """))
-        add_column_if_not_exists(conn, 'historico_premiacoes_e_folha', 'retroativo_pago', 'NUMERIC(10, 2)')
-        add_column_if_not_exists(conn, 'historico_premiacoes_e_folha', 'data_pagamento', 'DATE')
-
-        # --- AQUI ESTÁ A CRIAÇÃO DA TABELA premios_funcionarios ---
-        conn.execute(text("""
+        # Tabela de Prêmios para Funcionários
+        connection.execute(text("""
             CREATE TABLE IF NOT EXISTS premios_funcionarios (
                 id SERIAL PRIMARY KEY,
-                id_colaborador TEXT REFERENCES cadastro_geral_colaborador(id),
-                nome_colaborador TEXT,
+                codigo_funcionario TEXT NOT NULL,
+                nome_funcionario TEXT,
                 salario_hora NUMERIC(10, 2),
                 horas_premio NUMERIC(10, 2),
                 descricao_servico TEXT,
                 data_lancamento DATE,
                 valor_total_premio NUMERIC(10, 2),
-                status_pagamento TEXT
-            )
+                status_pagamento TEXT,
+                cargo TEXT,
+                FOREIGN KEY (codigo_funcionario) REFERENCES cadastro_geral_colaborador(id)
+            );
         """))
-        # Adicionando colunas se não existirem (para garantir compatibilidade)
-        add_column_if_not_exists(conn, 'premios_funcionarios', 'id_colaborador', 'TEXT REFERENCES cadastro_geral_colaborador(id)')
-        add_column_if_not_exists(conn, 'premios_funcionarios', 'nome_colaborador', 'TEXT')
-        add_column_if_not_exists(conn, 'premios_funcionarios', 'salario_hora', 'NUMERIC(10, 2)')
-        add_column_if_not_exists(conn, 'premios_funcionarios', 'horas_premio', 'NUMERIC(10, 2)')
-        add_column_if_not_exists(conn, 'premios_funcionarios', 'descricao_servico', 'TEXT')
-        add_column_if_not_exists(conn, 'premios_funcionarios', 'data_lancamento', 'DATE')
-        add_column_if_not_exists(conn, 'premios_funcionarios', 'valor_total_premio', 'NUMERIC(10, 2)')
-        add_column_if_not_exists(conn, 'premios_funcionarios', 'status_pagamento', 'TEXT')
+        connection.commit()
 
+# --- Executa a criação das tabelas ao iniciar o aplicativo ---
+criar_tabelas()
 
-        # Criação da tabela historico_afastamentos
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS historico_afastamentos (
-                id SERIAL PRIMARY KEY,
-                id_colaborador TEXT REFERENCES cadastro_geral_colaborador(id),
-                data_inicio DATE,
-                data_fim DATE,
-                tipo_afastamento TEXT
-            )
-        """))
-        add_column_if_not_exists(conn, 'historico_afastamentos', 'data_fim', 'DATE')
+# --- Configuração da Página Streamlit ---
+st.set_page_config(
+    page_title="BRAGANÇA SYS ERP",
+    page_icon="🧊",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-    st.success("Estrutura do banco de dados verificada e atualizada com sucesso!")
-except Exception as e:
-    st.error(f"Erro ao inicializar o banco de dados: {e}")
+# --- Navegação na Barra Lateral ---
+st.sidebar.title("Navegação")
+selection = st.sidebar.radio("Ir para", [
+    "Visão Geral",
+    "Importação Inteligente",
+    "Gestão de Cadastros",
+    "Gestão de Prêmios (ZAUT)",
+    "Auditoria CCT (IA)"
+])
 
-# Migração de dados de afastamento (se necessário)
-try:
-    with engine.begin() as conn:
-        # Verifica se a tabela historico_afastamentos está vazia
-        count_afastamentos = conn.execute(text("SELECT COUNT(*) FROM historico_afastamentos")).scalar()
-        if count_afastamentos == 0:
-            # Seleciona dados de afastamento da tabela principal (se existirem)
-            df_colaboradores = pd.read_sql(text("SELECT id, admissao, demissao, status_esocial FROM cadastro_geral_colaborador WHERE status_esocial IS NOT NULL AND status_esocial != '1 - Trabalhando'"), conn)
-
-            if not df_colaboradores.empty:
-                for index, row in df_colaboradores.iterrows():
-                    id_colaborador = row['id']
-
-                    raw_data_afastamento = row['demissao'] # Assumindo que demissao pode ser um afastamento inicial
-                    raw_admissao = row['admissao']
-
-                    # Prioriza data_afastamento, se não, usa admissao
-                    data_inicio_val = raw_data_afastamento if pd.notna(raw_data_afastamento) else raw_admissao
-                    data_inicio = parse_br_date_smart(data_inicio_val) # Usa a função auxiliar
-
-                    data_fim = parse_br_date_smart(row['demissao']) # Assumindo que demissao pode ser o fim de um afastamento
-
-                    tipo_afastamento = row['status_esocial']
-
-                    if data_inicio and tipo_afastamento: # Apenas insere se tiver data de início válida e tipo de afastamento
-                        conn.execute(text("""
-                            INSERT INTO historico_afastamentos (id_colaborador, data_inicio, data_fim, tipo_afastamento)
-                            VALUES (:id_colaborador, :data_inicio, :data_fim, :tipo_afastamento)
-                        """), {
-                            "id_colaborador": id_colaborador,
-                            "data_inicio": data_inicio,
-                            "data_fim": data_fim,
-                            "tipo_afastamento": tipo_afastamento
-                        })
-                st.success("Dados de afastamento migrados para 'historico_afastamentos'.")
-            else:
-                st.info("Nenhum dado de afastamento para migrar.")
-        else:
-            st.info("Tabela 'historico_afastamentos' já contém dados, migração ignorada.")
-except Exception as e:
-    st.warning(f"Erro na migração de dados de afastamento: {e}")
-
-# Limpeza de registros com ID nulo ou vazio em todas as tabelas
-try:
-    with engine.begin() as conn:
-        conn.execute(text("DELETE FROM historico_afastamentos WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
-        conn.execute(text("DELETE FROM historico_premiacoes_e_folha WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
-        conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'"))
-        conn.execute(text("DELETE FROM premios_funcionarios WHERE id_colaborador IS NULL OR TRIM(CAST(id_colaborador AS TEXT)) = '' OR CAST(id_colaborador AS TEXT) ILIKE 'nan' OR CAST(id_colaborador AS TEXT) ILIKE 'none'")) # Adicionado para premios_funcionarios
-        conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id IS NULL OR TRIM(CAST(id AS TEXT)) = '' OR CAST(id AS TEXT) ILIKE 'nan' OR CAST(id AS TEXT) ILIKE 'none'"))
-    st.success("Registros com ID nulo/vazio limpos em todas as tabelas.")
-except Exception as e:
-    st.warning(f"Erro ao limpar registros com ID nulo/vazio: {e}")
-
-# --- LISTAS DE OPÇÕES ---
-LISTA_CARGOS = [
-    "AJUDANTE PRATICO DE PEDREIRO", "AJUDANTE PRATICO CARPINTEIRO", "AJUDANTE PRAT DE ELETRICISTA",
-    "AJUDANTE PRAT DE ENCANADOR", "AJUDANTE PRAT DE GESSEIRO", "ALMOXARIFE", "APRENDIZ LEGAL EM ARCO ADMINISTRATIVO",
-    "ARMADOR", "ASSISTENTE ADMINISTRATIVO", "AUXILIAR DE ESCRITORIO", "AUXILIAR DE SERVICOS GERAIS",
-    "CARPINTEIRO", "ELETRICISTA", "ENCANADOR", "ENCARREGADO DE OBRAS", "ENCARREGADO DE PEDREIRO",
-    "ENCARREGADO DE PINTURA", "ENCARREGADO GERAL DE ELETRICISTA", "ESTAGIARIO DE ENGENHARIA",
-    "ESTAGIARIO TÉCNICO EM SEGURANÇA NO TRABALHO", "GESSEIRO", "GUINCHEIRO", "MESTRE DE OBRAS",
-    "MOTORISTA", "OPERADOR BETONEIRA", "OPERADOR DE RETROESCAVADEIRA", "PEDREIRO", "PINTOR",
-    "SERVENTE DE OBRAS", "TEC DE SEGURANCA DO TRABALHO", "Técnico de Edificações"
-]
-
-LISTA_SERVICOS_PREMIO = [
-    "PRODUÇÃO", "QUALIDADE", "SEGURANÇA", "ASSIDUIDADE", "OUTROS"
-]
-
-LISTA_SITUACOES_ESOCIAL = [
-    "1 - Trabalhando", "2 - Acidente/Doença não relacionada ao trabalho",
-    "3 - Acidente de trabalho", "4 - Doença relacionada ao trabalho",
-    "5 - Licença maternidade", "6 - Doenca periodo superior a 15 dias",
-    "7 - Licenca sem Vencimento", "8 - Demitido", "8136 - Licença paternidade",
-    "8701 - Ausencia justificada", "9 - Ferias",
-    "10 - Novo afast. mesmo acid. trabalho",
-    "11 - Antecipacao e/ou prorrogacao Licenca Maternidade",
-    "12 - Novo afast. mesma doenca", "13 - Exercicio de mandato sindical",
-    "14 - Aposent. por invalid. acidente de trabalho",
-    "15 - Aposent. por invalid. doenca professional",
-    "16 - Aposent. por invalid. exceto acid. trab. e doenca professional",
-    "17 - Acid. Trabalho periodo igual ou inferior a 15 dias",
-    "18 - Doenca periodo igual ou inferior a 15 dias", "19 - Aborto nao criminoso",
-    "20 - Licenca maternidade adocao 1 ano", "21 - Licenca maternidade adocao 1 a 4 anos",
-    "22 - Licenca maternidade adocao 4 a 8 anos", "24 - Outros motivos de afastamento",
-    "90 - Suspensão contratual decorrente ação trabalhista por rescisão indireta",
-    "91 - Suspensão contratual para inquérito de apuração de falta grave"
-]
-
-# --- SESSION STATE ---
-for k in ['busca_selecionada_id', 'status_acao', 'zaut_acao']:
-    if k not in st.session_state: st.session_state[k] = None
-if 'sub_menu_index' not in st.session_state: st.session_state['sub_menu_index'] = 0
-if 'redirect_to_consulta' not in st.session_state: st.session_state['redirect_to_consulta'] = False
-
-if st.session_state['redirect_to_consulta']:
-    st.session_state['sub_menu_index'] = 0
-    st.session_state['redirect_to_consulta'] = False
-    st.rerun()
-
-# --- CABEÇALHO E MENU ---
-st.markdown("<h3 style='text-align: center; color: #f8fafc; margin-bottom: 10px; margin-top: -30px;'>🏗️ BRAGANÇA SYS <span style='color: #3b82f6;'>| ERP</span></h3>", unsafe_allow_html=True)
-menu = st.radio("Menu Principal", ["👥 Visão Geral", "📥 Importação Inteligente", "🛠️ Gestão de Cadastros", "🏆 Gestão de Prêmios (ZAUT)", "🔎 Auditoria CCT (IA)"], horizontal=True, label_visibility="collapsed")
-st.markdown("---")
-
-# --- ROTEAMENTO PARA AS PÁGINAS ---
-if menu == "👥 Visão Geral":
-    from pages.visao_geral import render
-    render(engine, parse_br_date_smart, format_currency_brl, format_cpf, clean_money_to_db)
-
-elif menu == "📥 Importação Inteligente":
-    # AQUI ESTÁ A ALTERAÇÃO: importando do arquivo renomeado
-    from pages.importacao_inteligente import render
-    render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, format_competencia_smart, LISTA_SITUACOES_ESOCIAL)
-
-elif menu == "🛠️ Gestão de Cadastros":
-    from pages.cadastros import render
-    render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format_currency_brl, format_brl_number, format_cpf, format_competencia_smart, clean_money_to_db, sort_historico_chronological, LISTA_CARGOS, LISTA_SITUACOES_ESOCIAL)
-
-elif menu == "🏆 Gestão de Prêmios (ZAUT)":
-    from pages.premios import render
-    # CORREÇÃO AQUI: Adicionado injetar_autofoco à chamada da função render para a página de Prêmios
-    render(engine, injetar_autofoco, format_brl_number, format_currency_brl, clean_money_to_db, LISTA_SERVICOS_PREMIO)
-
-elif menu == "🔎 Auditoria CCT (IA)":
-    from pages.auditoria import render
-    render(engine, clean_money_to_db, format_brl_number)
+# --- Renderiza a página selecionada ---
+if selection == "Visão Geral":
+    st.title("Visão Geral do Sistema")
+    st.write("Bem-vindo ao BRAGANÇA SYS ERP. Use o menu lateral para navegar.")
+elif selection == "Importação Inteligente":
+    importacao_inteligente.render(
+        engine,
+        ler_planilha_inteligente,
+        parse_br_date_smart,
+        format_cpf,
+        format_competencia_smart,
+        LISTA_SITUACOES_ESOCIAL
+    )
+elif selection == "Gestão de Cadastros":
+    gestao_cadastros.render(
+        engine,
+        parse_br_date_smart,
+        format_cpf,
+        LISTA_SITUACOES_ESOCIAL
+    )
+elif selection == "Gestão de Prêmios (ZAUT)":
+    premios_page.render(
+        engine,
+        parse_br_date_smart
+    )
+elif selection == "Auditoria CCT (IA)":
+    st.title("Auditoria CCT (IA)")
+    st.write("Funcionalidade em desenvolvimento.")
