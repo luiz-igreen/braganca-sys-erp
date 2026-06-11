@@ -276,59 +276,54 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
 
     with aba_imp5: # Nova aba para Lançamento de Prêmios
         st.subheader("🏆 Importação de Lançamento de Prêmios")
-        st.info("Faça o upload da planilha de Lançamento de Prêmios (baseada na sua planilha do Drive). Os dados serão inseridos na tabela 'premios_funcionarios'.")
+        st.info("Faça o upload da planilha de Lançamento de Prêmios (baseada na sua planilha do Drive, com a coluna 'MATRICULA' adicionada). Os dados serão inseridos na tabela 'premios_funcionarios'.")
         arquivo_premios = st.file_uploader("Selecione a Planilha de Prêmios (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="up_premios")
         if arquivo_premios and st.button("🚀 Executar Ingestão de Prêmios", key="btn_imp_premios", type="primary"):
             with st.spinner("⏳ Processando arquivo e inserindo prêmios..."):
                 try:
                     df_premios = ler_planilha_inteligente(arquivo_premios)
 
-                    # --- NOVO MAPEAMENTO DE COLUNAS BASEADO NA PLANILHA DO DRIVE ---
+                    # --- NOVO MAPEAMENTO DE COLUNAS BASEADO NA PLANILHA DO DRIVE COM A COLUNA MATRICULA ---
                     # Assumindo a ordem das colunas no CSV exportado do Drive:
-                    # 0: COMP.
-                    # 1: Nome
-                    # 2: Salário MÊS
-                    # 3: Salário HORA
-                    # 4: Total VLR
-                    # 5: VLR PRÊMIO
-                    # 6: Valor R$
-                    # 7: DESCRIÇÃO PRÊMIO
-                    # 8: PIX
-                    # 9: R$ 1,00 (Taxa ZAUT)
+                    # 0: MATRICULA (ID do Colaborador)
+                    # 1: COMP. (Competência)
+                    # 2: Nome
+                    # 3: Salário MÊS
+                    # 4: Salário HORA
+                    # 5: Total VLR
+                    # 6: VLR PRÊMIO
+                    # 7: Valor R$
+                    # 8: DESCRIÇÃO PRÊMIO
+                    # 9: PIX
+                    # 10: R$ 1,00 (Taxa ZAUT)
 
-                    # Verificando se o DataFrame tem o número mínimo de colunas esperado (10)
-                    if df_premios.shape[1] < 10:
-                        st.error(f"O arquivo de Prêmios não possui o número esperado de colunas (mínimo 10). Encontrado: {df_premios.shape[1]}. Verifique o formato da sua planilha do Drive.")
+                    # Verificando se o DataFrame tem o número mínimo de colunas esperado (11)
+                    if df_premios.shape[1] < 11:
+                        st.error(f"O arquivo de Prêmios não possui o número esperado de colunas (mínimo 11). Encontrado: {df_premios.shape[1]}. Verifique se a coluna 'MATRICULA' foi adicionada e se a planilha tem todas as colunas esperadas.")
                         return
 
                     df_temp_premios = pd.DataFrame()
-                    df_temp_premios['competencia_csv'] = df_premios.iloc[:, 0].astype(str)
-                    df_temp_premios['nome_colaborador_csv'] = df_premios.iloc[:, 1].astype(str)
-                    df_temp_premios['salario_mes_csv'] = df_premios.iloc[:, 2]
-                    df_temp_premios['salario_hora_csv'] = df_premios.iloc[:, 3]
-                    df_temp_premios['total_vlr_csv'] = df_premios.iloc[:, 4] # Total VLR da planilha
-                    df_temp_premios['vlr_premio_csv'] = df_premios.iloc[:, 5] # VLR PRÊMIO da planilha
-                    df_temp_premios['valor_rs_csv'] = df_premios.iloc[:, 6] # Valor R$ da planilha
-                    df_temp_premios['descricao_premio_csv'] = df_premios.iloc[:, 7].astype(str)
-                    df_temp_premios['pix_csv'] = df_premios.iloc[:, 8].astype(str)
-                    df_temp_premios['taxa_zaut_csv'] = df_premios.iloc[:, 9] # R$ 1,00 da planilha
+                    df_temp_premios['matricula_csv'] = df_premios.iloc[:, 0].astype(str)
+                    df_temp_premios['competencia_csv'] = df_premios.iloc[:, 1].astype(str)
+                    df_temp_premios['nome_colaborador_csv'] = df_premios.iloc[:, 2].astype(str)
+                    df_temp_premios['salario_mes_csv'] = df_premios.iloc[:, 3]
+                    df_temp_premios['salario_hora_csv'] = df_premios.iloc[:, 4]
+                    df_temp_premios['total_vlr_csv'] = df_premios.iloc[:, 5] # Total VLR da planilha
+                    df_temp_premios['vlr_premio_csv'] = df_premios.iloc[:, 6] # VLR PRÊMIO da planilha
+                    df_temp_premios['valor_rs_csv'] = df_premios.iloc[:, 7] # Valor R$ da planilha
+                    df_temp_premios['descricao_premio_csv'] = df_premios.iloc[:, 8].astype(str)
+                    df_temp_premios['pix_csv'] = df_premios.iloc[:, 9].astype(str)
+                    df_temp_premios['taxa_zaut_csv'] = df_premios.iloc[:, 10] # R$ 1,00 da planilha
 
-                    # Carregar IDs e nomes de colaboradores do banco de dados para mapeamento
-                    db_colaboradores = carregar_dados_colaboradores_importacao(engine)
-                    # Criar um dicionário para mapear nome do colaborador para ID
-                    nome_para_id = {str(c.nome).strip().upper(): str(c.id) for c in db_colaboradores if c.nome}
 
                     inserts_count = 0
 
                     with engine.begin() as conn:
                         for _, row in df_temp_premios.iterrows():
                             try:
-                                v_nome_colaborador = row['nome_colaborador_csv'].strip().upper()
-                                v_codigo_funcionario = nome_para_id.get(v_nome_colaborador)
-
-                                if not v_codigo_funcionario:
-                                    st.warning(f"Colaborador '{v_nome_colaborador}' não encontrado no cadastro geral. Linha ignorada.")
-                                    continue # Ignora a linha se o colaborador não for encontrado
+                                v_codigo_funcionario = row['matricula_csv'].strip()
+                                v_nome_colaborador = row['nome_colaborador_csv'].strip() if pd.notna(row['nome_colaborador_csv']) else None
+                                v_competencia = row['competencia_csv'].strip() if pd.notna(row['competencia_csv']) else None
 
                                 # Limpar e converter salario_hora
                                 sal_hora_raw = str(row['salario_hora_csv']).replace('R$', '').replace('.', '').replace(',', '.').strip() if pd.notna(row['salario_hora_csv']) else '0'
@@ -370,7 +365,9 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                 v_status_pagamento = 'Pago' # Padrão
                                 v_cargo = 'N/A' # A coluna 'cargo' existe na sua tabela, mas não no CSV de prêmios. Usando um valor padrão.
 
-                                if not v_codigo_funcionario or v_codigo_funcionario == 'nan': continue # Ignora linhas sem ID válido
+                                if not v_codigo_funcionario or v_codigo_funcionario == 'nan':
+                                    st.warning(f"Linha de prêmio ignorada: ID do colaborador (Matrícula) não encontrado ou inválido para o nome '{v_nome_colaborador}'.")
+                                    continue # Ignora linhas sem ID válido
 
                                 # --- COMANDO SQL AJUSTADO PARA AS COLUNAS DO SEU SUPABASE ---
                                 conn.execute(text("""
