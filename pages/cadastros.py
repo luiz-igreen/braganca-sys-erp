@@ -37,11 +37,15 @@ def render(engine, parse_br_date_smart=None, format_cpf=None, LISTA_SITUACOES_ES
         except: return ""
 
     def format_currency_brl(v):
-        try: return f"R$ {float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        try:
+            if pd.isna(v): return "R$ 0,00"
+            return f"R$ {float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
         except: return "R$ 0,00"
 
     def format_brl_number(v):
-        try: return f"{float(v):.2f}".replace(".", ",")
+        try:
+            if pd.isna(v): return "0,00"
+            return f"{float(v):.2f}".replace(".", ",")
         except: return "0,00"
 
     def format_competencia_smart(c):
@@ -50,7 +54,12 @@ def render(engine, parse_br_date_smart=None, format_cpf=None, LISTA_SITUACOES_ES
     def clean_money_to_db(v):
         try:
             if pd.isna(v) or str(v).strip() == "": return None
-            return str(float(str(v).replace("R$", "").replace(".", "").replace(",", ".").strip()))
+            s = str(v).replace("R$", "").strip()
+            if "." in s and "," in s:
+                s = s.replace(".", "").replace(",", ".")
+            elif "," in s:
+                s = s.replace(",", ".")
+            return str(float(s))
         except: return None
 
     def sort_historico_chronological(df):
@@ -262,82 +271,37 @@ def render(engine, parse_br_date_smart=None, format_cpf=None, LISTA_SITUACOES_ES
 
                         st.markdown("### 🏦 Dados Bancários (PIX Principal)")
                         st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
-                        if fin_data or (colab and hasattr(colab, 'chave_pix') and colab.chave_pix):
-                            cf1, cf2 = st.columns(2)
-                            with cf1:
-                                st.markdown('<p class="field-label">BANCO</p>', unsafe_allow_html=True)
-                                st.markdown(f'<p class="field-value">{(fin_data.get("banco") if fin_data else "") or "Não Informado"}</p>', unsafe_allow_html=True)
-                            with cf2:
-                                st.markdown('<p class="field-label">CHAVE PIX</p>', unsafe_allow_html=True)
-                                st.markdown(f'<p class="field-value">{(fin_data.get("chave_pix") if fin_data else "Não Informado")}</p>', unsafe_allow_html=True)
+                        if fin_data and fin_data.get("chave_pix"):
+                            st.markdown('<p class="field-label">CHAVE PIX CADASTRADA</p>', unsafe_allow_html=True)
+                            st.markdown(f'<p class="field-value" style="color: #10b981;">{fin_data.get("chave_pix")}</p>', unsafe_allow_html=True)
                         else:
                             st.info("Nenhum dado bancário registrado.")
                         st.markdown('</div>', unsafe_allow_html=True)
 
-                        st.markdown("### 💰 Histórico Mensal de Prêmios e Folha")
-                        if not df_hist.empty:
-                            duplicatas = df_hist.groupby(['competencia', 'tipo_lancamento']).size().reset_index(name='contagem')
-                            duplicatas = duplicatas[duplicatas['contagem'] > 1]
-                            if not duplicatas.empty:
-                                st.markdown('<div style="background-color: rgba(220, 38, 38, 0.15); border: 1px solid #ef4444; padding: 15px; border-radius: 8px; margin-bottom: 20px;">🛑 ALERTA DE AUDITORIA INTERNA: DUPLICIDADE DETETADA! Utilize o botão Corrigir Hist. e apague o valor para limpar.</div>', unsafe_allow_html=True)
-
+                        st.markdown("### 💰 Histórico Financeiro (Lançamentos)")
                         st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
                         if not df_hist.empty:
-                            cols_desejadas = ['competencia', 'tipo_lancamento', 'valor_lancamento', 'status_pagamento', 'retroativo_pago', 'data_pagamento']
-                            cols_existentes = [c for c in cols_desejadas if c in df_hist.columns]
-                            df_view = df_hist[cols_existentes].copy()
-                            df_view['valor_lancamento'] = df_view['valor_lancamento'].apply(format_brl_number)
-                            df_view.rename(columns={'competencia': 'Competência', 'tipo_lancamento': 'Tipo', 'valor_lancamento': 'Valor (R$)', 'status_pagamento': 'Status'}, inplace=True)
-                            st.dataframe(df_view, use_container_width=True, hide_index=True)
+                            df_hist_view = df_hist.copy()
+                            df_hist_view['valor_lancamento'] = df_hist_view['valor_lancamento'].apply(format_currency_brl)
+                            df_hist_view.rename(columns={'competencia': 'Competência', 'tipo_lancamento': 'Tipo', 'valor_lancamento': 'Valor (R$)', 'status_pagamento': 'Status'}, inplace=True)
+                            st.dataframe(df_hist_view[['Competência', 'Tipo', 'Valor (R$)', 'Status']], use_container_width=True, hide_index=True)
                         else:
-                            st.info("Nenhum histórico registrado na base de dados para este colaborador.")
+                            st.info("Nenhum lançamento financeiro registrado.")
                         st.markdown('</div>', unsafe_allow_html=True)
 
-                        if st.session_state['status_acao'] is None:
-                            cb1, cb2, cb3, cb4, cb5, cb6, cb7, cb8 = st.columns(8)
-                            if cb1.button("✏️ Editar"): st.session_state['status_acao'] = 'solicitou_alterar'; st.rerun()
-                            if cb2.button("➕ Pagamento"): st.session_state['status_acao'] = 'solicitou_lancamento_avulso'; st.rerun()
-                            if cb3.button("🛠️ Corrigir"): st.session_state['status_acao'] = 'solicitou_corrigir_historico'; st.rerun()
-                            if cb4.button("⏳ eSocial"): st.session_state['status_acao'] = 'solicitou_hist_esocial'; st.rerun()
-                            if cb5.button("🛑 Demitir"): st.session_state['status_acao'] = 'solicitou_demissao'; st.rerun()
-                            if cb6.button("🔄 Mesclar"): st.session_state['status_acao'] = 'solicitou_mesclar'; st.rerun()
-                            if cb7.button("❌ Excluir"): st.session_state['status_acao'] = 'solicitou_excluir'; st.rerun()
-                            if cb8.button("🧹 Fechar"):
-                                st.session_state['busca_selecionada_id'] = None
-                                st.session_state['status_acao'] = None
-                                st.rerun()
-
-                        if st.session_state['status_acao'] == 'solicitou_demissao':
-                            st.warning("🛑 Registrar Demissão")
-                            ja_demitido = pd.notna(colab.demissao)
-                            nova_dem = st.text_input("Data de Demissão (Sem barras)", value=format_date_br(colab.demissao) if ja_demitido else "")
-                            reverter = st.checkbox("Reverter Demissão (Tornar Ativo)", value=not ja_demitido)
-                            c_bt1, c_bt2 = st.columns([1, 4])
-                            if c_bt1.button("💾 Gravar Demissão", type="primary"):
-                                with st.spinner("⏳ Gravando demissão..."):
-                                    try:
-                                        dt_nova = None if reverter else parse_br_date_smart(nova_dem)
-                                        if not reverter and not dt_nova:
-                                            st.error("⚠️ Data de demissão inválida.")
-                                        else:
-                                            dem_str = dt_nova.strftime('%Y-%m-%d') if dt_nova else None
-                                            novo_status = '1 - Trabalhando' if reverter else '8 - Demitido'
-                                            dt_hist_evento = dt_nova.strftime('%Y-%m-%d') if dt_nova else datetime.today().strftime('%Y-%m-%d')
-                                            with engine.begin() as conn:
-                                                conn.execute(text("UPDATE cadastro_geral_colaborador SET demissao = :d, status_esocial = :sit WHERE id = :id"), {"d": dem_str, "sit": novo_status, "id": str(colab_id)})
-                                                conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, tipo_afastamento) VALUES (:id, :dt, :desc)"), {"id": str(colab_id), "dt": dt_hist_evento, "desc": novo_status})
-                                            st.success("✅ Atualizado!")
-                                            st.cache_data.clear()
-                                            st.session_state['status_acao'] = None; st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Erro ao salvar: {e}")
-                            if c_bt2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
+                        st.divider()
+                        st.markdown("### ⚙️ Ações de Gerenciamento")
+                        col_btn1, col_btn2, col_btn3, col_btn4 = st.columns(4)
+                        if col_btn1.button("✏️ Editar Ficha", use_container_width=True): st.session_state['status_acao'] = 'solicitou_alterar'; st.rerun()
+                        if col_btn2.button("➕ Lançamento Avulso", use_container_width=True): st.session_state['status_acao'] = 'solicitou_lancamento_avulso'; st.rerun()
+                        if col_btn3.button("🛠️ Corrigir Histórico", use_container_width=True): st.session_state['status_acao'] = 'solicitou_corrigir_historico'; st.rerun()
+                        if col_btn4.button("🗑️ Excluir Registro", type="primary", use_container_width=True): st.session_state['status_acao'] = 'solicitou_excluir'; st.rerun()
 
                         if st.session_state['status_acao'] == 'solicitou_excluir':
-                            st.warning(f"⚠️ Deseja excluir definitivamente {colab.nome} e todo o seu histórico?")
+                            st.error("⚠️ ATENÇÃO: A exclusão apagará permanentemente a ficha, histórico financeiro e afastamentos deste colaborador.")
                             cx1, cx2 = st.columns(2)
-                            if cx1.button("🔥 Sim, Excluir Tudo", type="primary"):
-                                with st.spinner("⏳ Excluindo registro..."):
+                            if cx1.button("Confirmar Exclusão Definitiva", type="primary"):
+                                with st.spinner("⏳ Excluindo..."):
                                     try:
                                         with engine.begin() as conn:
                                             conn.execute(text("DELETE FROM historico_afastamentos WHERE id_colaborador = :id"), {"id": str(colab_id)})
