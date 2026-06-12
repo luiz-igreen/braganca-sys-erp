@@ -3,35 +3,20 @@ from sqlalchemy import create_engine, text
 import pandas as pd
 from datetime import datetime
 import re
-import os # Manter os.getenv para compatibilidade, mas priorizar st.secrets
+import os
 
 # --- Configurações do Banco de Dados ---
 # Carrega as variáveis de ambiente do Supabase usando st.secrets
-# st.secrets é a forma recomendada pelo Streamlit para acessar secrets
-# definidas no formato TOML.
 try:
     DB_HOST = st.secrets["HOST"]
     DB_PORT = st.secrets["PORT"]
     DB_DATABASE = st.secrets["DATABASE"]
     DB_USER = st.secrets["USER"]
     DB_PASSWORD = st.secrets["PASSWORD"]
-    # DATABASE_URL também pode ser lida diretamente se definida como uma secret
-    # ou construída a partir das partes
     DATABASE_URL = st.secrets["DATABASE_URL"]
 except KeyError as e:
     st.error(f"Erro: Variável de ambiente não encontrada em st.secrets: {e}. Verifique suas secrets no Streamlit Cloud.")
-    st.stop() # Para a execução do aplicativo se as secrets não forem encontradas
-
-# Constrói a string de conexão (apenas como fallback ou se DATABASE_URL não for uma secret)
-# Para garantir que a DATABASE_URL seja sempre a mais completa e correta,
-# vamos priorizar a que vem diretamente das secrets.
-# Se DATABASE_URL não estiver nas secrets, podemos construí-la:
-if "DATABASE_URL" not in st.secrets:
-    DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_DATABASE}"
-    # Adicionar sslmode=require se necessário, dependendo da configuração do Supabase
-    if "sslmode=require" not in DATABASE_URL:
-        DATABASE_URL += "?sslmode=require"
-
+    st.stop()
 
 # Cria o engine SQLAlchemy
 try:
@@ -94,46 +79,43 @@ def ler_planilha_inteligente(uploaded_file, nrows=None, header='infer'):
     file_name = uploaded_file.name
     df = None
 
-    try:
-        if file_name.endswith('.csv'):
-            # Tenta diferentes separadores e engines para CSV
-            # Tenta com ponto e vírgula, engine 'python' para lidar com aspas e EOF
-            try:
-                uploaded_file.seek(0) # Garante que o ponteiro está no início
-                df = pd.read_csv(uploaded_file, sep=';', nrows=nrows, header=header, encoding='utf-8', engine='python')
-            except Exception as e_semicolon:
-                uploaded_file.seek(0) # Volta o ponteiro do arquivo para o início
-                # Tenta com vírgula, engine 'python'
+    if file_name.endswith('.csv'):
+        # Lista de separadores e encodings para tentar
+        separators = [';', ',', '\t', '|']
+        encodings = ['utf-8', 'latin1', 'iso-8859-1']
+
+        for sep in separators:
+            for enc in encodings:
                 try:
-                    df = pd.read_csv(uploaded_file, sep=',', nrows=nrows, header=header, encoding='utf-8', engine='python')
-                except Exception as e_comma:
-                    uploaded_file.seek(0) # Volta o ponteiro do arquivo para o início
-                    # Tenta com ponto e vírgula, engine 'c' (padrão)
-                    try:
-                        df = pd.read_csv(uploaded_file, sep=';', nrows=nrows, header=header, encoding='utf-8')
-                    except Exception as e_semicolon_c:
-                        uploaded_file.seek(0) # Volta o ponteiro do arquivo para o início
-                        # Tenta com vírgula, engine 'c' (padrão)
-                        try:
-                            df = pd.read_csv(uploaded_file, sep=',', nrows=nrows, header=header, encoding='utf-8')
-                        except Exception as e_final:
-                            st.error(f"Não foi possível ler o arquivo CSV com nenhum separador ou engine. Erros: [;python]: {e_semicolon}, [,python]: {e_comma}, [;c]: {e_semicolon_c}, [,c]: {e_final}")
-                            return None
-        elif file_name.endswith(('.xls', '.xlsx')):
+                    uploaded_file.seek(0) # Garante que o ponteiro está no início
+                    df = pd.read_csv(uploaded_file, sep=sep, nrows=nrows, header=header, encoding=enc, engine='python')
+                    if df.shape[1] > 1: # Se encontrou mais de 1 coluna, provavelmente é o separador correto
+                        st.success(f"Arquivo CSV lido com sucesso usando separador '{sep}' e encoding '{enc}'.")
+                        break # Sai do loop de encodings
+                except Exception:
+                    continue # Tenta o próximo encoding
+            if df is not None and df.shape[1] > 1:
+                break # Sai do loop de separadores
+
+        if df is None or df.shape[1] <= 1:
+            st.error("Não foi possível ler o arquivo CSV com nenhum separador ou encoding testado. Verifique o formato do arquivo.")
+            return None
+
+    elif file_name.endswith(('.xls', '.xlsx')):
+        try:
             uploaded_file.seek(0) # Garante que o ponteiro está no início
             df = pd.read_excel(uploaded_file, nrows=nrows, header=header)
-        else:
-            st.error("Formato de arquivo não suportado. Por favor, envie um arquivo CSV ou Excel.")
+        except Exception as e:
+            st.error(f"Erro ao ler o arquivo Excel: {e}")
             return None
-    except Exception as e:
-        st.error(f"Erro ao ler o arquivo: {e}")
+    else:
+        st.error("Formato de arquivo não suportado. Por favor, envie um arquivo CSV ou Excel.")
         return None
 
     if df is None: # Se df ainda for None após as tentativas de leitura
         return None
 
     # Padronizar nomes de colunas para minúsculas e sem acentos/caracteres especiais
-    # Isso é importante para que o código possa referenciar as colunas de forma consistente
     df.columns = [re.sub(r'[^a-z0-9_]', '', col.lower().replace(' ', '_')) for col in df.columns]
 
     return df
@@ -248,6 +230,4 @@ elif selection == "Gestão de Prêmios (ZAUT)":
     )
 elif selection == "Auditoria CCT (IA)":
     st.title("Auditoria CCT (IA)")
-    st
-
-    
+    st.write("Funcionalidade em desenvolvimento.")
