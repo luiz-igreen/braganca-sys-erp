@@ -136,7 +136,7 @@ def criar_tabelas():
         connection.execute(text("ALTER TABLE premios_funcionarios ADD COLUMN IF NOT EXISTS competencia TEXT;"))
         connection.execute(text("ALTER TABLE premios_funcionarios ADD COLUMN IF NOT EXISTS salario_mes NUMERIC(10, 2);"))
         connection.execute(text("ALTER TABLE premios_funcionarios ADD COLUMN IF NOT EXISTS total_vlr NUMERIC(10, 2);"))
-        connection.execute(text("ALTER TABLE premios_funcionarios ADD COLUMN IF NOT EXISTS vlr_premio NUMERIC(10, 2);"))
+        connection.execute(text("ALTER TABLE premios_funcionarios ADD COLUMN IF NOT EXISTS valor_premio NUMERIC(10, 2);"))
         connection.execute(text("ALTER TABLE premios_funcionarios ADD COLUMN IF NOT EXISTS valor_rs NUMERIC(10, 2);"))
         connection.execute(text("ALTER TABLE premios_funcionarios ADD COLUMN IF NOT EXISTS pix TEXT;"))
         connection.execute(text("ALTER TABLE premios_funcionarios ADD COLUMN IF NOT EXISTS taxa_zaut NUMERIC(10, 2);"))
