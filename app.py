@@ -188,6 +188,43 @@ st.set_page_config(
 # Corrigido o nome do arquivo de importação de 'gestao_cadastros' para 'cadastros'
 from pages import cadastros as gestao_cadastros_page # Renomeado para evitar conflito
 from pages import importacao_inteligente
-from pages
+from pages import premios as premios_page # Importa a página de prêmios
 
-    
+# --- Navegação na Barra Lateral ---
+st.sidebar.title("Navegação")
+selection = st.sidebar.radio("Ir para", [
+    "Visão Geral",
+    "Importação Inteligente",
+    "Gestão de Cadastros",
+    "Gestão de Prêmios (ZAUT)",
+    "Auditoria CCT (IA)"
+])
+
+# --- Renderiza a página selecionada ---
+if selection == "Visão Geral":
+    st.title("Visão Geral do Sistema")
+    st.write("Bem-vindo ao BRAGANÇA SYS ERP. Use o menu lateral para navegar.")
+elif selection == "Importação Inteligente":
+    importacao_inteligente.render(
+        engine,
+        ler_planilha_inteligente,
+        parse_br_date_smart,
+        format_cpf,
+        format_competencia_smart,
+        LISTA_SITUACOES_ESOCIAL
+    )
+elif selection == "Gestão de Cadastros":
+    gestao_cadastros_page.render( # Usando o nome renomeado
+        engine,
+        parse_br_date_smart,
+        format_cpf,
+        LISTA_SITUACOES_ESOCIAL
+    )
+elif selection == "Gestão de Prêmios (ZAUT)":
+    premios_page.render( # Usando o nome renomeado
+        engine,
+        parse_br_date_smart
+    )
+elif selection == "Auditoria CCT (IA)":
+    st.title("Auditoria CCT (IA)")
+    st.write("Funcionalidade em desenvolvimento.")    
