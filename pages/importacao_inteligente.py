@@ -113,7 +113,7 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
             with st.spinner("Executando limpeza total no PostgreSQL..."):
                 try:
                     with engine.begin() as conn:
-                        conn.execute(text("TRUNCATE TABLE premios_funcionarios RESTART IDENTITY"))
+                        conn.execute(text("DELETE FROM premios_funcionarios"))
                     st.cache_data.clear()
                     st.success("Limpeza total concluída. A tabela de prêmios está 100% vazia e pronta para nova importação.")
                 except Exception as e:
@@ -157,12 +157,12 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
 
                     with engine.begin() as conn:
                         for _, row in df_temp.iterrows():
-                            # Sanitização estrita: remove aspas, ponto e vírgula e espaços
-                            v_matricula_raw = str(row['matricula'])
-                            v_matricula = v_matricula_raw.replace('"', '').replace(';', '').replace('.0', '').strip()
+                            # FILTRO DE BARREIRA ABSOLUTA CONTRA LIXO
+                            # Remove aspas, pontos e vírgulas que o CSV possa ter injetado
+                            v_matricula = str(row['matricula']).replace('.0', '').replace('"', '').replace(';', '').strip()
 
-                            # Bloqueio absoluto de lixo e cabeçalhos
-                            if not v_matricula or v_matricula.lower() in ['nan', 'none', 'empty'] or 'id_colaborador' in v_matricula.lower() or 'matr' in v_matricula.lower(): 
+                            # Se após limpar a matrícula ela ficar vazia, for 'nan', 'empty' ou cabeçalho, ignora a linha inteira
+                            if not v_matricula or v_matricula.lower() == 'nan' or v_matricula.lower() == 'empty' or 'id_colaborador' in v_matricula.lower() or 'matr' in v_matricula.lower(): 
                                 continue
 
                             def limpa_valor(val):
