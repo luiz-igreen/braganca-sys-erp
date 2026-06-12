@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text
 
-def render(engine, parse_br_date_smart):
+def render(engine, parse_br_date_smart=None):
     st.title("🏆 Gestão de Prêmios (ZAUT)")
     st.write("Visualização e gerenciamento dos prêmios lançados no sistema.")
 
