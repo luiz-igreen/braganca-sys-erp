@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text
 
-def render(engine):
+def render(engine, *args, **kwargs):
     st.title("🏆 Gestão de Prêmios (ZAUT)")
     st.markdown("Visualização e gerenciamento dos prêmios lançados no sistema.")
 
