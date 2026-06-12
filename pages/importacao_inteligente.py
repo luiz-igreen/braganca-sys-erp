@@ -8,7 +8,6 @@ import json
 
 @st.cache_data(ttl=30)
 def carregar_dados_colaboradores_importacao(_engine):
-    # Carrega ID e Nome de todos os colaboradores para mapeamento
     return _engine.connect().execute(text("SELECT id, nome FROM cadastro_geral_colaborador")).fetchall()
 
 @st.cache_data(ttl=30)
@@ -18,7 +17,6 @@ def carregar_cpfs_atuais(_engine):
 def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, format_competencia_smart, LISTA_SITUACOES_ESOCIAL):
     st.title("📥 Central de Ingestão de Dados")
 
-    # Adicionando uma nova aba para Prêmios, totalizando 6 abas
     aba_imp1, aba_imp2, aba_imp3, aba_imp4, aba_imp5, aba_imp6 = st.tabs([
         "📋 Carga Base", "💰 Motor ETL", "🔄 Sincronizar eSocial", "🪪 Injeção de CPFs", "🏆 Lançamento de Prêmios", "🤖 Leitor IA (Chat)"
     ])
@@ -30,47 +28,38 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
             with st.spinner("⏳ Processando arquivo e inserindo cadastros..."):
                 try:
                     df_bruto = ler_planilha_inteligente(arquivo)
-
-                    # As colunas do CSV são: 'Alertas do Sistema', 'id', 'nome', 'Status (eSocial)', 'cpf', 'cargo', 'salario_mes_12_24'
-                    # Vamos garantir que o DataFrame tenha as colunas mapeadas pela posição, conforme o CSV que você enviou.
-
-                    # Criar um DataFrame temporário com as colunas mapeadas pela posição
                     df_temp = pd.DataFrame()
-                    # Verifica se o df_bruto tem colunas suficientes antes de tentar acessá-las
                     if df_bruto.shape[1] >= 7:
-                        df_temp['id_colab'] = df_bruto.iloc[:, 1].astype(str) # Coluna 'id' do CSV
-                        df_temp['nome_colab'] = df_bruto.iloc[:, 2].astype(str) # Coluna 'nome' do CSV
-                        df_temp['status_esocial_colab'] = df_bruto.iloc[:, 3].astype(str) # Coluna 'Status (eSocial)' do CSV
-                        df_temp['cpf_colab'] = df_bruto.iloc[:, 4].astype(str) # Coluna 'cpf' do CSV
-                        df_temp['cargo_colab'] = df_bruto.iloc[:, 5].astype(str) # Coluna 'cargo' do CSV
-                        df_temp['salario_mes_colab'] = df_bruto.iloc[:, 6] # Coluna 'salario_mes_12_24' do CSV
+                        df_temp['id_colab'] = df_bruto.iloc[:, 1].astype(str)
+                        df_temp['nome_colab'] = df_bruto.iloc[:, 2].astype(str)
+                        df_temp['status_esocial_colab'] = df_bruto.iloc[:, 3].astype(str)
+                        df_temp['cpf_colab'] = df_bruto.iloc[:, 4].astype(str)
+                        df_temp['cargo_colab'] = df_bruto.iloc[:, 5].astype(str)
+                        df_temp['salario_mes_colab'] = df_bruto.iloc[:, 6]
                     else:
-                        st.error("O arquivo CSV não possui o número esperado de colunas (mínimo 7). Verifique o formato.")
-                        return # Sai da função se o formato estiver incorreto
+                        st.error("O arquivo CSV não possui o número esperado de colunas (mínimo 7).")
+                        return
 
                     with engine.begin() as conn:
                         for _, row in df_temp.iterrows():
                             try:
-                                # Extraindo os valores das colunas do DataFrame temporário
                                 v_id = row['id_colab'].strip()
                                 v_nome = row['nome_colab'].strip() if pd.notna(row['nome_colab']) else None
                                 v_cpf = row['cpf_colab'].strip() if pd.notna(row['cpf_colab']) else None
                                 v_cargo = row['cargo_colab'].strip() if pd.notna(row['cargo_colab']) else None
                                 v_status_esocial = row['status_esocial_colab'].strip() if pd.notna(row['status_esocial_colab']) else None
 
-                                # Limpar e converter salário
                                 sal_mes_raw = str(row['salario_mes_colab']).replace('R$', '').replace('.', '').replace(',', '.').strip() if pd.notna(row['salario_mes_colab']) else '0'
                                 try:
                                     v_sal_mes = float(sal_mes_raw)
                                 except ValueError:
                                     v_sal_mes = 0.0
 
-                                # Valores padrão para campos não presentes no CSV
-                                v_admissao = None # CSV não tem data de admissão
-                                v_demissao = None # CSV não tem data de demissão
-                                v_sal_hora = 0.0 # CSV não tem salário por hora (usando salario_hora_12_24 na tabela)
+                                v_admissao = None
+                                v_demissao = None
+                                v_sal_hora = 0.0
 
-                                if not v_id or v_id == 'nan': continue # Ignora linhas sem ID válido
+                                if not v_id or v_id == 'nan': continue
 
                                 conn.execute(text("""
                                     INSERT INTO cadastro_geral_colaborador
@@ -82,19 +71,13 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                     status_esocial = EXCLUDED.status_esocial,
                                     salario_mes_12_24 = EXCLUDED.salario_mes_12_24, salario_hora_12_24 = EXCLUDED.salario_hora_12_24
                                 """), {
-                                    "id": v_id,
-                                    "nome": v_nome,
-                                    "cpf": v_cpf,
-                                    "cargo": v_cargo,
-                                    "admissao": v_admissao,
-                                    "demissao": v_demissao,
-                                    "status_esocial": v_status_esocial,
-                                    "sal_mes": v_sal_mes,
-                                    "sal_hora": v_sal_hora
+                                    "id": v_id, "nome": v_nome, "cpf": v_cpf, "cargo": v_cargo,
+                                    "admissao": v_admissao, "demissao": v_demissao, "status_esocial": v_status_esocial,
+                                    "sal_mes": v_sal_mes, "sal_hora": v_sal_hora
                                 })
                             except Exception as inner_e:
                                 st.warning(f"Linha ignorada (ID: {v_id if 'v_id' in locals() else 'N/A'}): {inner_e}")
-                        st.cache_data.clear() # Limpa o cache para que a Visão Geral seja atualizada
+                        st.cache_data.clear()
                         st.success("Ingestão executada com sucesso!")
                 except Exception as e:
                     st.error(f"Erro Crítico: {e}")
@@ -106,7 +89,7 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                 try:
                     with engine.begin() as conn:
                         conn.execute(text("TRUNCATE TABLE historico_premiacoes_e_folha RESTART IDENTITY"))
-                    st.cache_data.clear() # Limpa o cache
+                    st.cache_data.clear()
                     st.success("💥 BANCO DE HISTÓRICO ZERADO!")
                 except Exception as e:
                     st.error(f"Erro ao limpar: {e}")
@@ -116,7 +99,6 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
             with st.spinner("⏳ Analisando cruzamentos temporais e bloqueando previsões futuras..."):
                 try:
                     df_excel = ler_planilha_inteligente(arquivo_hist)
-
                     db_cols = carregar_dados_colaboradores_importacao(engine)
                     db_dict = {
                         str(r.nome).strip().upper(): {
@@ -125,12 +107,11 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                             'demissao': str(r.demissao) if r.demissao else None
                         } for r in db_cols if r.nome
                     }
-                    # A lógica de proximo_id_livre pode precisar de ajuste se o ID for TEXT e não numérico sequencial
                     lista_ids_numericos = [int(r.id) for r in db_cols if str(r.id).isdigit()]
                     proximo_id_livre = max(lista_ids_numericos) + 1 if lista_ids_numericos else 1000
 
                     def get_comp_date(col_name):
-                        match = re.search(r'(\d{2})/(\d{2})', str(col_name))
+                        match = re.search(r'(\d{2})/(\d{4})', str(col_name))
                         return pd.Timestamp(year=2000 + int(match.group(2)), month=int(match.group(1)), day=1) if match else None
 
                     inserts_pendentes, linhas_processadas = [], 0
@@ -145,7 +126,6 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                             nome_xls = str(row[coluna_nome]).strip().upper()
                             if not nome_xls or nome_xls == 'NAN': continue
                             if nome_xls not in db_dict:
-                                # Esta parte do código pode precisar de um gerador de ID TEXT se o ID não for numérico
                                 novo_id = str(proximo_id_livre)
                                 proximo_id_livre += 1
                                 with engine.begin() as conn_recupera:
@@ -190,14 +170,13 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                     retroativo_pago = EXCLUDED.retroativo_pago,
                                     data_pagamento = EXCLUDED.data_pagamento
                                 """), insert_data)
-                        st.cache_data.clear() # Limpa o cache
+                        st.cache_data.clear()
                         st.success(f"🚀 {linhas_processadas} linhas processadas. Histórico injetado com sucesso!")
                 except Exception as e:
                     st.error(f"Erro ao processar o ficheiro: {e}")
 
     with aba_imp3:
         st.subheader("🔄 Sincronização de Situações eSocial")
-        st.info("Envie a planilha de histórico de situações do eSocial. O robô vai atualizar os status dos colaboradores e a linha do tempo de afastamentos.")
         arquivo_esocial = st.file_uploader("Selecione a Planilha (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="up_esocial")
         if arquivo_esocial and st.button("🚀 Iniciar Sincronização eSocial", type="primary"):
             with st.spinner("⏳ Analisando e sincronizando situações..."):
@@ -216,24 +195,20 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                 conn.execute(text("UPDATE cadastro_geral_colaborador SET status_esocial = :sit, demissao = :dt WHERE id = :id"), {"sit": sit_completa, "dt": dt_str, "id": v_id})
                             elif sit_completa.startswith('1 - '):
                                 conn.execute(text("UPDATE cadastro_geral_colaborador SET status_esocial = :sit WHERE id = :id"), {"sit": sit_completa, "id": v_id})
-                                # data_retorno não existe mais na tabela, remover ou ajustar
                             else:
                                 conn.execute(text("UPDATE cadastro_geral_colaborador SET status_esocial = :sit WHERE id = :id"), {"sit": sit_completa, "id": v_id})
-                                # data_afastamento e data_retorno não existem mais na tabela, remover ou ajustar
                             if dt_str:
-                                # O campo 'codigo_situacao' na tabela historico_afastamentos é 'tipo_afastamento'
                                 ja_tem = conn.execute(text("SELECT 1 FROM historico_afastamentos WHERE id_colaborador = :id AND data_inicio = :dt AND tipo_afastamento = :desc"), {"id": v_id, "dt": dt_str, "desc": sit_completa}).fetchone()
                                 if not ja_tem:
                                     conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, tipo_afastamento) VALUES (:id, :dt, :desc)"), {"id": v_id, "dt": dt_str, "desc": sit_completa})
                                     sucessos += 1
-                    st.cache_data.clear() # Limpa o cache
-                    st.success(f"✅ Missão Cumprida! A varredura analisou os dados e inseriu {sucessos} novos eventos na Linha do Tempo dos colaboradores.")
+                    st.cache_data.clear()
+                    st.success(f"✅ Missão Cumprida! {sucessos} novos eventos inseridos.")
                 except Exception as e:
                     st.error(f"Erro ao processar o ficheiro: {e}")
 
     with aba_imp4:
         st.subheader("🪪 Injeção Automática de CPFs")
-        st.info("Envie a planilha. O robô vai formatar e corrigir os CPFs que perderam o zero à esquerda devido a falhas do Excel.")
         arquivo_cpf = st.file_uploader("Selecione a Planilha (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="up_cpf")
         if arquivo_cpf and st.button("🚀 Iniciar Varredura de CPFs", type="primary"):
             with st.spinner("⏳ Caçando cabeçalhos ocultos e processando..."):
@@ -250,7 +225,7 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                     col_id = next((c for c in df_cpf.columns if str(c).strip().upper() in ['CÓDIGO', 'CODIGO', 'ID', 'MATRICULA', 'ID/MATRÍCULA']), None)
                     col_cpf = next((c for c in df_cpf.columns if 'CPF' in str(c).strip().upper()), None)
                     if not col_id or not col_cpf:
-                        st.error(f"⚠️ Não consegui encontrar as colunas na linha {header_idx}. Tentei achar entre estas: {list(df_cpf.columns)}.")
+                        st.error(f"⚠️ Não consegui encontrar as colunas na linha {header_idx}.")
                     else:
                         atualizados, ignorados = 0, 0
                         atuais = carregar_cpfs_atuais(engine)
@@ -269,134 +244,86 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                     else:
                                         conn.execute(text("UPDATE cadastro_geral_colaborador SET cpf = :cpf WHERE id = :id"), {"cpf": cpf_planilha_formatado, "id": v_id})
                                         atualizados += 1
-                        st.cache_data.clear() # Limpa o cache
+                        st.cache_data.clear()
                         st.success(f"✅ Varredura Concluída! {atualizados} CPFs corrigidos/atualizados. {ignorados} CPFs já estavam perfeitos.")
                 except Exception as e:
                     st.error(f"Erro ao ler os CPFs: {e}")
 
-    with aba_imp5: # Nova aba para Lançamento de Prêmios
+    with aba_imp5:
         st.subheader("🏆 Importação de Lançamento de Prêmios")
-        st.info("Faça o upload da planilha de Lançamento de Prêmios (baseada na sua planilha do Drive, com a coluna 'MATRICULA' adicionada). Os dados serão inseridos na tabela 'premios_funcionarios'.")
         arquivo_premios = st.file_uploader("Selecione a Planilha de Prêmios (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="up_premios")
         if arquivo_premios and st.button("🚀 Executar Ingestão de Prêmios", key="btn_imp_premios", type="primary"):
             with st.spinner("⏳ Processando arquivo e inserindo prêmios..."):
                 try:
                     df_premios = ler_planilha_inteligente(arquivo_premios)
 
-                    # --- NOVO MAPEAMENTO DE COLUNAS BASEADO NA PLANILHA DO DRIVE COM A COLUNA MATRICULA ---
-                    # Assumindo a ordem das colunas no CSV exportado do Drive:
-                    # 0: MATRICULA (ID do Colaborador)
-                    # 1: COMP. (Competência)
-                    # 2: Nome
-                    # 3: Salário MÊS
-                    # 4: Salário HORA
-                    # 5: Total VLR
-                    # 6: VLR PRÊMIO
-                    # 7: Valor R$
-                    # 8: DESCRIÇÃO PRÊMIO
-                    # 9: PIX
-                    # 10: R$ 1,00 (Taxa ZAUT)
-
-                    # Verificando se o DataFrame tem o número mínimo de colunas esperado (11)
-                    if df_premios.shape[1] < 11:
-                        st.error(f"O arquivo de Prêmios não possui o número esperado de colunas (mínimo 11). Encontrado: {df_premios.shape[1]}. Verifique se a coluna 'MATRICULA' foi adicionada e se a planilha tem todas as colunas esperadas.")
+                    if df_premios is None or df_premios.shape[1] < 11:
+                        st.error("O arquivo não possui as 11 colunas necessárias.")
                         return
 
-                    df_temp_premios = pd.DataFrame()
-                    df_temp_premios['matricula_csv'] = df_premios.iloc[:, 0].astype(str)
-                    df_temp_premios['competencia_csv'] = df_premios.iloc[:, 1].astype(str)
-                    df_temp_premios['nome_colaborador_csv'] = df_premios.iloc[:, 2].astype(str)
-                    df_temp_premios['salario_mes_csv'] = df_premios.iloc[:, 3]
-                    df_temp_premios['salario_hora_csv'] = df_premios.iloc[:, 4]
-                    df_temp_premios['total_vlr_csv'] = df_premios.iloc[:, 5] # Total VLR da planilha
-                    df_temp_premios['vlr_premio_csv'] = df_premios.iloc[:, 6] # VLR PRÊMIO da planilha
-                    df_temp_premios['valor_rs_csv'] = df_premios.iloc[:, 7] # Valor R$ da planilha
-                    df_temp_premios['descricao_premio_csv'] = df_premios.iloc[:, 8].astype(str)
-                    df_temp_premios['pix_csv'] = df_premios.iloc[:, 9].astype(str)
-                    df_temp_premios['taxa_zaut_csv'] = df_premios.iloc[:, 10] # R$ 1,00 da planilha
-
+                    df_temp = pd.DataFrame()
+                    df_temp['matricula'] = df_premios.iloc[:, 0].astype(str)
+                    df_temp['competencia'] = df_premios.iloc[:, 1].astype(str)
+                    df_temp['nome'] = df_premios.iloc[:, 2].astype(str)
+                    df_temp['salario_mes'] = df_premios.iloc[:, 3]
+                    df_temp['salario_hora'] = df_premios.iloc[:, 4]
+                    df_temp['total_vlr'] = df_premios.iloc[:, 5]
+                    df_temp['vlr_premio'] = df_premios.iloc[:, 6]
+                    df_temp['valor_rs'] = df_premios.iloc[:, 7]
+                    df_temp['descricao'] = df_premios.iloc[:, 8].astype(str)
+                    df_temp['pix'] = df_premios.iloc[:, 9].astype(str)
+                    df_temp['taxa_zaut'] = df_premios.iloc[:, 10]
 
                     inserts_count = 0
 
                     with engine.begin() as conn:
-                        for _, row in df_temp_premios.iterrows():
-                            try:
-                                v_codigo_funcionario = row['matricula_csv'].strip()
-                                v_nome_colaborador = row['nome_colaborador_csv'].strip() if pd.notna(row['nome_colaborador_csv']) else None
-                                v_competencia = row['competencia_csv'].strip() if pd.notna(row['competencia_csv']) else None
+                        for _, row in df_temp.iterrows():
+                            v_matricula = row['matricula'].replace('.0', '').strip()
+                            if not v_matricula or v_matricula == 'nan': continue
 
-                                # Limpar e converter salario_hora
-                                sal_hora_raw = str(row['salario_hora_csv']).replace('R$', '').replace('.', '').replace(',', '.').strip() if pd.notna(row['salario_hora_csv']) else '0'
+                            def limpa_valor(val):
                                 try:
-                                    v_salario_hora = round(float(sal_hora_raw), 2)
-                                    if abs(v_salario_hora) >= 10**8:
-                                        st.warning(f"Salário por hora ({v_salario_hora}) para ID {v_codigo_funcionario} é muito grande. Ajustando para 0.0.")
-                                        v_salario_hora = 0.0
+                                    v = str(val).replace('R$', '').replace('.', '').replace(',', '.').strip()
+                                    return round(float(v), 2)
                                 except ValueError:
-                                    v_salario_hora = 0.0
+                                    return 0.0
 
-                                # Limpar e converter VLR PRÊMIO (que será o 'horas_premio' na tabela)
-                                vlr_premio_base_raw = str(row['vlr_premio_csv']).replace('R$', '').replace('.', '').replace(',', '.').strip() if pd.notna(row['vlr_premio_csv']) else '0'
-                                try:
-                                    v_horas_premio = round(float(vlr_premio_base_raw), 2) # Usando VLR PRÊMIO como base para horas_premio
-                                    if abs(v_horas_premio) >= 10**8:
-                                        st.warning(f"Valor base do prêmio ({v_horas_premio}) para ID {v_codigo_funcionario} é muito grande. Ajustando para 0.0.")
-                                        v_horas_premio = 0.0
-                                except ValueError:
-                                    v_horas_premio = 0.0
+                            v_salario_mes = limpa_valor(row['salario_mes'])
+                            v_salario_hora = limpa_valor(row['salario_hora'])
+                            v_total_vlr = limpa_valor(row['total_vlr'])
+                            v_vlr_premio = limpa_valor(row['vlr_premio'])
+                            v_valor_rs = limpa_valor(row['valor_rs'])
+                            v_taxa_zaut = limpa_valor(row['taxa_zaut'])
 
-                                v_descricao_servico = row['descricao_premio_csv'].strip() if pd.notna(row['descricao_premio_csv']) else None
-                                v_data_lancamento = datetime.now().date() # Data atual da importação
-
-                                # Limpar e converter a taxa ZAUT da planilha
-                                taxa_zaut_raw = str(row['taxa_zaut_csv']).replace('R$', '').replace('.', '').replace(',', '.').strip() if pd.notna(row['taxa_zaut_csv']) else '0'
-                                try:
-                                    v_taxa_zaut = round(float(taxa_zaut_raw), 2)
-                                except ValueError:
-                                    v_taxa_zaut = 0.0
-
-                                # --- CÁLCULO DO VALOR TOTAL DO PRÊMIO COM A TAXA ZAUT ---
-                                # Assumindo que 'vlr_premio_base' é o valor antes da taxa.
-                                v_valor_total_premio = round(v_horas_premio + v_taxa_zaut, 2)
-                                if abs(v_valor_total_premio) >= 10**8:
-                                    st.warning(f"Valor total do prêmio ({v_valor_total_premio}) para ID {v_codigo_funcionario} é muito grande. Ajustando para 0.0.")
-                                    v_valor_total_premio = 0.0
-
-                                v_status_pagamento = 'Pago' # Padrão
-                                v_cargo = 'N/A' # A coluna 'cargo' existe na sua tabela, mas não no CSV de prêmios. Usando um valor padrão.
-
-                                if not v_codigo_funcionario or v_codigo_funcionario == 'nan':
-                                    st.warning(f"Linha de prêmio ignorada: ID do colaborador (Matrícula) não encontrado ou inválido para o nome '{v_nome_colaborador}'.")
-                                    continue # Ignora linhas sem ID válido
-
-                                # --- COMANDO SQL AJUSTADO PARA AS COLUNAS DO SEU SUPABASE ---
-                                conn.execute(text("""
-                                    INSERT INTO premios_funcionarios
-                                    (codigo_funcionario, nome_funcionario, salario_hora, horas_premio, descricao_servico, data_lancamento, valor_total_premio, status_pagamento, cargo)
-                                    VALUES (:codigo_funcionario, :nome_funcionario, :salario_hora, :horas_premio, :descricao_servico, :data_lancamento, :valor_total_premio, :status_pagamento, :cargo)
-                                """), {
-                                    "codigo_funcionario": v_codigo_funcionario,
-                                    "nome_funcionario": v_nome_colaborador, # Usando o nome do CSV
-                                    "salario_hora": v_salario_hora,
-                                    "horas_premio": v_horas_premio, # Agora este é o VLR PRÊMIO base
-                                    "descricao_servico": v_descricao_servico,
-                                    "data_lancamento": v_data_lancamento,
-                                    "valor_total_premio": v_valor_total_premio, # Este é o valor com a taxa ZAUT
-                                    "status_pagamento": v_status_pagamento,
-                                    "cargo": v_cargo
-                                })
-                                inserts_count += 1
-                            except Exception as inner_e:
-                                st.warning(f"Linha de prêmio ignorada (ID: {v_codigo_funcionario if 'v_codigo_funcionario' in locals() else 'N/A'}): {inner_e}")
-                        st.cache_data.clear() # Limpa o cache
-                        st.success(f"Ingestão de Prêmios executada com sucesso! {inserts_count} registros inseridos/atualizados.")
+                            conn.execute(text("""
+                                INSERT INTO premios_funcionarios
+                                (codigo_funcionario, competencia, nome_funcionario, salario_mes, salario_hora, 
+                                total_vlr, vlr_premio, valor_rs, descricao_servico, pix, taxa_zaut, data_lancamento, status_pagamento)
+                                VALUES (:mat, :comp, :nome, :s_mes, :s_hora, :t_vlr, :v_premio, :v_rs, :desc, :pix, :taxa, :dt, :status)
+                            """), {
+                                "mat": v_matricula,
+                                "comp": row['competencia'].strip(),
+                                "nome": row['nome'].strip(),
+                                "s_mes": v_salario_mes,
+                                "s_hora": v_salario_hora,
+                                "t_vlr": v_total_vlr,
+                                "v_premio": v_vlr_premio,
+                                "v_rs": v_valor_rs,
+                                "desc": row['descricao'].strip(),
+                                "pix": row['pix'].strip(),
+                                "taxa": v_taxa_zaut,
+                                "dt": datetime.now().date(),
+                                "status": 'Pago'
+                            })
+                            inserts_count += 1
+                    st.cache_data.clear()
+                    st.success(f"Ingestão executada! {inserts_count} registros inseridos com as 11 colunas.")
                 except Exception as e:
-                    st.error(f"Erro Crítico na importação de Prêmios: {e}")
+                    st.error(f"Erro Crítico: {e}")
 
-    with aba_imp6: # A aba antiga 'aba_imp5' agora é aba_imp6
+    with aba_imp6:
         st.subheader("🤖 Injeção Universal de Histórico via IA")
-        st.info("Cole na caixa abaixo o 'Pacote de Dados' (Código) gerado pelo seu Assistente de IA no chat.")
-        pacote_ia = st.text_area("Pacote de Dados (JSON)", height=200, placeholder='Ex: [{"id": "9", "eventos": [["2022-06-14", "18 - Doenca..."], ...]}]')
+        pacote_ia = st.text_area("Pacote de Dados (JSON)", height=200)
         if st.button("🚀 Executar Injeção em Massa", type="primary"):
             with st.spinner("⏳ Injetando histórico em massa..."):
                 if pacote_ia.strip():
@@ -412,23 +339,17 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                 for ev in colab['eventos']:
                                     data_ev = ev[0]
                                     desc_ev = ev[1]
-                                    # O campo 'codigo_situacao' na tabela historico_afastamentos é 'tipo_afastamento'
                                     conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, tipo_afastamento) VALUES (:id, :dt, :desc)"), {"id": v_id, "dt": data_ev, "desc": desc_ev})
                                     ultimo_status = desc_ev
                                     ultima_data = data_ev
-                                # Atualizado para usar 'status_esocial' em vez de 'situacao'
                                 if ultimo_status.startswith("8 - "):
                                     conn.execute(text("UPDATE cadastro_geral_colaborador SET status_esocial = :sit, demissao = :dt WHERE id = :id"), {"sit": ultimo_status, "dt": ultima_data, "id": v_id})
-                                elif ultimo_status.startswith("1 - "):
-                                    conn.execute(text("UPDATE cadastro_geral_colaborador SET status_esocial = :sit WHERE id = :id"), {"sit": ultimo_status, "id": v_id})
-                                    # data_retorno não existe mais na tabela, remover ou ajustar
                                 else:
                                     conn.execute(text("UPDATE cadastro_geral_colaborador SET status_esocial = :sit WHERE id = :id"), {"sit": ultimo_status, "id": v_id})
-                                    # data_afastamento e data_retorno não existem mais na tabela, remover ou ajustar
                                 sucessos += 1
-                        st.cache_data.clear() # Limpa o cache
+                        st.cache_data.clear()
                         st.success(f"✅ Histórico de {sucessos} colaborador(es) reconstruído(s) com sucesso!")
                     except Exception as e:
-                        st.error(f"Erro na interpretação do pacote. Tem a certeza que copiou o código inteiro? Erro: {e}")
+                        st.error(f"Erro na interpretação do pacote: {e}")
                 else:
                     st.warning("Cole o código gerado pela IA antes de clicar.")
