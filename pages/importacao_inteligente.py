@@ -30,24 +30,24 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                     df_bruto = ler_planilha_inteligente(arquivo)
                     df_temp = pd.DataFrame()
                     if df_bruto.shape[1] >= 7:
-                        df_temp['id_colab'] = df_bruto.iloc[:, 1].astype(str)
-                        df_temp['nome_colab'] = df_bruto.iloc[:, 2].astype(str)
-                        df_temp['status_esocial_colab'] = df_bruto.iloc[:, 3].astype(str)
-                        df_temp['cpf_colab'] = df_bruto.iloc[:, 4].astype(str)
-                        df_temp['cargo_colab'] = df_bruto.iloc[:, 5].astype(str)
+                        df_temp['id_colab'] = df_bruto.iloc[:, 1]
+                        df_temp['nome_colab'] = df_bruto.iloc[:, 2]
+                        df_temp['status_esocial_colab'] = df_bruto.iloc[:, 3]
+                        df_temp['cpf_colab'] = df_bruto.iloc[:, 4]
+                        df_temp['cargo_colab'] = df_bruto.iloc[:, 5]
                         df_temp['salario_mes_colab'] = df_bruto.iloc[:, 6]
                     else:
                         st.error("O arquivo CSV não possui o número esperado de colunas (mínimo 7).")
-                        return
+                        st.stop()
 
                     with engine.begin() as conn:
                         for _, row in df_temp.iterrows():
                             try:
-                                v_id = row['id_colab'].strip()
-                                v_nome = row['nome_colab'].strip() if pd.notna(row['nome_colab']) else None
-                                v_cpf = row['cpf_colab'].strip() if pd.notna(row['cpf_colab']) else None
-                                v_cargo = row['cargo_colab'].strip() if pd.notna(row['cargo_colab']) else None
-                                v_status_esocial = row['status_esocial_colab'].strip() if pd.notna(row['status_esocial_colab']) else None
+                                v_id = str(row['id_colab']).strip()
+                                v_nome = str(row['nome_colab']).strip() if pd.notna(row['nome_colab']) else None
+                                v_cpf = str(row['cpf_colab']).strip() if pd.notna(row['cpf_colab']) else None
+                                v_cargo = str(row['cargo_colab']).strip() if pd.notna(row['cargo_colab']) else None
+                                v_status_esocial = str(row['status_esocial_colab']).strip() if pd.notna(row['status_esocial_colab']) else None
 
                                 sal_mes_raw = str(row['salario_mes_colab']).replace('R$', '').replace('.', '').replace(',', '.').strip() if pd.notna(row['salario_mes_colab']) else '0'
                                 try:
@@ -59,7 +59,7 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                 v_demissao = None
                                 v_sal_hora = 0.0
 
-                                if not v_id or v_id == 'nan': continue
+                                if not v_id or v_id.lower() == 'nan': continue
 
                                 conn.execute(text("""
                                     INSERT INTO cadastro_geral_colaborador
@@ -188,7 +188,7 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                             v_id = str(row['id']).strip().replace('.0', '')
                             v_data = parse_br_date_smart(row['data'])
                             v_situacao = str(row['situacao']).strip()
-                            if not v_id or not v_data or not v_situacao: continue
+                            if not v_id or v_id.lower() == 'nan' or not v_data or not v_situacao: continue
                             sit_completa = next((s for s in LISTA_SITUACOES_ESOCIAL if s.startswith(v_situacao.split(' ')[0])), v_situacao)
                             dt_str = v_data.strftime('%Y-%m-%d')
                             if sit_completa.startswith('8 - '):
@@ -234,7 +234,7 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                             for _, row in df_cpf.iterrows():
                                 v_id = str(row[col_id]).strip().replace('.0', '')
                                 raw_cpf = str(row[col_cpf]).strip()
-                                if not v_id or v_id == 'nan' or raw_cpf.lower() == 'nan' or not raw_cpf: continue
+                                if not v_id or v_id.lower() == 'nan' or raw_cpf.lower() == 'nan' or not raw_cpf: continue
                                 cpf_planilha_formatado = format_cpf(raw_cpf)
                                 if not cpf_planilha_formatado: continue
                                 cpf_banco = mapa_atuais.get(v_id)
@@ -259,30 +259,31 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
 
                     if df_premios is None or df_premios.shape[1] < 11:
                         st.error("O arquivo não possui as 11 colunas necessárias.")
-                        return
+                        st.stop()
 
                     df_temp = pd.DataFrame()
-                    df_temp['matricula'] = df_premios.iloc[:, 0].astype(str)
-                    df_temp['competencia'] = df_premios.iloc[:, 1].astype(str)
-                    df_temp['nome'] = df_premios.iloc[:, 2].astype(str)
+                    df_temp['matricula'] = df_premios.iloc[:, 0]
+                    df_temp['competencia'] = df_premios.iloc[:, 1]
+                    df_temp['nome'] = df_premios.iloc[:, 2]
                     df_temp['salario_mes'] = df_premios.iloc[:, 3]
                     df_temp['salario_hora'] = df_premios.iloc[:, 4]
                     df_temp['total_vlr'] = df_premios.iloc[:, 5]
                     df_temp['vlr_premio'] = df_premios.iloc[:, 6]
                     df_temp['valor_rs'] = df_premios.iloc[:, 7]
-                    df_temp['descricao'] = df_premios.iloc[:, 8].astype(str)
-                    df_temp['pix'] = df_premios.iloc[:, 9].astype(str)
+                    df_temp['descricao'] = df_premios.iloc[:, 8]
+                    df_temp['pix'] = df_premios.iloc[:, 9]
                     df_temp['taxa_zaut'] = df_premios.iloc[:, 10]
 
                     inserts_count = 0
 
                     with engine.begin() as conn:
                         for _, row in df_temp.iterrows():
-                            v_matricula = row['matricula'].replace('.0', '').strip()
-                            if not v_matricula or v_matricula == 'nan': continue
+                            v_matricula = str(row['matricula']).replace('.0', '').strip()
+                            if not v_matricula or v_matricula.lower() == 'nan': continue
 
                             def limpa_valor(val):
                                 try:
+                                    if pd.isna(val): return 0.0
                                     v = str(val).replace('R$', '').replace('.', '').replace(',', '.').strip()
                                     return round(float(v), 2)
                                 except ValueError:
@@ -295,6 +296,18 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                             v_valor_rs = limpa_valor(row['valor_rs'])
                             v_taxa_zaut = limpa_valor(row['taxa_zaut'])
 
+                            v_comp = str(row['competencia']).strip()
+                            v_comp = "" if v_comp.lower() == 'nan' else v_comp
+
+                            v_nome = str(row['nome']).strip()
+                            v_nome = "" if v_nome.lower() == 'nan' else v_nome
+
+                            v_desc = str(row['descricao']).strip()
+                            v_desc = "" if v_desc.lower() == 'nan' else v_desc
+
+                            v_pix = str(row['pix']).strip()
+                            v_pix = "" if v_pix.lower() == 'nan' else v_pix
+
                             conn.execute(text("""
                                 INSERT INTO premios_funcionarios
                                 (codigo_funcionario, competencia, nome_funcionario, salario_mes, salario_hora, 
@@ -302,15 +315,15 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                                 VALUES (:mat, :comp, :nome, :s_mes, :s_hora, :t_vlr, :v_premio, :v_rs, :desc, :pix, :taxa, :dt, :status)
                             """), {
                                 "mat": v_matricula,
-                                "comp": row['competencia'].strip(),
-                                "nome": row['nome'].strip(),
+                                "comp": v_comp,
+                                "nome": v_nome,
                                 "s_mes": v_salario_mes,
                                 "s_hora": v_salario_hora,
                                 "t_vlr": v_total_vlr,
                                 "v_premio": v_vlr_premio,
                                 "v_rs": v_valor_rs,
-                                "desc": row['descricao'].strip(),
-                                "pix": row['pix'].strip(),
+                                "desc": v_desc,
+                                "pix": v_pix,
                                 "taxa": v_taxa_zaut,
                                 "dt": datetime.now().date(),
                                 "status": 'Pago'
