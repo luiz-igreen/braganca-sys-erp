@@ -160,6 +160,6 @@ elif selection == "Importação Inteligente":
 elif selection == "Gestão de Cadastros":
     gestao_cadastros_page.render(engine, parse_br_date_smart, format_cpf, LISTA_SITUACOES_ESOCIAL)
 elif selection == "Gestão de Prêmios (ZAUT)":
-    premios_page.render(engine, parse_br_date_smart)
+    premios_page.render(engine)
 elif selection == "Auditoria CCT (IA)":
     st.title("Auditoria CCT (IA)")
