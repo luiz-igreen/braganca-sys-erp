@@ -5,11 +5,6 @@ from datetime import datetime
 import re
 import os
 
-# Importa as páginas do aplicativo
-from pages import importacao_inteligente
-from pages import gestao_cadastros
-from pages import premios as premios_page # Renomeado para evitar conflito com a variável 'premios'
-
 # --- Configurações do Banco de Dados ---
 # Carrega as variáveis de ambiente do Supabase
 DB_USER = os.getenv("DB_USER")
@@ -189,41 +184,10 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- Navegação na Barra Lateral ---
-st.sidebar.title("Navegação")
-selection = st.sidebar.radio("Ir para", [
-    "Visão Geral",
-    "Importação Inteligente",
-    "Gestão de Cadastros",
-    "Gestão de Prêmios (ZAUT)",
-    "Auditoria CCT (IA)"
-])
+# --- Importa as páginas do aplicativo (APÓS criar as tabelas) ---
+# Corrigido o nome do arquivo de importação de 'gestao_cadastros' para 'cadastros'
+from pages import cadastros as gestao_cadastros_page # Renomeado para evitar conflito
+from pages import importacao_inteligente
+from pages
 
-# --- Renderiza a página selecionada ---
-if selection == "Visão Geral":
-    st.title("Visão Geral do Sistema")
-    st.write("Bem-vindo ao BRAGANÇA SYS ERP. Use o menu lateral para navegar.")
-elif selection == "Importação Inteligente":
-    importacao_inteligente.render(
-        engine,
-        ler_planilha_inteligente,
-        parse_br_date_smart,
-        format_cpf,
-        format_competencia_smart,
-        LISTA_SITUACOES_ESOCIAL
-    )
-elif selection == "Gestão de Cadastros":
-    gestao_cadastros.render(
-        engine,
-        parse_br_date_smart,
-        format_cpf,
-        LISTA_SITUACOES_ESOCIAL
-    )
-elif selection == "Gestão de Prêmios (ZAUT)":
-    premios_page.render(
-        engine,
-        parse_br_date_smart
-    )
-elif selection == "Auditoria CCT (IA)":
-    st.title("Auditoria CCT (IA)")
-    st.write("Funcionalidade em desenvolvimento.")
+    
