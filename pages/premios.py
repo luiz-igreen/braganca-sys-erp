@@ -3,8 +3,8 @@ import pandas as pd
 from sqlalchemy import text
 
 def render(engine, parse_br_date_smart):
-    st.title("Gestao de Premios (ZAUT)")
-    st.write("Visualizacao e gerenciamento dos premios lancados no sistema.")
+    st.title("🏆 Gestão de Prêmios (ZAUT)")
+    st.write("Visualização e gerenciamento dos prêmios lançados no sistema.")
 
     try:
         with engine.connect() as conn:
@@ -14,7 +14,7 @@ def render(engine, parse_br_date_smart):
         if not df.empty:
             st.dataframe(df, use_container_width=True)
         else:
-            st.info("Nenhum premio registrado no banco de dados no momento.")
+            st.info("Nenhum prêmio registrado no banco de dados no momento.")
 
     except Exception as e:
-        st.error(f"Falha na extracao de dados do banco: {e}")
+        st.error(f"Falha na extração de dados do banco: {e}")
