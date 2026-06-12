@@ -279,7 +279,10 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                     with engine.begin() as conn:
                         for _, row in df_temp.iterrows():
                             v_matricula = str(row['matricula']).replace('.0', '').strip()
-                            if not v_matricula or v_matricula.lower() == 'nan': continue
+
+                            # Bloqueio de injeção de cabeçalho
+                            if not v_matricula or v_matricula.lower() == 'nan' or 'id_colaborador' in v_matricula.lower() or 'matr' in v_matricula.lower(): 
+                                continue
 
                             def limpa_valor(val):
                                 try:
@@ -311,7 +314,7 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                             conn.execute(text("""
                                 INSERT INTO premios_funcionarios
                                 (codigo_funcionario, competencia, nome_funcionario, salario_mes, salario_hora, 
-                                total_vlr, vlr_premio, valor_rs, descricao_servico, pix, taxa_zaut, data_lancamento, status_pagamento)
+                                total_vlr, valor_premio, valor_rs, descricao_servico, pix, taxa_zaut, data_lancamento, status_pagamento)
                                 VALUES (:mat, :comp, :nome, :s_mes, :s_hora, :t_vlr, :v_premio, :v_rs, :desc, :pix, :taxa, :dt, :status)
                             """), {
                                 "mat": v_matricula,
