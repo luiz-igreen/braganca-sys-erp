@@ -3,21 +3,43 @@ from sqlalchemy import create_engine, text
 import pandas as pd
 from datetime import datetime
 import re
-import os
+import os # Manter os.getenv para compatibilidade, mas priorizar st.secrets
 
 # --- Configurações do Banco de Dados ---
-# Carrega as variáveis de ambiente do Supabase
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT")
-DB_NAME = os.getenv("DB_NAME")
+# Carrega as variáveis de ambiente do Supabase usando st.secrets
+# st.secrets é a forma recomendada pelo Streamlit para acessar secrets
+# definidas no formato TOML.
+try:
+    DB_HOST = st.secrets["HOST"]
+    DB_PORT = st.secrets["PORT"]
+    DB_DATABASE = st.secrets["DATABASE"]
+    DB_USER = st.secrets["USER"]
+    DB_PASSWORD = st.secrets["PASSWORD"]
+    # DATABASE_URL também pode ser lida diretamente se definida como uma secret
+    # ou construída a partir das partes
+    DATABASE_URL = st.secrets["DATABASE_URL"]
+except KeyError as e:
+    st.error(f"Erro: Variável de ambiente não encontrada em st.secrets: {e}. Verifique suas secrets no Streamlit Cloud.")
+    st.stop() # Para a execução do aplicativo se as secrets não forem encontradas
 
-# Constrói a string de conexão
-DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+# Constrói a string de conexão (apenas como fallback ou se DATABASE_URL não for uma secret)
+# Para garantir que a DATABASE_URL seja sempre a mais completa e correta,
+# vamos priorizar a que vem diretamente das secrets.
+# Se DATABASE_URL não estiver nas secrets, podemos construí-la:
+if "DATABASE_URL" not in st.secrets:
+    DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_DATABASE}"
+    # Adicionar sslmode=require se necessário, dependendo da configuração do Supabase
+    if "sslmode=require" not in DATABASE_URL:
+        DATABASE_URL += "?sslmode=require"
+
 
 # Cria o engine SQLAlchemy
-engine = create_engine(DATABASE_URL)
+try:
+    engine = create_engine(DATABASE_URL)
+except Exception as e:
+    st.error(f"Erro ao criar o engine do banco de dados: {e}. Verifique a DATABASE_URL e as credenciais.")
+    st.stop()
+
 
 # --- Constantes ---
 LISTA_SITUACOES_ESOCIAL = [
@@ -185,10 +207,9 @@ st.set_page_config(
 )
 
 # --- Importa as páginas do aplicativo (APÓS criar as tabelas) ---
-# Corrigido o nome do arquivo de importação de 'gestao_cadastros' para 'cadastros'
-from pages import cadastros as gestao_cadastros_page # Renomeado para evitar conflito
+from pages import cadastros as gestao_cadastros_page
 from pages import importacao_inteligente
-from pages import premios as premios_page # Importa a página de prêmios
+from pages import premios as premios_page
 
 # --- Navegação na Barra Lateral ---
 st.sidebar.title("Navegação")
@@ -214,17 +235,19 @@ elif selection == "Importação Inteligente":
         LISTA_SITUACOES_ESOCIAL
     )
 elif selection == "Gestão de Cadastros":
-    gestao_cadastros_page.render( # Usando o nome renomeado
+    gestao_cadastros_page.render(
         engine,
         parse_br_date_smart,
         format_cpf,
         LISTA_SITUACOES_ESOCIAL
     )
 elif selection == "Gestão de Prêmios (ZAUT)":
-    premios_page.render( # Usando o nome renomeado
+    premios_page.render(
         engine,
         parse_br_date_smart
     )
 elif selection == "Auditoria CCT (IA)":
     st.title("Auditoria CCT (IA)")
-    st.write("Funcionalidade em desenvolvimento.")    
+    st
+
+    
