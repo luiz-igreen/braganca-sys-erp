@@ -77,7 +77,6 @@ def ler_planilha_inteligente(uploaded_file, nrows=None, header='infer'):
             for enc in encodings_to_try:
                 try:
                     uploaded_file.seek(0)
-                    # quoting=csv.QUOTE_NONE ignora erros de aspas no meio do texto
                     df = pd.read_csv(uploaded_file, sep=sep, nrows=nrows, header=header, encoding=enc, engine='python', quoting=csv.QUOTE_NONE, on_bad_lines='skip')
                     if df.shape[1] >= 11: 
                         break
@@ -134,7 +133,6 @@ def criar_tabelas():
             );
         """))
 
-        # Alterações estruturais para incluir as 11 colunas da planilha
         connection.execute(text("ALTER TABLE premios_funcionarios ADD COLUMN IF NOT EXISTS competencia TEXT;"))
         connection.execute(text("ALTER TABLE premios_funcionarios ADD COLUMN IF NOT EXISTS salario_mes NUMERIC(10, 2);"))
         connection.execute(text("ALTER TABLE premios_funcionarios ADD COLUMN IF NOT EXISTS total_vlr NUMERIC(10, 2);"))
