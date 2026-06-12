@@ -14,7 +14,7 @@ try:
     DB_PASSWORD = st.secrets["PASSWORD"]
     DATABASE_URL = st.secrets["DATABASE_URL"]
 except KeyError as e:
-    st.error(f"Erro: Variável de ambiente não encontrada em st.secrets: {e}")
+    st.error(f"Erro: Variavel de ambiente nao encontrada em st.secrets: {e}")
     st.stop()
 
 try:
@@ -24,10 +24,10 @@ except Exception as e:
     st.stop()
 
 LISTA_SITUACOES_ESOCIAL = [
-    "1 - Trabalhando", "2 - Afastamento Temporário - Doença",
-    "3 - Afastamento Temporário - Acidente de Trabalho", "4 - Afastamento Temporário - Licença Maternidade",
-    "5 - Afastamento Temporário - Serviço Militar", "6 - Afastamento Temporário - Outros",
-    "7 - Afastamento Definitivo - Aposentadoria", "8 - Afastamento Definitivo - Demissão", "9 - Férias"
+    "1 - Trabalhando", "2 - Afastamento Temporario - Doenca",
+    "3 - Afastamento Temporario - Acidente de Trabalho", "4 - Afastamento Temporario - Licenca Maternidade",
+    "5 - Afastamento Temporario - Servico Militar", "6 - Afastamento Temporario - Outros",
+    "7 - Afastamento Definitivo - Aposentadoria", "8 - Afastamento Definitivo - Demissao", "9 - Ferias"
 ]
 
 def parse_br_date_smart(date_str):
@@ -85,7 +85,7 @@ def ler_planilha_inteligente(uploaded_file, nrows=None, header='infer'):
             if df is not None and df.shape[1] >= 11: break
 
         if df is None or df.shape[1] < 11:
-            st.error("Falha na leitura do CSV ou colunas insuficientes (mínimo 11).")
+            st.error("Falha na leitura do CSV ou colunas insuficientes (minimo 11).")
             return None
 
     elif file_name.endswith(('.xls', '.xlsx')):
@@ -144,22 +144,22 @@ def criar_tabelas():
 
 criar_tabelas()
 
-st.set_page_config(page_title="BRAGANÇA SYS ERP", page_icon="🧊", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="BRAGANCA SYS ERP", layout="wide", initial_sidebar_state="expanded")
 
 from pages import cadastros as gestao_cadastros_page
 from pages import importacao_inteligente
 from pages import premios as premios_page
 
-st.sidebar.title("Navegação")
-selection = st.sidebar.radio("Ir para", ["Visão Geral", "Importação Inteligente", "Gestão de Cadastros", "Gestão de Prêmios (ZAUT)", "Auditoria CCT (IA)"])
+st.sidebar.title("Navegacao")
+selection = st.sidebar.radio("Ir para", ["Visao Geral", "Importacao Inteligente", "Gestao de Cadastros", "Gestao de Premios (ZAUT)", "Auditoria CCT (IA)"])
 
-if selection == "Visão Geral":
-    st.title("Visão Geral do Sistema")
-elif selection == "Importação Inteligente":
+if selection == "Visao Geral":
+    st.title("Visao Geral do Sistema")
+elif selection == "Importacao Inteligente":
     importacao_inteligente.render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, format_competencia_smart, LISTA_SITUACOES_ESOCIAL)
-elif selection == "Gestão de Cadastros":
+elif selection == "Gestao de Cadastros":
     gestao_cadastros_page.render(engine, parse_br_date_smart, format_cpf, LISTA_SITUACOES_ESOCIAL)
-elif selection == "Gestão de Prêmios (ZAUT)":
-    premios_page.render(engine)
+elif selection == "Gestao de Premios (ZAUT)":
+    premios_page.render(engine, parse_br_date_smart)
 elif selection == "Auditoria CCT (IA)":
     st.title("Auditoria CCT (IA)")
