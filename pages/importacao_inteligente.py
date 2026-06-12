@@ -2,8 +2,6 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text
 from datetime import datetime
-import calendar
-import re
 import json
 
 @st.cache_data(ttl=30)
@@ -109,27 +107,23 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
     with aba_imp5:
         st.subheader("🏆 Importação de Lançamento de Prêmios")
 
-        # --- INÍCIO DO BLOCO DE SANEAMENTO AUTOMÁTICO (LIMPEZA TOTAL) ---
         st.markdown("---")
         st.warning("Saneamento de Banco de Dados: Utilize para apagar falhas de importação CSV.")
         if st.button("🧨 Zerar Tabela de Prêmios (Limpeza Total)", type="primary"):
             with st.spinner("Executando limpeza total no PostgreSQL..."):
                 try:
                     with engine.begin() as conn:
-                        # Comando absoluto para limpar toda a tabela
-                        conn.execute(text("DELETE FROM premios_funcionarios"))
+                        conn.execute(text("TRUNCATE TABLE premios_funcionarios RESTART IDENTITY"))
                     st.cache_data.clear()
                     st.success("Limpeza total concluída. A tabela de prêmios está 100% vazia e pronta para nova importação.")
                 except Exception as e:
                     st.error(f"Falha na execução SQL: {e}")
         st.markdown("---")
-        # --- FIM DO BLOCO DE SANEAMENTO AUTOMÁTICO ---
 
         arquivo_premios = st.file_uploader("Selecione a Planilha de Prêmios (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="up_premios")
         if arquivo_premios and st.button("🚀 Executar Ingestão de Prêmios", key="btn_imp_premios", type="primary"):
             with st.spinner("⏳ Processando arquivo e inserindo prêmios..."):
                 try:
-                    # CORREÇÃO: Força a leitura com ponto e vírgula para arquivos CSV
                     if arquivo_premios.name.endswith('.csv'):
                         try:
                             df_premios = pd.read_csv(arquivo_premios, sep=';', encoding='utf-8')
@@ -163,10 +157,12 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
 
                     with engine.begin() as conn:
                         for _, row in df_temp.iterrows():
-                            v_matricula = str(row['matricula']).replace('.0', '').strip()
+                            # Sanitização estrita: remove aspas, ponto e vírgula e espaços
+                            v_matricula_raw = str(row['matricula'])
+                            v_matricula = v_matricula_raw.replace('"', '').replace(';', '').replace('.0', '').strip()
 
-                            # Bloqueio de injeção de cabeçalho
-                            if not v_matricula or v_matricula.lower() == 'nan' or 'id_colaborador' in v_matricula.lower() or 'matr' in v_matricula.lower(): 
+                            # Bloqueio absoluto de lixo e cabeçalhos
+                            if not v_matricula or v_matricula.lower() in ['nan', 'none', 'empty'] or 'id_colaborador' in v_matricula.lower() or 'matr' in v_matricula.lower(): 
                                 continue
 
                             def limpa_valor(val):
@@ -218,7 +214,7 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
                             })
                             inserts_count += 1
                     st.cache_data.clear()
-                    st.success(f"Ingestão executada! {inserts_count} registros inseridos com as 11 colunas.")
+                    st.success(f"Ingestão executada! {inserts_count} registros válidos inseridos.")
                 except Exception as e:
                     st.error(f"Erro Crítico: {e}")
 
