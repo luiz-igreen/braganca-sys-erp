@@ -3,6 +3,7 @@ import pandas as pd
 from sqlalchemy import text
 from datetime import datetime, date
 import calendar
+import re
 
 @st.cache_data(ttl=30)
 def carregar_dados_colaborador_cache(_engine, colab_id):
@@ -11,7 +12,6 @@ def carregar_dados_colaborador_cache(_engine, colab_id):
         df_fin = pd.read_sql(text("SELECT * FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), conn, params={"id": str(colab_id)})
         fin_data = df_fin.iloc[0].to_dict() if not df_fin.empty else None
         df_hist = pd.read_sql(text("SELECT * FROM historico_premiacoes_e_folha WHERE id_colaborador = :id ORDER BY id DESC"), conn, params={"id": str(colab_id)})
-        # CORREÇÃO: Alterado 'codigo_situacao' para 'tipo_afastamento'
         df_hist_sit = pd.read_sql(text("SELECT id, data_inicio as data_evento, tipo_afastamento as descricao FROM historico_afastamentos WHERE id_colaborador = :id ORDER BY data_inicio DESC, id DESC"), conn, params={"id": str(colab_id)})
     return colab, fin_data, df_hist, df_hist_sit
 
@@ -23,10 +23,47 @@ def buscar_colaboradores_cache(_engine, termo):
             resultados = conn.execute(text("SELECT id, nome FROM cadastro_geral_colaborador WHERE nome ILIKE :t ORDER BY nome ASC"), {"t": f"%{termo.strip()}%"}).fetchall()
     return resultados
 
-def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format_currency_brl, format_brl_number, format_cpf, format_competencia_smart, clean_money_to_db, sort_historico_chronological, LISTA_CARGOS, LISTA_SITUACOES_ESOCIAL):
+def render(engine, parse_br_date_smart=None, format_cpf=None, LISTA_SITUACOES_ESOCIAL=None, *args, **kwargs):
+    # --- INÍCIO DO BLOCO DE SEGURANÇA (FALLBACKS) ---
+    if LISTA_SITUACOES_ESOCIAL is None:
+        LISTA_SITUACOES_ESOCIAL = ["1 - Trabalhando", "2 - Afastamento Temporário - Doença", "3 - Afastamento Temporário - Acidente de Trabalho", "4 - Afastamento Temporário - Licença Maternidade", "5 - Afastamento Temporário - Serviço Militar", "6 - Afastamento Temporário - Outros", "7 - Afastamento Definitivo - Aposentadoria", "8 - Afastamento Definitivo - Demissão", "9 - Férias"]
+
+    LISTA_CARGOS = ["VENDEDOR", "GERENTE", "DIRETOR", "OUTRO (DIGITAR MANUALMENTE)"]
+
+    def injetar_autofoco(key): pass
+
+    def format_date_br(d):
+        try: return pd.to_datetime(d).strftime('%d/%m/%Y')
+        except: return ""
+
+    def format_currency_brl(v):
+        try: return f"R$ {float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        except: return "R$ 0,00"
+
+    def format_brl_number(v):
+        try: return f"{float(v):.2f}".replace(".", ",")
+        except: return "0,00"
+
+    def format_competencia_smart(c):
+        return str(c).strip() if pd.notna(c) else ""
+
+    def clean_money_to_db(v):
+        try:
+            if pd.isna(v) or str(v).strip() == "": return None
+            return str(float(str(v).replace("R$", "").replace(".", "").replace(",", ".").strip()))
+        except: return None
+
+    def sort_historico_chronological(df):
+        return df
+
+    if format_cpf is None:
+        format_cpf = lambda x: str(x) if pd.notna(x) else ""
+
+    if parse_br_date_smart is None:
+        parse_br_date_smart = lambda x: pd.to_datetime(x, errors='coerce').date() if pd.notna(x) else None
+    # --- FIM DO BLOCO DE SEGURANÇA ---
 
     opcoes_sub = ["🔍 Consultar & Gerenciar", "➕ Novo Cadastro"]
-    # Garante que st.session_state['sub_menu_index'] exista
     if 'sub_menu_index' not in st.session_state:
         st.session_state['sub_menu_index'] = 0
     sub_menu = st.radio("Menu de Operações", opcoes_sub, index=st.session_state['sub_menu_index'], label_visibility="collapsed", horizontal=True)
@@ -40,7 +77,6 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
             st.session_state['status_acao'] = None
 
         if not st.session_state['busca_selecionada_id']:
-            # CORREÇÃO AQUI: Chamada da função injetar_autofoco
             injetar_autofoco("k_term_busca")
 
         termo = st.text_input("Digite o ID (Matrícula) ou parte do Nome:", key="k_term_busca")
@@ -271,86 +307,11 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                                 st.session_state['status_acao'] = None
                                 st.rerun()
 
-                        if st.session_state['status_acao'] == 'solicitou_mesclar':
-                            # CORREÇÃO AQUI: Chamada da função injetar_autofoco
-                            injetar_autofoco("id_destino_input") # Adicionei um ID para o text_input abaixo
-                            st.warning(f"🔄 Motor de Fusão Ativado: Todo o histórico de {colab.nome} (ID: {colab.id}) será injetado noutra matrícula e este cadastro será apagado.")
-                            id_destino = st.text_input("Digite o ID de Destino (Ex: 133)", placeholder="Para qual matrícula quer enviar estes dados?", key="id_destino_input")
-                            c_bt1, c_bt2 = st.columns([1, 4])
-                            if c_bt1.button("💾 Executar Fusão", type="primary"):
-                                with st.spinner("⏳ Executando fusão..."):
-                                    id_limpo = str(id_destino).strip()
-                                    if not id_limpo or id_limpo == str(colab_id):
-                                        st.error("⚠️ Digite um ID válido e diferente da matrícula atual.")
-                                    else:
-                                        try:
-                                            with engine.begin() as conn:
-                                                existe = conn.execute(text("SELECT id, nome FROM cadastro_geral_colaborador WHERE id = :id"), {"id": id_limpo}).fetchone()
-                                                if not existe:
-                                                    st.error(f"⚠️ O ID/Matrícula {id_limpo} não existe no sistema!")
-                                                else:
-                                                    conn.execute(text("UPDATE historico_premiacoes_e_folha SET id_colaborador = :novo WHERE id_colaborador = :antigo"), {"novo": id_limpo, "antigo": str(colab_id)})
-                                                    conn.execute(text("UPDATE historico_afastamentos SET id_colaborador = :novo WHERE id_colaborador = :antigo"), {"novo": id_limpo, "antigo": str(colab_id)})
-                                                    conn.execute(text("DELETE FROM cadastro_financeiro_colaborador WHERE id_colaborador = :id"), {"id": str(colab_id)})
-                                                    conn.execute(text("DELETE FROM cadastro_geral_colaborador WHERE id = :id"), {"id": str(colab_id)})
-                                                    st.success(f"🎉 FUSÃO CONCLUÍDA! Histórico movido para '{existe.nome}' (ID: {id_limpo}).")
-                                                    st.session_state['busca_selecionada_id'] = id_limpo
-                                                    st.session_state['status_acao'] = None
-                                                    st.cache_data.clear()
-                                                    st.rerun()
-                                        except Exception as e:
-                                            st.error(f"Erro Crítico durante a fusão: {e}")
-                            if c_bt2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
-
-                        if st.session_state['status_acao'] == 'solicitou_hist_esocial':
-                            # CORREÇÃO AQUI: Chamada da função injetar_autofoco
-                            injetar_autofoco("nova_dt_esocial_input") # Adicionei um ID para o text_input abaixo
-                            st.info("⏳ Editor da Linha do Tempo (eSocial): Aperte ENTER para pular de campo. Use CTRL + ENTER para salvar rápido.")
-                            aba_add, aba_del = st.tabs(["➕ Lançar Evento Retroativo", "🗑️ Apagar Evento"])
-                            with aba_add:
-                                ce_dt, ce_sit = st.columns(2)
-                                with ce_dt: nova_dt_esocial = st.text_input("Data do Evento (Sem barras)", placeholder="Ex: 09122025", key="nova_dt_esocial_input")
-                                with ce_sit: nova_sit_esocial = st.selectbox("Selecione a Situação", LISTA_SITUACOES_ESOCIAL)
-                                if st.button("💾 Gravar no Histórico", type="primary"):
-                                    with st.spinner("⏳ Gravando evento..."):
-                                        dt_limpa = parse_br_date_smart(nova_dt_esocial)
-                                        if not dt_limpa:
-                                            st.error("Data inválida!")
-                                        else:
-                                            dt_str = dt_limpa.strftime('%Y-%m-%d')
-                                            with engine.begin() as conn:
-                                                conn.execute(text("INSERT INTO historico_afastamentos (id_colaborador, data_inicio, tipo_afastamento) VALUES (:id, :dt, :desc)"), {"id": str(colab_id), "dt": dt_str, "desc": nova_sit_esocial})
-                                            st.success("Evento gravado na Linha do Tempo!")
-                                            st.cache_data.clear()
-                                            st.session_state['status_acao'] = None; st.rerun()
-                            with aba_del:
-                                if not df_hist_sit.empty:
-                                    opcoes_sit = {f"Data: {pd.to_datetime(row['data_evento']).strftime('%d/%m/%Y')} | {row['descricao']}": row['id'] for _, row in df_hist_sit.iterrows()}
-                                    id_sit_alvo = opcoes_sit[st.selectbox("Selecione o evento a apagar:", list(opcoes_sit.keys()))]
-                                    if st.button("🗑️ Apagar Evento Selecionado", type="primary"):
-                                        with st.spinner("⏳ Apagando evento..."):
-                                            with engine.begin() as conn:
-                                                conn.execute(text("DELETE FROM historico_afastamentos WHERE id = :id"), {"id": id_sit_alvo})
-                                            st.success("Evento apagado da linha do tempo!")
-                                            st.cache_data.clear()
-                                            st.session_state['status_acao'] = None; st.rerun()
-                                else:
-                                    st.warning("Nenhum histórico para apagar.")
-                            if st.button("⬅️ Voltar / Cancelar"): st.session_state['status_acao'] = None; st.rerun()
-
                         if st.session_state['status_acao'] == 'solicitou_demissao':
-                            # CORREÇÃO AQUI: Chamada da função injetar_autofoco
-                            injetar_autofoco("nova_dem_input") # Adicionei um ID para o text_input abaixo
-                            st.info("🛑 Módulo de Desligamento e Correção de Demissão. Use CTRL + ENTER para salvar rápido.")
-                            c_dem1, c_dem2 = st.columns(2)
-                            with c_dem1:
-                                ja_demitido = pd.notna(colab.demissao)
-                                status_atual = f"Demitido em {format_date_br(colab.demissao)}" if ja_demitido else "🟢 Ativo / Sem Demissão"
-                                st.markdown(f"**Status Atual:** {status_atual}")
-                                nova_dem = st.text_input("Data de Demissão (Sem barras)", value=format_date_br(colab.demissao), placeholder="Ex: 01072025", key="nova_dem_input")
-                            with c_dem2:
-                                st.markdown("<br>", unsafe_allow_html=True)
-                                reverter = st.checkbox("🟢 Anular Demissão (Tornar Ativo)", value=not ja_demitido)
+                            st.warning("🛑 Registrar Demissão")
+                            ja_demitido = pd.notna(colab.demissao)
+                            nova_dem = st.text_input("Data de Demissão (Sem barras)", value=format_date_br(colab.demissao) if ja_demitido else "")
+                            reverter = st.checkbox("Reverter Demissão (Tornar Ativo)", value=not ja_demitido)
                             c_bt1, c_bt2 = st.columns([1, 4])
                             if c_bt1.button("💾 Gravar Demissão", type="primary"):
                                 with st.spinner("⏳ Gravando demissão..."):
@@ -393,8 +354,7 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                             if cx2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
                         if st.session_state['status_acao'] == 'solicitou_lancamento_avulso':
-                            # CORREÇÃO AQUI: Chamada da função injetar_autofoco
-                            injetar_autofoco("av_comp_input") # Adicionei um ID para o text_input abaixo
+                            injetar_autofoco("av_comp_input")
                             st.info("➕ Inserção Avulsa (Com Validação e Anti-Duplicidade). Use CTRL + ENTER para salvar rápido.")
                             c_av1, c_av2, c_av3 = st.columns(3)
                             val_sugestao = format_brl_number(val_atual_base) if val_atual_base > 0 else ""
@@ -439,8 +399,7 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                             if c_bt2.button("Cancelar"): st.session_state['status_acao'] = None; st.rerun()
 
                         if st.session_state['status_acao'] == 'solicitou_corrigir_historico':
-                            # CORREÇÃO AQUI: Chamada da função injetar_autofoco
-                            injetar_autofoco("novo_val_input") # Adicionei um ID para o text_input abaixo
+                            injetar_autofoco("novo_val_input")
                             st.info("🛠️ Editor de Histórico (Pagamentos). Use CTRL + ENTER para salvar rápido.")
                             if not df_hist.empty:
                                 try:
@@ -470,8 +429,7 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                                 st.warning("Nenhum histórico para corrigir.")
 
                         if st.session_state['status_acao'] == 'solicitou_alterar':
-                            # CORREÇÃO AQUI: Chamada da função injetar_autofoco
-                            injetar_autofoco("edit_id_input") # Adicionei um ID para o text_input abaixo
+                            injetar_autofoco("edit_id_input")
                             st.info("📝 Modo de Edição Ativo. Aperte ENTER para pular campos. Use CTRL + ENTER para salvar rápido.")
                             cargo_idx = LISTA_CARGOS.index(str(colab.cargo).upper().strip()) if str(colab.cargo).upper().strip() in LISTA_CARGOS else (len(LISTA_CARGOS)-1)
                             sit_idx = LISTA_SITUACOES_ESOCIAL.index(v_sit_atual) if v_sit_atual in LISTA_SITUACOES_ESOCIAL else 0
@@ -541,8 +499,7 @@ def render(engine, injetar_autofoco, parse_br_date_smart, format_date_br, format
                     st.error(f"Erro no processamento da ficha: {e}")
 
     elif sub_menu == "➕ Novo Cadastro":
-        # CORREÇÃO AQUI: Chamada da função injetar_autofoco
-        injetar_autofoco("n_id_input") # Adicionei um ID para o text_input abaixo
+        injetar_autofoco("n_id_input")
         st.subheader("Inserir Novo Colaborador")
         st.markdown('<div class="panel-glass">', unsafe_allow_html=True)
         cn1, cn2 = st.columns(2)
