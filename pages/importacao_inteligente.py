@@ -96,66 +96,30 @@ def render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, fo
 
         arquivo_hist = st.file_uploader("Selecione a matriz salarial (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"], key="file_hist")
         if arquivo_hist and st.button("🚀 Processar e Injetar Histórico", type="primary"):
-            with st.spinner("⏳ Analisando cruzamentos temporais e bloqueando previsões futuras..."):
-                try:
-                    df_excel = ler_planilha_inteligente(arquivo_hist)
-                    db_cols = carregar_dados_colaboradores_importacao(engine)
-                    db_dict = {
-                        str(r.nome).strip().upper(): {
-                            'id': str(r.id),
-                            'admissao': str(r.admissao) if r.admissao else None,
-                            'demissao': str(r.demissao) if r.demissao else None
-                        } for r in db_cols if r.nome
-                    }
-                    lista_ids_numericos = [int(r.id) for r in db_cols if str(r.id).isdigit()]
-                    proximo_id_livre = max(lista_ids_numericos) + 1 if lista_ids_numericos else 1000
-
-                    def get_comp_date(col_name):
-                        match = re.search(r'(\d{2})/(\d{4})', str(col_name))
-                        return pd.Timestamp(year=2000 + int(match.group(2)), month=int(match.group(1)), day=1) if match else None
-
-                    inserts_pendentes, linhas_processadas = [], 0
-                    coluna_nome = next((col for col in df_excel.columns if str(col).strip().upper() == 'NOME'), None)
-                    hoje = datetime.today()
-                    limite_futuro = pd.Timestamp(year=hoje.year, month=hoje.month, day=calendar.monthrange(hoje.year, hoje.month)[1])
-
-                    if not coluna_nome:
-                        st.error("Erro: A planilha não possui a coluna NOME.")
-                        st.stop()
-
-                    st.success("Processamento de matriz concluído.")
-                except Exception as e:
-                    st.error(f"Erro ao processar matriz: {e}")
+            st.info("Funcionalidade de injeção de histórico em desenvolvimento.")
 
     with aba_imp3:
-        st.subheader("🔄 Sincronizar eSocial")
-        st.info("Módulo de sincronização em desenvolvimento.")
+        st.subheader("Sincronização de Situações eSocial")
+        st.info("Módulo de sincronização do eSocial em desenvolvimento.")
 
     with aba_imp4:
-        st.subheader("🪪 Injeção de CPFs")
-        arquivo_cpf = st.file_uploader("Selecione a planilha de CPFs", type=["xlsx", "csv"], key="up_cpf")
-        if arquivo_cpf and st.button("Atualizar CPFs", type="primary"):
-            st.success("Concluída! CPFs corrigidos/atualizados.")
+        st.subheader("Injeção de CPFs")
+        st.info("Módulo de injeção de CPFs em desenvolvimento.")
 
     with aba_imp5:
         st.subheader("🏆 Importação de Lançamento de Prêmios")
 
-        # --- INÍCIO DO BLOCO DE SANEAMENTO AUTOMÁTICO ---
+        # --- INÍCIO DO BLOCO DE SANEAMENTO AUTOMÁTICO (LIMPEZA TOTAL) ---
         st.markdown("---")
         st.warning("Saneamento de Banco de Dados: Utilize para apagar falhas de importação CSV.")
-        if st.button("🗑️ Limpar Registros Corrompidos (1-Clique)", type="primary"):
-            with st.spinner("Executando varredura e limpeza no PostgreSQL..."):
+        if st.button("🧨 Zerar Tabela de Prêmios (Limpeza Total)", type="primary"):
+            with st.spinner("Executando limpeza total no PostgreSQL..."):
                 try:
                     with engine.begin() as conn:
-                        conn.execute(text("""
-                            DELETE FROM premios_funcionarios 
-                            WHERE codigo_funcionario LIKE '%"%' 
-                            OR codigo_funcionario LIKE '%;%' 
-                            OR codigo_funcionario = 'EMPTY' 
-                            OR codigo_funcionario IS NULL
-                        """))
+                        # Comando absoluto para limpar toda a tabela
+                        conn.execute(text("DELETE FROM premios_funcionarios"))
                     st.cache_data.clear()
-                    st.success("Saneamento concluído. Todos os registros corrompidos foram eliminados do Supabase.")
+                    st.success("Limpeza total concluída. A tabela de prêmios está 100% vazia e pronta para nova importação.")
                 except Exception as e:
                     st.error(f"Falha na execução SQL: {e}")
         st.markdown("---")
