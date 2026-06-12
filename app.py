@@ -85,38 +85,37 @@ def ler_planilha_inteligente(uploaded_file, nrows=None, header='infer'):
 
     if file_name.endswith('.csv'):
         # Tenta detectar o separador automaticamente
+        detected_sep = ',' # Valor padrão se a detecção falhar
         try:
             # Ler um pedaço do arquivo para o sniffer
             sample = uploaded_file.read(1024).decode('utf-8')
             uploaded_file.seek(0) # Resetar o ponteiro após a leitura da amostra
 
-            dialect = csv.Sniffer().sniff(sample, delimiters=';,')
+            # Tenta snifar com vírgula e ponto e vírgula
+            dialect = csv.Sniffer().sniff(sample, delimiters=',;')
             detected_sep = dialect.delimiter
             st.info(f"Separador detectado automaticamente: '{detected_sep}'")
         except Exception:
-            detected_sep = None # Não foi possível detectar, tenta os padrões
-            st.warning("Não foi possível detectar o separador automaticamente. Tentando separadores comuns.")
+            st.warning("Não foi possível detectar o separador automaticamente. Usando separador padrão: vírgula (',').")
 
-        separators_to_try = [detected_sep] if detected_sep else [';', ',', '\t', '|']
+        # Lista de encodings para tentar
         encodings_to_try = ['utf-8', 'latin1', 'iso-8859-1']
 
-        for sep in separators_to_try:
-            if sep is None: continue # Pula se a detecção falhou e retornou None
-            for enc in encodings_to_try:
-                try:
-                    uploaded_file.seek(0) # Garante que o ponteiro está no início para cada tentativa
-                    df = pd.read_csv(uploaded_file, sep=sep, nrows=nrows, header=header, encoding=enc, engine='python')
-                    # Verifica se o DataFrame tem um número razoável de colunas (pelo menos 5 para ser um CSV válido)
-                    if df.shape[1] > 4: 
-                        st.success(f"Arquivo CSV lido com sucesso usando separador '{sep}' e encoding '{enc}'.")
-                        break # Sai do loop de encodings
-                except Exception:
-                    continue # Tenta o próximo encoding
-            if df is not None and df.shape[1] > 4:
-                break # Sai do loop de separadores
+        for enc in encodings_to_try:
+            try:
+                uploaded_file.seek(0) # Garante que o ponteiro está no início para cada tentativa
+                # Usar o separador detectado ou o padrão (vírgula)
+                df = pd.read_csv(uploaded_file, sep=detected_sep, nrows=nrows, header=header, encoding=enc, engine='python')
+                # Verifica se o DataFrame tem um número razoável de colunas (pelo menos 5 para ser um CSV válido)
+                if df.shape[1] > 4: 
+                    st.success(f"Arquivo CSV lido com sucesso usando separador '{detected_sep}' e encoding '{enc}'.")
+                    break # Sai do loop de encodings
+            except Exception as e:
+                st.warning(f"Tentativa de leitura com separador '{detected_sep}' e encoding '{enc}' falhou: {e}")
+                continue # Tenta o próximo encoding
 
         if df is None or df.shape[1] <= 4: # Se ainda não conseguiu ler com colunas suficientes
-            st.error("Não foi possível ler o arquivo CSV com nenhum separador ou encoding testado, ou o número de colunas é insuficiente. Verifique o formato do arquivo.")
+            st.error("Não foi possível ler o arquivo CSV com o separador detectado ou padrão, ou o número de colunas é insuficiente. Verifique o formato do arquivo.")
             return None
 
     elif file_name.endswith(('.xls', '.xlsx')):
