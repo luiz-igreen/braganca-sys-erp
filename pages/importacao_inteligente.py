@@ -44,95 +44,103 @@ def render(engine, *args, **kwargs):
 
         arquivo_admissoes = st.file_uploader("Selecione a Planilha de Admissões (.csv)", type=["csv"], key="up_admissoes")
 
-        if arquivo_admissoes and st.button("🔄 Sincronizar Base de Dados", type="primary"):
-            with st.spinner("Processando atualizações e novos cadastros..."):
+        if arquivo_admissoes:
+            try:
                 try:
-                    try:
-                        df_adm = pd.read_csv(arquivo_admissoes, sep=';', encoding='utf-8')
-                        if len(df_adm.columns) < 4:
-                            arquivo_admissoes.seek(0)
-                            df_adm = pd.read_csv(arquivo_admissoes, sep=',', encoding='utf-8')
-                    except Exception:
-                        st.error("Falha ao ler o arquivo CSV. Verifique a formatação.")
-                        st.stop()
+                    df_adm = pd.read_csv(arquivo_admissoes, sep=';', encoding='utf-8')
+                    if len(df_adm.columns) < 4:
+                        arquivo_admissoes.seek(0)
+                        df_adm = pd.read_csv(arquivo_admissoes, sep=',', encoding='utf-8')
+                except Exception:
+                    st.error("Falha ao ler o arquivo CSV. Verifique a formatação.")
+                    st.stop()
 
-                    # BLINDAGEM DE CABEÇALHOS: Remove acentos, espaços e padroniza para minúsculas
-                    df_adm.columns = [unicodedata.normalize('NFKD', str(c)).encode('ASCII', 'ignore').decode('utf-8').strip().lower() for c in df_adm.columns]
+                # BLINDAGEM DE CABEÇALHOS
+                df_adm.columns = [unicodedata.normalize('NFKD', str(c)).encode('ASCII', 'ignore').decode('utf-8').strip().lower() for c in df_adm.columns]
 
-                    # Mostra as colunas lidas na tela para auditoria visual
-                    st.write("🔍 Colunas identificadas e tratadas pelo sistema:", df_adm.columns.tolist())
+                st.write("🔍 **Auditoria de Colunas Identificadas:**", df_adm.columns.tolist())
+                st.write("🔍 **Auditoria de Dados Brutos (3 primeiras linhas):**")
+                st.dataframe(df_adm.head(3))
 
-                    inseridos = 0
-                    atualizados = 0
+                if st.button("🔄 Executar Sincronização no Banco de Dados", type="primary"):
+                    with st.spinner("Processando atualizações e novos cadastros..."):
+                        inseridos = 0
+                        atualizados = 0
 
-                    with engine.begin() as conn:
-                        for _, row in df_adm.iterrows():
-                            # Busca flexível pelas colunas (caso o nome esteja ligeiramente diferente)
-                            col_id = next((c for c in df_adm.columns if 'id' in c or 'matr' in c or 'cod' in c), 'id')
-                            col_nome = next((c for c in df_adm.columns if 'nome' in c), 'nome')
-                            col_cargo = next((c for c in df_adm.columns if 'cargo' in c or 'func' in c), 'cargo')
-                            col_admissao = next((c for c in df_adm.columns if 'admiss' in c or 'data' in c), 'admissao')
-                            col_salario = next((c for c in df_adm.columns if 'salar' in c or 'remun' in c), 'salario')
+                        with engine.begin() as conn:
+                            for _, row in df_adm.iterrows():
+                                col_id = next((c for c in df_adm.columns if 'id' in c or 'matr' in c or 'cod' in c), 'id')
+                                col_nome = next((c for c in df_adm.columns if 'nome' in c), 'nome')
+                                col_cargo = next((c for c in df_adm.columns if 'cargo' in c or 'func' in c), 'cargo')
+                                col_admissao = next((c for c in df_adm.columns if 'admiss' in c or 'data' in c), 'admissao')
+                                col_salario = next((c for c in df_adm.columns if 'salar' in c or 'remun' in c), 'salario')
 
-                            v_id = str(row.get(col_id, '')).replace('.0', '').replace('"', '').replace(';', '').strip()
+                                v_id = str(row.get(col_id, '')).replace('.0', '').replace('"', '').replace(';', '').strip()
 
-                            if not v_id or v_id.lower() == 'nan':
-                                continue
+                                if not v_id or v_id.lower() == 'nan':
+                                    continue
 
-                            v_nome = str(row.get(col_nome, '')).strip()
-                            v_cargo = str(row.get(col_cargo, '')).strip()
+                                v_nome = str(row.get(col_nome, '')).strip()
+                                v_cargo = str(row.get(col_cargo, '')).strip()
 
-                            v_admissao_str = str(row.get(col_admissao, '')).strip()
-                            v_admissao_date = None
-                            if v_admissao_str and v_admissao_str.lower() not in ['nan', 'none', 'nat', '', 'não informada', 'nao informada']:
-                                try:
-                                    parsed_date = pd.to_datetime(v_admissao_str, dayfirst=True, errors='coerce')
-                                    if pd.notna(parsed_date):
-                                        v_admissao_date = parsed_date.date()
-                                except Exception:
-                                    pass
+                                # MOTOR AVANÇADO DE DATAS (Inclui conversão de número de série do Excel)
+                                v_admissao_str = str(row.get(col_admissao, '')).strip()
+                                v_admissao_date = None
+                                if v_admissao_str and v_admissao_str.lower() not in ['nan', 'none', 'nat', '', 'não informada', 'nao informada']:
+                                    try:
+                                        if v_admissao_str.replace('.', '', 1).isdigit():
+                                            # Converte número de série do Excel para Data
+                                            parsed_date = pd.to_datetime('1899-12-30') + pd.to_timedelta(float(v_admissao_str), unit='D')
+                                            v_admissao_date = parsed_date.date()
+                                        else:
+                                            # Converte string de data padrão
+                                            parsed_date = pd.to_datetime(v_admissao_str, dayfirst=True, errors='coerce')
+                                            if pd.notna(parsed_date):
+                                                v_admissao_date = parsed_date.date()
+                                    except Exception:
+                                        pass
 
-                            def limpa_valor(val):
-                                try:
-                                    if pd.isna(val): return 0.0
-                                    v = str(val).replace('R$', '').replace('.', '').replace(',', '.').strip()
-                                    return round(float(v), 2)
-                                except ValueError:
-                                    return 0.0
+                                def limpa_valor(val):
+                                    try:
+                                        if pd.isna(val): return 0.0
+                                        v = str(val).replace('R$', '').replace('.', '').replace(',', '.').strip()
+                                        return round(float(v), 2)
+                                    except ValueError:
+                                        return 0.0
 
-                            v_salario = limpa_valor(row.get(col_salario, 0))
+                                v_salario = limpa_valor(row.get(col_salario, 0))
 
-                            existe = conn.execute(text("SELECT 1 FROM cadastro_geral_colaborador WHERE id = :id"), {"id": v_id}).scalar()
+                                existe = conn.execute(text("SELECT 1 FROM cadastro_geral_colaborador WHERE id = :id"), {"id": v_id}).scalar()
 
-                            if existe:
-                                conn.execute(text("""
-                                    UPDATE cadastro_geral_colaborador 
-                                    SET data_admissao = COALESCE(:admissao, data_admissao),
-                                        cargo = COALESCE(NULLIF(:cargo, ''), cargo),
-                                        salario_mes = CASE WHEN :salario > 0 THEN :salario ELSE salario_mes END
-                                    WHERE id = :id
-                                """), {
-                                    "admissao": v_admissao_date,
-                                    "cargo": v_cargo,
-                                    "salario": v_salario,
-                                    "id": v_id
-                                })
-                                atualizados += 1
-                            else:
-                                conn.execute(text("""
-                                    INSERT INTO cadastro_geral_colaborador (id, nome, cargo, data_admissao, salario_mes, status_esocial) 
-                                    VALUES (:id, :nome, :cargo, :admissao, :salario, '1 - Trabalhando')
-                                """), {
-                                    "id": v_id,
-                                    "nome": v_nome,
-                                    "cargo": v_cargo,
-                                    "admissao": v_admissao_date,
-                                    "salario": v_salario
-                                })
-                                inseridos += 1
+                                if existe:
+                                    conn.execute(text("""
+                                        UPDATE cadastro_geral_colaborador 
+                                        SET data_admissao = COALESCE(:admissao, data_admissao),
+                                            cargo = COALESCE(NULLIF(:cargo, ''), cargo),
+                                            salario_mes = CASE WHEN :salario > 0 THEN :salario ELSE salario_mes END
+                                        WHERE id = :id
+                                    """), {
+                                        "admissao": v_admissao_date,
+                                        "cargo": v_cargo,
+                                        "salario": v_salario,
+                                        "id": v_id
+                                    })
+                                    atualizados += 1
+                                else:
+                                    conn.execute(text("""
+                                        INSERT INTO cadastro_geral_colaborador (id, nome, cargo, data_admissao, salario_mes, status_esocial) 
+                                        VALUES (:id, :nome, :cargo, :admissao, :salario, '1 - Trabalhando')
+                                    """), {
+                                        "id": v_id,
+                                        "nome": v_nome,
+                                        "cargo": v_cargo,
+                                        "admissao": v_admissao_date,
+                                        "salario": v_salario
+                                    })
+                                    inseridos += 1
 
-                    st.cache_data.clear()
-                    st.success(f"Sincronização concluída! {atualizados} registros atualizados e {inseridos} novos colaboradores inseridos.")
+                        st.cache_data.clear()
+                        st.success(f"Sincronização concluída! {atualizados} registros atualizados e {inseridos} novos colaboradores inseridos.")
 
-                except Exception as e:
-                    st.error(f"Erro durante a sincronização: {e}")
+            except Exception as e:
+                st.error(f"Erro durante a leitura do arquivo: {e}")
