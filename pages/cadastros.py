@@ -35,6 +35,7 @@ def render(engine, *args, **kwargs):
     if st.button("Buscar Registro", type="primary") or busca_id:
         if busca_id:
             with engine.connect() as conn:
+                # O ID é tratado estritamente como texto, conforme diretriz de arquitetura
                 query = text("SELECT * FROM cadastro_geral_colaborador WHERE id = :id")
                 result = conn.execute(query, {"id": str(busca_id).strip()}).fetchone()
 
