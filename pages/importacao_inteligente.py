@@ -21,8 +21,6 @@ def render(engine, *args, **kwargs):
         "📅 Sincronizar Admissões"
     ])
 
-    # ... (Abas 1 a 4 omitidas para brevidade, mantendo a estrutura original do seu sistema) ...
-
     with aba_imp5:
         st.subheader("🏆 Importação de Lançamento de Prêmios")
 
@@ -41,8 +39,7 @@ def render(engine, *args, **kwargs):
 
         arquivo_premios = st.file_uploader("Selecione a Planilha de Prêmios (.csv)", type=["csv"], key="up_premios")
         if arquivo_premios and st.button("🚀 Executar Ingestão de Prêmios", key="btn_imp_premios", type="primary"):
-            # Lógica de importação de prêmios mantida conforme memorandos anteriores
-            pass
+            st.info("Módulo de importação de prêmios em reestruturação para o novo formato manual.")
 
     with aba_imp7:
         st.subheader("📅 Sincronização de Admissões e Novos Cadastros")
@@ -79,14 +76,17 @@ def render(engine, *args, **kwargs):
                             v_nome = str(row.get('nome', '')).strip()
                             v_cargo = str(row.get('cargo', '')).strip()
 
-                            # Tratamento de Data de Admissão (DD/MM/YYYY)
+                            # NOVO MOTOR INTELIGENTE DE LEITURA DE DATAS
                             v_admissao_str = str(row.get('admissao', '')).strip()
                             v_admissao_date = None
-                            if v_admissao_str and v_admissao_str.lower() != 'nan':
+                            if v_admissao_str and v_admissao_str.lower() not in ['nan', 'none', 'nat', '']:
                                 try:
-                                    v_admissao_date = datetime.strptime(v_admissao_str, '%d/%m/%Y').date()
-                                except ValueError:
-                                    pass # Mantém None se a data for inválida
+                                    # O Pandas tenta adivinhar o formato, priorizando o dia na frente (padrão BR)
+                                    parsed_date = pd.to_datetime(v_admissao_str, dayfirst=True, errors='coerce')
+                                    if pd.notna(parsed_date):
+                                        v_admissao_date = parsed_date.date()
+                                except Exception:
+                                    pass
 
                             # Tratamento de Salário
                             def limpa_valor(val):
