@@ -3,6 +3,7 @@ import pandas as pd
 from sqlalchemy import text
 from datetime import datetime
 import json
+import unicodedata
 
 @st.cache_data(ttl=30)
 def carregar_dados_colaboradores_importacao(_engine):
@@ -23,7 +24,6 @@ def render(engine, *args, **kwargs):
 
     with aba_imp5:
         st.subheader("🏆 Importação de Lançamento de Prêmios")
-
         st.markdown("---")
         st.warning("Saneamento de Banco de Dados: Utilize para apagar falhas de importação CSV.")
         if st.button("🧨 Zerar Tabela de Prêmios (Limpeza Total)", type="primary"):
@@ -36,10 +36,7 @@ def render(engine, *args, **kwargs):
                 except Exception as e:
                     st.error(f"Falha na execução SQL: {e}")
         st.markdown("---")
-
-        arquivo_premios = st.file_uploader("Selecione a Planilha de Prêmios (.csv)", type=["csv"], key="up_premios")
-        if arquivo_premios and st.button("🚀 Executar Ingestão de Prêmios", key="btn_imp_premios", type="primary"):
-            st.info("Módulo de importação de prêmios em reestruturação para o novo formato manual.")
+        st.info("Módulo de importação de prêmios em reestruturação para o novo formato manual.")
 
     with aba_imp7:
         st.subheader("📅 Sincronização de Admissões e Novos Cadastros")
@@ -50,7 +47,6 @@ def render(engine, *args, **kwargs):
         if arquivo_admissoes and st.button("🔄 Sincronizar Base de Dados", type="primary"):
             with st.spinner("Processando atualizações e novos cadastros..."):
                 try:
-                    # Tenta ler com ponto e vírgula, faz fallback para vírgula
                     try:
                         df_adm = pd.read_csv(arquivo_admissoes, sep=';', encoding='utf-8')
                         if len(df_adm.columns) < 4:
@@ -60,35 +56,42 @@ def render(engine, *args, **kwargs):
                         st.error("Falha ao ler o arquivo CSV. Verifique a formatação.")
                         st.stop()
 
-                    # Padroniza nomes das colunas para minúsculas
-                    df_adm.columns = df_adm.columns.str.strip().str.lower()
+                    # BLINDAGEM DE CABEÇALHOS: Remove acentos, espaços e padroniza para minúsculas
+                    df_adm.columns = [unicodedata.normalize('NFKD', str(c)).encode('ASCII', 'ignore').decode('utf-8').strip().lower() for c in df_adm.columns]
+
+                    # Mostra as colunas lidas na tela para auditoria visual
+                    st.write("🔍 Colunas identificadas e tratadas pelo sistema:", df_adm.columns.tolist())
 
                     inseridos = 0
                     atualizados = 0
 
                     with engine.begin() as conn:
                         for _, row in df_adm.iterrows():
-                            v_id = str(row.get('id', '')).replace('.0', '').replace('"', '').replace(';', '').strip()
+                            # Busca flexível pelas colunas (caso o nome esteja ligeiramente diferente)
+                            col_id = next((c for c in df_adm.columns if 'id' in c or 'matr' in c or 'cod' in c), 'id')
+                            col_nome = next((c for c in df_adm.columns if 'nome' in c), 'nome')
+                            col_cargo = next((c for c in df_adm.columns if 'cargo' in c or 'func' in c), 'cargo')
+                            col_admissao = next((c for c in df_adm.columns if 'admiss' in c or 'data' in c), 'admissao')
+                            col_salario = next((c for c in df_adm.columns if 'salar' in c or 'remun' in c), 'salario')
+
+                            v_id = str(row.get(col_id, '')).replace('.0', '').replace('"', '').replace(';', '').strip()
 
                             if not v_id or v_id.lower() == 'nan':
                                 continue
 
-                            v_nome = str(row.get('nome', '')).strip()
-                            v_cargo = str(row.get('cargo', '')).strip()
+                            v_nome = str(row.get(col_nome, '')).strip()
+                            v_cargo = str(row.get(col_cargo, '')).strip()
 
-                            # NOVO MOTOR INTELIGENTE DE LEITURA DE DATAS
-                            v_admissao_str = str(row.get('admissao', '')).strip()
+                            v_admissao_str = str(row.get(col_admissao, '')).strip()
                             v_admissao_date = None
-                            if v_admissao_str and v_admissao_str.lower() not in ['nan', 'none', 'nat', '']:
+                            if v_admissao_str and v_admissao_str.lower() not in ['nan', 'none', 'nat', '', 'não informada', 'nao informada']:
                                 try:
-                                    # O Pandas tenta adivinhar o formato, priorizando o dia na frente (padrão BR)
                                     parsed_date = pd.to_datetime(v_admissao_str, dayfirst=True, errors='coerce')
                                     if pd.notna(parsed_date):
                                         v_admissao_date = parsed_date.date()
                                 except Exception:
                                     pass
 
-                            # Tratamento de Salário
                             def limpa_valor(val):
                                 try:
                                     if pd.isna(val): return 0.0
@@ -97,13 +100,11 @@ def render(engine, *args, **kwargs):
                                 except ValueError:
                                     return 0.0
 
-                            v_salario = limpa_valor(row.get('salario', 0))
+                            v_salario = limpa_valor(row.get(col_salario, 0))
 
-                            # Verifica se o colaborador já existe no banco
                             existe = conn.execute(text("SELECT 1 FROM cadastro_geral_colaborador WHERE id = :id"), {"id": v_id}).scalar()
 
                             if existe:
-                                # Atualiza registro existente
                                 conn.execute(text("""
                                     UPDATE cadastro_geral_colaborador 
                                     SET data_admissao = COALESCE(:admissao, data_admissao),
@@ -118,7 +119,6 @@ def render(engine, *args, **kwargs):
                                 })
                                 atualizados += 1
                             else:
-                                # Insere novo colaborador
                                 conn.execute(text("""
                                     INSERT INTO cadastro_geral_colaborador (id, nome, cargo, data_admissao, salario_mes, status_esocial) 
                                     VALUES (:id, :nome, :cargo, :admissao, :salario, '1 - Trabalhando')
