@@ -43,13 +43,22 @@ def render(engine, *args, **kwargs):
                 st.markdown("### 📄 Ficha Completa do Colaborador")
 
                 col1, col2, col3 = st.columns(3)
+
+                # Tratamento de valores monetários
+                salario_mes_val = float(result.salario_mes or 0.0)
+
+                # Lógica do Salário-Hora: Se não existir no banco, calcula base 220h
+                salario_hora_val = getattr(result, 'salario_hora', 0.0)
+                if not salario_hora_val or float(salario_hora_val) == 0.0:
+                    salario_hora_val = salario_mes_val / 220.0 if salario_mes_val > 0 else 0.0
+
                 with col1:
                     st.caption("ID / MATRÍCULA")
                     st.write(result.id)
                     st.caption("CARGO")
                     st.write(result.cargo if result.cargo else "Não Informado")
                     st.caption("SALÁRIO-MÊS ATUAL")
-                    st.write(f"R$ {result.salario_mes:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if result.salario_mes else "R$ 0,00")
+                    st.write(f"R$ {salario_mes_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if salario_mes_val > 0 else "R$ 0,00")
 
                 with col2:
                     st.caption("NOME COMPLETO")
@@ -57,8 +66,7 @@ def render(engine, *args, **kwargs):
                     st.caption("SITUAÇÃO (eSocial)")
                     st.write(result.status_esocial if result.status_esocial else "Não Informado")
                     st.caption("SALÁRIO-HORA ATUAL")
-                    salario_hora = getattr(result, 'salario_hora', 0.00)
-                    st.write(f"R$ {salario_hora:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if salario_hora else "R$ 0,00")
+                    st.write(f"R$ {salario_hora_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if salario_hora_val > 0 else "R$ 0,00")
 
                 with col3:
                     st.caption("CPF")
@@ -83,7 +91,7 @@ def render(engine, *args, **kwargs):
                         # Campo de texto livre para permitir digitação rápida sem barras
                         nova_admissao_str = st.text_input("Data de Admissão", value=admissao_atual if admissao_atual != "Não Informada" else "")
 
-                        novo_salario = st.number_input("Salário Mês (R$)", value=float(result.salario_mes or 0.0), step=100.0)
+                        novo_salario = st.number_input("Salário Mês (R$)", value=salario_mes_val, step=100.0)
 
                         if st.form_submit_button("Confirmar e Salvar Alterações", type="primary"):
                             # Aplica o motor de formatação automática antes de salvar
