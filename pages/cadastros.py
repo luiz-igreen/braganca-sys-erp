@@ -5,7 +5,7 @@ from sqlalchemy import text
 def render(engine, parse_br_date_smart, format_cpf, LISTA_SITUACOES_ESOCIAL):
     """
     Módulo Completo de Gestão de Cadastros (BRAGANÇA SYS).
-    Inclui trava de segurança para ignorar lixo de importação na tabela de colaboradores.
+    Inclui ordenação numérica crescente para o ID dos colaboradores.
     """
     st.title("Gestão de Cadastros")
     st.markdown("Módulo central para administração de Obras, Departamentos e Colaboradores.")
@@ -125,7 +125,8 @@ def render(engine, parse_br_date_smart, format_cpf, LISTA_SITUACOES_ESOCIAL):
         if busca_nome:
             query_colab += f" AND nome ILIKE '%%{busca_nome}%%'"
 
-        query_colab += " LIMIT 500"
+        # Ordenação numérica crescente extraindo apenas os números do ID (evita erro de cast se houver texto)
+        query_colab += " ORDER BY NULLIF(regexp_replace(id, '\D', '', 'g'), '')::int ASC NULLS LAST LIMIT 500"
 
         try:
             df_colab = pd.read_sql(query_colab, con=engine)
@@ -135,9 +136,9 @@ def render(engine, parse_br_date_smart, format_cpf, LISTA_SITUACOES_ESOCIAL):
                 hide_index=True,
                 use_container_width=True
             )
-            st.caption(f"Mostrando {len(df_colab)} registros válidos.")
+            st.caption(f"Mostrando {len(df_colab)} registros válidos (Ordenados por ID).")
         except Exception as e:
-            st.info("Tabela de colaboradores vazia ou aguardando carga de dados.")
+            st.info(f"Tabela de colaboradores vazia ou aguardando carga de dados. Detalhe: {e}")
 
     # ==========================================
     # RODAPÉ
