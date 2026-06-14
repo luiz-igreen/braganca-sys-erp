@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text
 
-def render(engine, parse_br_date_smart, format_cpf, LISTA_SITUACOES_ESOCIAL):
+def render(engine, parse_br_date_smart):
     """
     Módulo Completo de Gestão de Prêmios (BRAGANÇA SYS).
-    Substituição integral para garantir a integridade da interface e evitar TypeError.
+    Assinatura ajustada para receber exatamente os 2 argumentos enviados pelo app.py.
     """
     st.title("Gestão de Prêmios")
     st.markdown("Módulo para análise e administração de prêmios dos colaboradores da Construart.")
