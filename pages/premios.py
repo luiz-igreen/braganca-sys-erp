@@ -5,7 +5,8 @@ from sqlalchemy import text
 def render(engine, *args, **kwargs):
     """
     Módulo Completo de Gestão de Prêmios (BRAGANÇA SYS).
-    Consulta corrigida para apontar para a tabela 'premios_funcionarios'.
+    - Assinatura flexível (*args, **kwargs) para evitar TypeError.
+    - Consulta corrigida para a tabela 'premios_funcionarios'.
     """
     st.title("Gestão de Prêmios")
     st.markdown("Módulo para análise e administração de prêmios dos colaboradores da Construart.")
@@ -15,7 +16,7 @@ def render(engine, *args, **kwargs):
     busca_nome = col1.text_input("Buscar por Nome do Colaborador")
     busca_competencia = col2.text_input("Competência", value="01/2026", help="Ex: 01/2026")
 
-    # Consulta SQL apontando para a tabela correta: premios_funcionarios
+    # Consulta SQL apontando para a tabela correta
     query = "SELECT * FROM premios_funcionarios WHERE 1=1"
 
     if busca_nome:
