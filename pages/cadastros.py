@@ -5,7 +5,7 @@ from sqlalchemy import text
 def render(engine, parse_br_date_smart, format_cpf, LISTA_SITUACOES_ESOCIAL):
     """
     Módulo Completo de Gestão de Cadastros (BRAGANÇA SYS).
-    Inclui ordenação numérica crescente para o ID dos colaboradores.
+    Inclui formatação de salário no padrão Domínio Web e remoção de colunas obsoletas.
     """
     st.title("Gestão de Cadastros")
     st.markdown("Módulo central para administração de Obras, Departamentos e Colaboradores.")
@@ -125,11 +125,26 @@ def render(engine, parse_br_date_smart, format_cpf, LISTA_SITUACOES_ESOCIAL):
         if busca_nome:
             query_colab += f" AND nome ILIKE '%%{busca_nome}%%'"
 
-        # Ordenação numérica crescente extraindo apenas os números do ID (evita erro de cast se houver texto)
+        # Ordenação numérica crescente extraindo apenas os números do ID
         query_colab += " ORDER BY NULLIF(regexp_replace(id, '\D', '', 'g'), '')::int ASC NULLS LAST LIMIT 500"
 
         try:
             df_colab = pd.read_sql(query_colab, con=engine)
+
+            # 1. Remoção das colunas obsoletas de salário da visualização
+            colunas_remover = ['salario_mes_12_24', 'salario_hora_12_24']
+            df_colab = df_colab.drop(columns=[col for col in colunas_remover if col in df_colab.columns])
+
+            # 2. Formatação do salário para o padrão Domínio Web (ex: 9.726,00)
+            colunas_salario = ['salario_mes', 'salario_mes_01_26']
+            for col in colunas_salario:
+                if col in df_colab.columns:
+                    # Converte para numérico forçando erros a virarem NaN
+                    df_colab[col] = pd.to_numeric(df_colab[col], errors='coerce')
+                    # Aplica a formatação com 2 casas decimais, trocando ponto por vírgula e vírgula por ponto
+                    df_colab[col] = df_colab[col].apply(
+                        lambda x: f"{x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') if pd.notnull(x) else ""
+                    )
 
             st.dataframe(
                 df_colab,
