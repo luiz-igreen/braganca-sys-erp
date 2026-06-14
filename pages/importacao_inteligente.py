@@ -5,6 +5,8 @@ from datetime import datetime
 import json
 import unicodedata
 
+# FERRAMENTAS UTILIZADAS: Python e Streamlit
+
 @st.cache_data(ttl=30)
 def carregar_dados_colaboradores_importacao(_engine):
     return _engine.connect().execute(text("SELECT id, nome FROM cadastro_geral_colaborador")).fetchall()
@@ -22,6 +24,22 @@ def render(engine, *args, **kwargs):
         "📅 Sincronizar Admissões"
     ])
 
+    with aba_imp1:
+        st.subheader("Importar CSV (Upload)")
+        st.info("Módulo aguardando restauração da lógica original de importação geral. Caso possua o backup, insira o código neste bloco.")
+
+    with aba_imp2:
+        st.subheader("Importar CSV (Colar)")
+        st.info("Módulo aguardando restauração da lógica original.")
+
+    with aba_imp3:
+        st.subheader("Importar CSV (URL)")
+        st.info("Módulo aguardando restauração da lógica original.")
+
+    with aba_imp4:
+        st.subheader("Ajustes Detalhados")
+        st.info("Módulo aguardando restauração da lógica original.")
+
     with aba_imp5:
         st.subheader("🏆 Importação de Lançamento de Prêmios")
         st.markdown("---")
@@ -37,6 +55,10 @@ def render(engine, *args, **kwargs):
                     st.error(f"Falha na execução SQL: {e}")
         st.markdown("---")
         st.info("Módulo de importação de prêmios em reestruturação para o novo formato manual.")
+
+    with aba_imp6:
+        st.subheader("Injeção de Histórico")
+        st.info("Módulo aguardando restauração da lógica original.")
 
     with aba_imp7:
         st.subheader("📅 Sincronização de Admissões e Novos Cadastros")
