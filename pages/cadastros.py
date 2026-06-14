@@ -5,7 +5,7 @@ from sqlalchemy import text
 def render(engine, parse_br_date_smart, format_cpf, LISTA_SITUACOES_ESOCIAL):
     """
     Módulo Completo de Gestão de Cadastros (BRAGANÇA SYS).
-    Assinatura atualizada para receber os 4 argumentos enviados pelo app.py.
+    Inclui trava de segurança para ignorar lixo de importação na tabela de colaboradores.
     """
     st.title("Gestão de Cadastros")
     st.markdown("Módulo central para administração de Obras, Departamentos e Colaboradores.")
@@ -119,9 +119,12 @@ def render(engine, parse_br_date_smart, format_cpf, LISTA_SITUACOES_ESOCIAL):
         col_f1, col_f2 = st.columns(2)
         busca_nome = col_f1.text_input("Buscar por Nome", key="busca_nome_colab")
 
-        query_colab = "SELECT * FROM cadastro_geral_colaborador"
+        # Trava de segurança: ignora registros onde o nome é nulo ou 'nan'
+        query_colab = "SELECT * FROM cadastro_geral_colaborador WHERE nome IS NOT NULL AND nome != 'nan'"
+
         if busca_nome:
-            query_colab += f" WHERE nome ILIKE '%%{busca_nome}%%'"
+            query_colab += f" AND nome ILIKE '%%{busca_nome}%%'"
+
         query_colab += " LIMIT 500"
 
         try:
@@ -132,7 +135,7 @@ def render(engine, parse_br_date_smart, format_cpf, LISTA_SITUACOES_ESOCIAL):
                 hide_index=True,
                 use_container_width=True
             )
-            st.caption(f"Mostrando {len(df_colab)} registros.")
+            st.caption(f"Mostrando {len(df_colab)} registros válidos.")
         except Exception as e:
             st.info("Tabela de colaboradores vazia ou aguardando carga de dados.")
 
