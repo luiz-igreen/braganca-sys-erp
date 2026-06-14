@@ -1,168 +1,90 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 from sqlalchemy import text
-from datetime import datetime
-import json
-import unicodedata
-
-# FERRAMENTAS UTILIZADAS: Python e Streamlit
-
-@st.cache_data(ttl=30)
-def carregar_dados_colaboradores_importacao(_engine):
-    return _engine.connect().execute(text("SELECT id, nome FROM cadastro_geral_colaborador")).fetchall()
 
 def render(engine, *args, **kwargs):
-    st.title("📥 Central de Ingestão de Dados")
+    """
+    Módulo de Importação Inteligente de Prêmios via CSV.
+    Processa o arquivo em memória e insere no banco de dados via Streamlit.
+    """
+    st.title("Importação Inteligente de Prêmios")
+    st.markdown("Faça o upload da planilha CSV. O sistema formatará os cabeçalhos, limpará os valores e fará a importação direta para o banco de dados.")
 
-    aba_imp1, aba_imp2, aba_imp3, aba_imp4, aba_imp5, aba_imp6, aba_imp7 = st.tabs([
-        "Importar CSV (Upload)", 
-        "Importar CSV (Colar)", 
-        "Importar CSV (URL)", 
-        "Ajustes Detalhados", 
-        "🏆 Lançamento de Prêmios", 
-        "Injeção de Histórico",
-        "📅 Sincronizar Admissões"
-    ])
+    # Configurações de Importação
+    col1, col2 = st.columns(2)
+    competencia = col1.text_input("Competência (Mês/Ano)", value="01/2026")
+    tabela_destino = col2.selectbox("Tabela de Destino", ["gestao_premios_zaut", "premios_funcionarios"])
 
-    with aba_imp1:
-        st.subheader("Importar CSV (Upload)")
-        st.info("Módulo aguardando restauração da lógica original de importação geral. Caso possua o backup, insira o código neste bloco.")
+    # Upload do Arquivo
+    arquivo_csv = st.file_uploader("Anexar arquivo CSV (Excel)", type=['csv'])
 
-    with aba_imp2:
-        st.subheader("Importar CSV (Colar)")
-        st.info("Módulo aguardando restauração da lógica original.")
+    if arquivo_csv:
+        try:
+            # 1. Leitura do Arquivo
+            df = pd.read_csv(arquivo_csv, sep=None, engine='python')
 
-    with aba_imp3:
-        st.subheader("Importar CSV (URL)")
-        st.info("Módulo aguardando restauração da lógica original.")
+            # 2. Limpeza de colunas vazias
+            df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+            df = df.dropna(axis=1, how='all')
 
-    with aba_imp4:
-        st.subheader("Ajustes Detalhados")
-        st.info("Módulo aguardando restauração da lógica original.")
+            # 3. Mapeamento de Cabeçalhos (De -> Para)
+            df.columns = df.columns.str.strip()
+            mapeamento = {
+                'Código': 'codigo_colaborador',
+                'Nome': 'nome_colaborador',
+                'Salário MÊS': 'salario_mes',
+                'Salário HORA': 'salario_hora',
+                'Total HP': 'total_hp',
+                'VLR PREMIO R$': 'valor_premio',
+                'Valor R$': 'valor_total',
+                'DESCRIÇÃO PREMIO': 'descricao',
+                'PIX': 'pix'
+            }
+            df = df.rename(columns=mapeamento)
 
-    with aba_imp5:
-        st.subheader("🏆 Importação de Lançamento de Prêmios")
-        st.markdown("---")
-        st.warning("Saneamento de Banco de Dados: Utilize para apagar falhas de importação CSV.")
-        if st.button("🧨 Zerar Tabela de Prêmios (Limpeza Total)", type="primary"):
-            with st.spinner("Executando limpeza total no PostgreSQL..."):
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(text("DELETE FROM gestao_premios_zaut"))
-                    st.cache_data.clear()
-                    st.success("Limpeza total concluída. A tabela de prêmios está 100% vazia.")
-                except Exception as e:
-                    st.error(f"Falha na execução SQL: {e}")
-        st.markdown("---")
-        st.info("Módulo de importação de prêmios em reestruturação para o novo formato manual.")
+            # 4. Injeção de Dados Faltantes
+            df['competencia_id'] = competencia
+            df['competencia'] = competencia
+            df['cpf'] = None
+            df['cargo'] = None
 
-    with aba_imp6:
-        st.subheader("Injeção de Histórico")
-        st.info("Módulo aguardando restauração da lógica original.")
+            # 5. Tratamento de Valores Monetários (Conversão para formato de Banco de Dados)
+            colunas_financeiras = ['salario_mes', 'salario_hora', 'total_hp', 'valor_premio', 'valor_total']
+            for col in colunas_financeiras:
+                if col in df.columns:
+                    df[col] = df[col].astype(str).str.replace('R\$', '', regex=True)
+                    df[col] = df[col].str.replace('.', '', regex=False)
+                    df[col] = df[col].str.replace(',', '.', regex=False)
+                    df[col] = df[col].str.strip()
+                    df[col] = df[col].replace(['', '-', 'nan', 'None'], '0')
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    with aba_imp7:
-        st.subheader("📅 Sincronização de Admissões e Novos Cadastros")
-        st.markdown("Faça o upload da planilha contendo `id`, `nome`, `cargo`, `admissao` e `salario`.")
+            st.subheader("Pré-visualização dos Dados Formatados")
+            st.dataframe(df.head(10), use_container_width=True)
 
-        arquivo_admissoes = st.file_uploader("Selecione a Planilha de Admissões (.csv)", type=["csv"], key="up_admissoes")
+            # 6. Importação para o Banco de Dados
+            if st.button("Executar Importação para o Banco de Dados", type="primary"):
+                with st.spinner("Sincronizando com o banco de dados..."):
 
-        if arquivo_admissoes:
-            try:
-                try:
-                    df_adm = pd.read_csv(arquivo_admissoes, sep=';', encoding='utf-8')
-                    if len(df_adm.columns) < 4:
-                        arquivo_admissoes.seek(0)
-                        df_adm = pd.read_csv(arquivo_admissoes, sep=',', encoding='utf-8')
-                except Exception:
-                    st.error("Falha ao ler o arquivo CSV. Verifique a formatação.")
-                    st.stop()
+                    # Identificar colunas existentes na tabela de destino para evitar erro de UndefinedColumn
+                    query_cols = f"SELECT * FROM {tabela_destino} LIMIT 0"
+                    df_db_schema = pd.read_sql(query_cols, con=engine)
+                    colunas_banco = df_db_schema.columns.tolist()
 
-                # BLINDAGEM DE CABEÇALHOS
-                df_adm.columns = [unicodedata.normalize('NFKD', str(c)).encode('ASCII', 'ignore').decode('utf-8').strip().lower() for c in df_adm.columns]
+                    # Filtrar o dataframe apenas com as colunas que realmente existem na tabela
+                    colunas_validas = [col for col in df.columns if col in colunas_banco]
+                    df_final = df[colunas_validas]
 
-                st.write("🔍 **Auditoria de Colunas Identificadas:**", df_adm.columns.tolist())
-                st.write("🔍 **Auditoria de Dados Brutos (3 primeiras linhas):**")
-                st.dataframe(df_adm.head(3))
+                    if df_final.empty:
+                        st.error("Nenhuma coluna do CSV corresponde às colunas da tabela no banco de dados.")
+                    else:
+                        # Inserção via Pandas/SQLAlchemy
+                        df_final.to_sql(tabela_destino, con=engine, if_exists='append', index=False)
+                        st.success(f"Importação concluída! {len(df_final)} registros inseridos na tabela '{tabela_destino}'.")
 
-                if st.button("🔄 Executar Sincronização no Banco de Dados", type="primary"):
-                    with st.spinner("Processando atualizações e novos cadastros..."):
-                        inseridos = 0
-                        atualizados = 0
+        except Exception as e:
+            st.error(f"Falha no processamento: {e}")
 
-                        with engine.begin() as conn:
-                            for _, row in df_adm.iterrows():
-                                col_id = next((c for c in df_adm.columns if 'id' in c or 'matr' in c or 'cod' in c), 'id')
-                                col_nome = next((c for c in df_adm.columns if 'nome' in c), 'nome')
-                                col_cargo = next((c for c in df_adm.columns if 'cargo' in c or 'func' in c), 'cargo')
-                                col_admissao = next((c for c in df_adm.columns if 'admiss' in c or 'data' in c), 'admissao')
-                                col_salario = next((c for c in df_adm.columns if 'salar' in c or 'remun' in c), 'salario')
-
-                                v_id = str(row.get(col_id, '')).replace('.0', '').replace('"', '').replace(';', '').strip()
-
-                                if not v_id or v_id.lower() == 'nan':
-                                    continue
-
-                                v_nome = str(row.get(col_nome, '')).strip()
-                                v_cargo = str(row.get(col_cargo, '')).strip()
-
-                                # MOTOR AVANÇADO DE DATAS (Inclui conversão de número de série do Excel)
-                                v_admissao_str = str(row.get(col_admissao, '')).strip()
-                                v_admissao_date = None
-                                if v_admissao_str and v_admissao_str.lower() not in ['nan', 'none', 'nat', '', 'não informada', 'nao informada']:
-                                    try:
-                                        if v_admissao_str.replace('.', '', 1).isdigit():
-                                            # Converte número de série do Excel para Data
-                                            parsed_date = pd.to_datetime('1899-12-30') + pd.to_timedelta(float(v_admissao_str), unit='D')
-                                            v_admissao_date = parsed_date.date()
-                                        else:
-                                            # Converte string de data padrão
-                                            parsed_date = pd.to_datetime(v_admissao_str, dayfirst=True, errors='coerce')
-                                            if pd.notna(parsed_date):
-                                                v_admissao_date = parsed_date.date()
-                                    except Exception:
-                                        pass
-
-                                def limpa_valor(val):
-                                    try:
-                                        if pd.isna(val): return 0.0
-                                        v = str(val).replace('R$', '').replace('.', '').replace(',', '.').strip()
-                                        return round(float(v), 2)
-                                    except ValueError:
-                                        return 0.0
-
-                                v_salario = limpa_valor(row.get(col_salario, 0))
-
-                                existe = conn.execute(text("SELECT 1 FROM cadastro_geral_colaborador WHERE id = :id"), {"id": v_id}).scalar()
-
-                                if existe:
-                                    conn.execute(text("""
-                                        UPDATE cadastro_geral_colaborador 
-                                        SET data_admissao = COALESCE(:admissao, data_admissao),
-                                            cargo = COALESCE(NULLIF(:cargo, ''), cargo),
-                                            salario_mes = CASE WHEN :salario > 0 THEN :salario ELSE salario_mes END
-                                        WHERE id = :id
-                                    """), {
-                                        "admissao": v_admissao_date,
-                                        "cargo": v_cargo,
-                                        "salario": v_salario,
-                                        "id": v_id
-                                    })
-                                    atualizados += 1
-                                else:
-                                    conn.execute(text("""
-                                        INSERT INTO cadastro_geral_colaborador (id, nome, cargo, data_admissao, salario_mes, status_esocial) 
-                                        VALUES (:id, :nome, :cargo, :admissao, :salario, '1 - Trabalhando')
-                                    """), {
-                                        "id": v_id,
-                                        "nome": v_nome,
-                                        "cargo": v_cargo,
-                                        "admissao": v_admissao_date,
-                                        "salario": v_salario
-                                    })
-                                    inseridos += 1
-
-                        st.cache_data.clear()
-                        st.success(f"Sincronização concluída! {atualizados} registros atualizados e {inseridos} novos colaboradores inseridos.")
-
-            except Exception as e:
-                st.error(f"Erro durante a leitura do arquivo: {e}")
+    st.markdown("---")
+    st.caption("BRAGANÇA SYS - Infraestrutura de Dados | Conexão: Supabase PostgreSQL")
