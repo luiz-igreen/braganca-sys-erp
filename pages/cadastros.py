@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text
 
-def render(engine):
+def render(engine, parse_br_date_smart, format_cpf, LISTA_SITUACOES_ESOCIAL):
     """
     Módulo Completo de Gestão de Cadastros (BRAGANÇA SYS).
-    Substituição integral para garantir a integridade da interface e banco de dados.
+    Assinatura atualizada para receber os 4 argumentos enviados pelo app.py.
     """
     st.title("Gestão de Cadastros")
     st.markdown("Módulo central para administração de Obras, Departamentos e Colaboradores.")
