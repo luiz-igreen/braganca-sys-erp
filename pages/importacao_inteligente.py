@@ -1,27 +1,20 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sqlalchemy import text
 
 def render(engine, *args, **kwargs):
     """
-    Módulo de Importação Inteligente de Prêmios via CSV.
-    Processa o arquivo em memória e insere no banco de dados via Streamlit.
+    Módulo de Importação Inteligente de Prêmios (BRAGANÇA SYS).
+    Lê o CSV bruto, padroniza cabeçalhos, limpa valores financeiros e insere no banco.
     """
     st.title("Importação Inteligente de Prêmios")
-    st.markdown("Faça o upload da planilha CSV. O sistema formatará os cabeçalhos, limpará os valores e fará a importação direta para o banco de dados.")
+    st.markdown("Faça o upload da planilha CSV bruta. O sistema formatará os dados automaticamente para o padrão do banco de dados.")
 
-    # Configurações de Importação
-    col1, col2 = st.columns(2)
-    competencia = col1.text_input("Competência (Mês/Ano)", value="01/2026")
-    tabela_destino = col2.selectbox("Tabela de Destino", ["gestao_premios_zaut", "premios_funcionarios"])
+    arquivo_csv = st.file_uploader("Selecione a planilha CSV", type=['csv'])
 
-    # Upload do Arquivo
-    arquivo_csv = st.file_uploader("Anexar arquivo CSV (Excel)", type=['csv'])
-
-    if arquivo_csv:
+    if arquivo_csv is not None:
         try:
-            # 1. Leitura do Arquivo
+            # 1. Leitura do arquivo CSV
             df = pd.read_csv(arquivo_csv, sep=None, engine='python')
 
             # 2. Limpeza de colunas vazias
@@ -43,13 +36,13 @@ def render(engine, *args, **kwargs):
             }
             df = df.rename(columns=mapeamento)
 
-            # 4. Injeção de Dados Faltantes
-            df['competencia_id'] = competencia
-            df['competencia'] = competencia
-            df['cpf'] = None
-            df['cargo'] = None
+            # 4. Injeção de colunas obrigatórias
+            # A coluna no banco de dados deve se chamar 'competencia' e ser do tipo 'text'
+            df['competencia'] = '01/2026'
+            df['cpf'] = np.nan
+            df['cargo'] = np.nan
 
-            # 5. Tratamento de Valores Monetários (Conversão para formato de Banco de Dados)
+            # 5. Tratamento rigoroso de Valores Monetários
             colunas_financeiras = ['salario_mes', 'salario_hora', 'total_hp', 'valor_premio', 'valor_total']
             for col in colunas_financeiras:
                 if col in df.columns:
@@ -60,28 +53,15 @@ def render(engine, *args, **kwargs):
                     df[col] = df[col].replace(['', '-', 'nan', 'None'], '0')
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-            st.subheader("Pré-visualização dos Dados Formatados")
+            st.write("Pré-visualização dos dados formatados e prontos para inserção:")
             st.dataframe(df.head(10), use_container_width=True)
 
-            # 6. Importação para o Banco de Dados
+            # 6. Botão de Execução
             if st.button("Executar Importação para o Banco de Dados", type="primary"):
-                with st.spinner("Sincronizando com o banco de dados..."):
-
-                    # Identificar colunas existentes na tabela de destino para evitar erro de UndefinedColumn
-                    query_cols = f"SELECT * FROM {tabela_destino} LIMIT 0"
-                    df_db_schema = pd.read_sql(query_cols, con=engine)
-                    colunas_banco = df_db_schema.columns.tolist()
-
-                    # Filtrar o dataframe apenas com as colunas que realmente existem na tabela
-                    colunas_validas = [col for col in df.columns if col in colunas_banco]
-                    df_final = df[colunas_validas]
-
-                    if df_final.empty:
-                        st.error("Nenhuma coluna do CSV corresponde às colunas da tabela no banco de dados.")
-                    else:
-                        # Inserção via Pandas/SQLAlchemy
-                        df_final.to_sql(tabela_destino, con=engine, if_exists='append', index=False)
-                        st.success(f"Importação concluída! {len(df_final)} registros inseridos na tabela '{tabela_destino}'.")
+                with st.spinner("Processando e inserindo dados..."):
+                    # Insere os dados formatados diretamente na tabela gestao_premios_zaut
+                    df.to_sql('gestao_premios_zaut', con=engine, if_exists='append', index=False)
+                    st.success("Importação realizada com sucesso! Os dados já estão no banco de dados.")
 
         except Exception as e:
             st.error(f"Falha no processamento: {e}")
