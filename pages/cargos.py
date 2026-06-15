@@ -4,10 +4,27 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 import os
 
+# --- Inicialização do st.session_state ---
+# É crucial inicializar as chaves do session_state antes de usá-las.
+if 'edit_mode' not in st.session_state:
+    st.session_state.edit_mode = False
+if 'current_cargo' not in st.session_state:
+    st.session_state.current_cargo = {}
+if 'original_codigo' not in st.session_state:
+    st.session_state.original_codigo = ""
+if 'confirm_delete' not in st.session_state:
+    st.session_state.confirm_delete = False
+if 'delete_codigo' not in st.session_state:
+    st.session_state.delete_codigo = ""
+if 'input_codigo_tab2' not in st.session_state:
+    st.session_state.input_codigo_tab2 = ""
+if 'input_nome_tab2' not in st.session_state:
+    st.session_state.input_nome_tab2 = ""
+if 'input_cbo_tab2' not in st.session_state:
+    st.session_state.input_cbo_tab2 = ""
+
+
 # --- Configuração do Banco de Dados (Supabase) ---
-# É crucial que DATABASE_URL esteja configurada nas variáveis de ambiente
-# ou em um arquivo de configuração seguro.
-# Para o Streamlit Cloud, você pode usar os "Secrets".
 try:
     DATABASE_URL = os.environ.get("DATABASE_URL")
     if not DATABASE_URL:
@@ -105,32 +122,50 @@ with tab2:
     st.header("Novo / Alterar Cargo")
 
     # Campos de entrada
+    # Usamos o valor do session_state como 'value' para os st.text_input
+    # e um callback 'on_change' para atualizar o session_state quando o usuário digita.
+    # Isso garante que o estado do input e o session_state estejam sempre sincronizados.
     col_codigo, col_nome, col_cbo = st.columns([1, 2, 1])
     with col_codigo:
-        input_codigo = st.text_input("Código do Cargo", key="input_codigo_tab2")
+        input_codigo = st.text_input(
+            "Código do Cargo",
+            value=st.session_state.input_codigo_tab2,
+            key="input_codigo_tab2_widget", # Key para o widget, diferente da key do session_state
+            on_change=lambda: st.session_state.update(input_codigo_tab2=st.session_state.input_codigo_tab2_widget)
+        )
     with col_nome:
-        input_nome = st.text_input("Nome do Cargo", key="input_nome_tab2")
+        input_nome = st.text_input(
+            "Nome do Cargo",
+            value=st.session_state.input_nome_tab2,
+            key="input_nome_tab2_widget",
+            on_change=lambda: st.session_state.update(input_nome_tab2=st.session_state.input_nome_tab2_widget)
+        )
     with col_cbo:
-        input_cbo = st.text_input("C.B.O. 2002", key="input_cbo_tab2")
+        input_cbo = st.text_input(
+            "C.B.O. 2002",
+            value=st.session_state.input_cbo_tab2,
+            key="input_cbo_tab2_widget",
+            on_change=lambda: st.session_state.update(input_cbo_tab2=st.session_state.input_cbo_tab2_widget)
+        )
 
     # Botões de Ação
-    col_botoes = st.columns(5) # 5 colunas para os botões
+    col_botoes = st.columns(5)
 
     with col_botoes[0]:
         if st.button("Consultar", key="btn_consultar_tab2"):
-            if input_codigo:
-                cargo_encontrado = get_cargo_by_codigo(input_codigo)
+            if st.session_state.input_codigo_tab2: # Usa o valor do session_state
+                cargo_encontrado = get_cargo_by_codigo(st.session_state.input_codigo_tab2)
                 if cargo_encontrado is not None:
                     st.session_state.current_cargo = cargo_encontrado.to_dict()
                     st.session_state.edit_mode = True
-                    st.session_state.original_codigo = input_codigo # Guarda o código original para atualização
-                    st.success(f"Cargo '{input_codigo}' encontrado. Preencha os campos para alterar.")
-                    # Atualiza os inputs para refletir o cargo encontrado
+                    st.session_state.original_codigo = st.session_state.input_codigo_tab2 # Guarda o código original para atualização
+                    st.success(f"Cargo '{st.session_state.input_codigo_tab2}' encontrado. Preencha os campos para alterar.")
+                    # Atualiza os valores no session_state para que os widgets sejam renderizados com os novos valores
                     st.session_state.input_codigo_tab2 = cargo_encontrado['codigo']
                     st.session_state.input_nome_tab2 = cargo_encontrado['nome']
                     st.session_state.input_cbo_tab2 = cargo_encontrado['cbo']
                 else:
-                    st.warning(f"Cargo com código '{input_codigo}' não encontrado.")
+                    st.warning(f"Cargo com código '{st.session_state.input_codigo_tab2}' não encontrado.")
                     st.session_state.edit_mode = False
                     st.session_state.current_cargo = {}
                     st.session_state.original_codigo = ""
@@ -142,7 +177,7 @@ with tab2:
             st.session_state.edit_mode = False
             st.session_state.current_cargo = {}
             st.session_state.original_codigo = ""
-            # Limpa os inputs
+            # Limpa os inputs no session_state
             st.session_state.input_codigo_tab2 = ""
             st.session_state.input_nome_tab2 = ""
             st.session_state.input_cbo_tab2 = ""
@@ -150,18 +185,18 @@ with tab2:
 
     with col_botoes[2]:
         if st.button("Salvar", key="btn_salvar_tab2"):
-            # Validação de campos obrigatórios
-            if not input_codigo or not input_nome:
+            # Validação de campos obrigatórios usando os valores do session_state
+            if not st.session_state.input_codigo_tab2 or not st.session_state.input_nome_tab2:
                 st.error("Código e Nome do Cargo são obrigatórios.")
             else:
                 if st.session_state.get("edit_mode", False) and st.session_state.get("original_codigo"):
                     # Modo de Edição
-                    if update_cargo(st.session_state.original_codigo, input_codigo, input_nome, input_cbo):
-                        st.success(f"Cargo '{input_codigo}' atualizado com sucesso!")
+                    if update_cargo(st.session_state.original_codigo, st.session_state.input_codigo_tab2, st.session_state.input_nome_tab2, st.session_state.input_cbo_tab2):
+                        st.success(f"Cargo '{st.session_state.input_codigo_tab2}' atualizado com sucesso!")
                         st.session_state.edit_mode = False
                         st.session_state.current_cargo = {}
                         st.session_state.original_codigo = ""
-                        # Limpa os inputs
+                        # Limpa os inputs no session_state
                         st.session_state.input_codigo_tab2 = ""
                         st.session_state.input_nome_tab2 = ""
                         st.session_state.input_cbo_tab2 = ""
@@ -169,9 +204,9 @@ with tab2:
                         st.error("Falha ao atualizar cargo.")
                 else:
                     # Modo de Inserção
-                    if insert_cargo(input_codigo, input_nome, input_cbo):
-                        st.success(f"Cargo '{input_codigo}' cadastrado com sucesso!")
-                        # Limpa os inputs
+                    if insert_cargo(st.session_state.input_codigo_tab2, st.session_state.input_nome_tab2, st.session_state.input_cbo_tab2):
+                        st.success(f"Cargo '{st.session_state.input_codigo_tab2}' cadastrado com sucesso!")
+                        # Limpa os inputs no session_state
                         st.session_state.input_codigo_tab2 = ""
                         st.session_state.input_nome_tab2 = ""
                         st.session_state.input_cbo_tab2 = ""
@@ -180,26 +215,26 @@ with tab2:
 
     with col_botoes[3]:
         if st.button("Excluir", key="btn_excluir_tab2"):
-            if input_codigo:
+            if st.session_state.input_codigo_tab2:
                 # Confirmação de exclusão
-                if st.session_state.get("confirm_delete", False) and st.session_state.get("delete_codigo") == input_codigo:
-                    if delete_cargo(input_codigo):
-                        st.success(f"Cargo '{input_codigo}' excluído com sucesso!")
+                if st.session_state.get("confirm_delete", False) and st.session_state.get("delete_codigo") == st.session_state.input_codigo_tab2:
+                    if delete_cargo(st.session_state.input_codigo_tab2):
+                        st.success(f"Cargo '{st.session_state.input_codigo_tab2}' excluído com sucesso!")
                         st.session_state.edit_mode = False
                         st.session_state.current_cargo = {}
                         st.session_state.original_codigo = ""
                         st.session_state.confirm_delete = False # Reseta a confirmação
                         st.session_state.delete_codigo = ""
-                        # Limpa os inputs
+                        # Limpa os inputs no session_state
                         st.session_state.input_codigo_tab2 = ""
                         st.session_state.input_nome_tab2 = ""
                         st.session_state.input_cbo_tab2 = ""
                     else:
                         st.error("Falha ao excluir cargo.")
                 else:
-                    st.warning(f"Tem certeza que deseja excluir o cargo '{input_codigo}'? Clique em Excluir novamente para confirmar.")
+                    st.warning(f"Tem certeza que deseja excluir o cargo '{st.session_state.input_codigo_tab2}'? Clique em Excluir novamente para confirmar.")
                     st.session_state.confirm_delete = True
-                    st.session_state.delete_codigo = input_codigo
+                    st.session_state.delete_codigo = st.session_state.input_codigo_tab2
             else:
                 st.warning("Por favor, insira um Código para excluir.")
 
@@ -210,18 +245,12 @@ with tab2:
             st.session_state.original_codigo = ""
             st.session_state.confirm_delete = False
             st.session_state.delete_codigo = ""
-            # Limpa os inputs
+            # Limpa os inputs no session_state
             st.session_state.input_codigo_tab2 = ""
             st.session_state.input_nome_tab2 = ""
             st.session_state.input_cbo_tab2 = ""
             st.info("Operação cancelada.")
 
-    # Lógica para pré-preencher campos se estiver em modo de edição
-    if st.session_state.get("edit_mode", False) and st.session_state.get("current_cargo"):
-        # Garante que os inputs são atualizados apenas uma vez para evitar loops
-        if st.session_state.input_codigo_tab2 != st.session_state.current_cargo.get('codigo', ''):
-            st.session_state.input_codigo_tab2 = st.session_state.current_cargo.get('codigo', '')
-        if st.session_state.input_nome_tab2 != st.session_state.current_cargo.get('nome', ''):
-            st.session_state.input_nome_tab2 = st.session_state.current_cargo.get('nome', '')
-        if st.session_state.input_cbo_tab2 != st.session_state.current_cargo.get('cbo', ''):
-            st.session_state.input_cbo_tab2 = st.session_state.current_cargo.get('cbo', '')
+    # A lógica de pré-preenchimento agora é mais simples, pois os widgets já estão vinculados ao session_state.
+    # Quando st.session_state.input_codigo_tab2, etc., são atualizados (ex: após uma consulta),
+    # os widgets automaticamente refletirão esses valores na próxima renderização.
