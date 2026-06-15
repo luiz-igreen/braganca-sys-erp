@@ -34,7 +34,7 @@ def render(engine, *args, **kwargs):
                 st.info("Nenhum colaborador encontrado na tabela 'cadastro_geral_colaborador'.")
 
         except Exception as e:
-            st.error(f"Erro ao carregar a base de colaboradores. Verifique se a tabela existe no Supabase. Detalhe: {e}")
+            st.error(f"Erro ao carregar a base de colaboradores. Detalhe: {e}")
 
     # ==========================================
     # ABA 2: NOVO COLABORADOR (LANÇAMENTO MANUAL)
@@ -42,32 +42,26 @@ def render(engine, *args, **kwargs):
     with tab2:
         st.subheader("Adicionar Novo Colaborador")
 
-        # Função robusta para buscar listas do banco de dados (com fallback para dados existentes)
-        def buscar_opcoes(coluna_alvo, tabela_dominio):
+        # Função robusta para buscar listas diretamente das tabelas do Supabase
+        def buscar_opcoes(query_sql, coluna_retorno, fallback_list):
             try:
-                # Tenta buscar da tabela de domínio específica (ex: tabela 'cargos')
-                query = text(f"SELECT nome FROM {tabela_dominio} ORDER BY nome")
-                df = pd.read_sql(query, con=engine)
-                if not df.empty:
-                    return df['nome'].tolist()
+                df = pd.read_sql(text(query_sql), con=engine)
+                if not df.empty and coluna_retorno in df.columns:
+                    # Remove nulos, converte para texto e pega valores únicos
+                    opcoes = df[df[coluna_retorno].notna()][coluna_retorno].astype(str).str.strip().unique().tolist()
+                    opcoes = [op for op in opcoes if op] # Remove strings vazias
+                    if opcoes:
+                        return sorted(opcoes)
             except Exception:
                 pass
+            return fallback_list
 
-            try:
-                # Fallback: busca os valores únicos já cadastrados na tabela principal
-                query = text(f"SELECT DISTINCT {coluna_alvo} FROM cadastro_geral_colaborador WHERE {coluna_alvo} IS NOT NULL AND {coluna_alvo} != '' ORDER BY {coluna_alvo}")
-                df = pd.read_sql(query, con=engine)
-                if not df.empty:
-                    return df[coluna_alvo].tolist()
-            except Exception:
-                pass
+        # Buscando dados reais das tabelas que você mostrou nos prints
+        lista_departamentos = buscar_opcoes("SELECT nome FROM cadastro_departamentos", "nome", ["ADMINISTRAÇÃO CENTRAL", "CANTEIRO DE OBRA"])
+        lista_obras = buscar_opcoes("SELECT nome FROM cadastro_obras", "nome", ["CONSTRUART", "LISBOA EMPREENDIMENTO"])
 
-            return ["Adicione opções no banco de dados"]
-
-        # Carregando as listas dinâmicas
-        lista_cargos = buscar_opcoes('cargo', 'cargos')
-        lista_departamentos = buscar_opcoes('departamento', 'departamentos')
-        lista_obras = buscar_opcoes('obra', 'obras')
+        # Como a tabela de cargos não apareceu no print, o sistema busca os cargos já existentes na tabela de colaboradores
+        lista_cargos = buscar_opcoes("SELECT DISTINCT cargo FROM cadastro_geral_colaborador WHERE cargo IS NOT NULL", "cargo", ["Pedreiro", "Servente", "Mestre de Obras"])
 
         with st.form("form_novo_colaborador", clear_on_submit=True):
             col1, col2, col3 = st.columns(3)
@@ -75,7 +69,7 @@ def render(engine, *args, **kwargs):
             nome = col2.text_input("Nome Completo")
             cpf = col3.text_input("CPF")
 
-            # Linha com as listas de seleção (Selectboxes)
+            # Linha com as listas de seleção (Selectboxes) puxando do banco
             col4, col5, col6 = st.columns(3)
             cargo = col4.selectbox("Cargo", options=lista_cargos)
             departamento = col5.selectbox("Departamento", options=lista_departamentos)
@@ -116,7 +110,7 @@ def render(engine, *args, **kwargs):
                         "admissao": admissao, 
                         "salario_mes": salario_mes,
                         "salario_hora": salario_hora, 
-                        "status_esocial": "Ativo" # Forçado no backend
+                        "status_esocial": "Ativo" # Forçado no backend para garantir a regra
                     }
 
                     try:
@@ -124,7 +118,7 @@ def render(engine, *args, **kwargs):
                             conn.execute(query_insert, parametros)
                         st.success(f"Colaborador {nome} cadastrado com sucesso na base geral!")
                     except Exception as e:
-                        st.error(f"Erro ao salvar no banco de dados. Verifique se a coluna 'departamento' existe na tabela. Detalhe: {e}")
+                        st.error(f"Erro ao salvar no banco de dados. Detalhe: {e}")
 
     st.markdown("---")
     st.caption("BRAGANÇA SYS - Infraestrutura de Dados | Conexão: Supabase PostgreSQL")
