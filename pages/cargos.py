@@ -2,9 +2,13 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text
 
-def inicializar_estado():
+def render(engine, *args, **kwargs):
+    st.title("Cadastro de Cargos")
+    st.markdown("Gerenciamento de cargos padronizado (Referência: Domínio Sistemas).")
+
+    # Inicialização de estados da interface
     if 'cargo_modo' not in st.session_state:
-        st.session_state.cargo_modo = 'novo' # Pode ser 'novo', 'consultando', 'editando'
+        st.session_state.cargo_modo = 'novo'
     if 'cargo_codigo' not in st.session_state:
         st.session_state.cargo_codigo = ''
     if 'cargo_nome' not in st.session_state:
@@ -12,17 +16,11 @@ def inicializar_estado():
     if 'cargo_cbo' not in st.session_state:
         st.session_state.cargo_cbo = ''
 
-def limpar_formulario():
-    st.session_state.cargo_modo = 'novo'
-    st.session_state.cargo_codigo = ''
-    st.session_state.cargo_nome = ''
-    st.session_state.cargo_cbo = ''
-
-def render(engine, *args, **kwargs):
-    inicializar_estado()
-
-    st.title("Gestão de Cargos")
-    st.markdown("Interface de padronização de cargos e CBO (Padrão Domínio).")
+    def limpar_formulario():
+        st.session_state.cargo_modo = 'novo'
+        st.session_state.cargo_codigo = ''
+        st.session_state.cargo_nome = ''
+        st.session_state.cargo_cbo = ''
 
     # Layout principal: Formulário à esquerda, Botões à direita
     col_form, col_botoes = st.columns([3, 1])
@@ -30,7 +28,6 @@ def render(engine, *args, **kwargs):
     with col_form:
         st.subheader("Dados do Cargo")
 
-        # O campo código é a chave primária para consultas e operações
         codigo_input = st.text_input(
             "Código:", 
             value=st.session_state.cargo_codigo, 
@@ -56,7 +53,7 @@ def render(engine, *args, **kwargs):
             limpar_formulario()
             st.rerun()
 
-        if st.button("Consulta", use_container_width=True):
+        if st.button("Consultar", use_container_width=True):
             if codigo_input:
                 try:
                     query = text("SELECT codigo, nome, cbo FROM cadastro_cargos WHERE codigo = :codigo")
@@ -131,6 +128,7 @@ def render(engine, *args, **kwargs):
     st.subheader("Listagem Geral de Cargos")
 
     try:
+        # A conversão ::integer na ordenação garante que o código 2 venha antes do 10
         query_lista = text("SELECT codigo AS \"Código\", nome AS \"Nome\", cbo AS \"C.B.O. 2002\" FROM cadastro_cargos ORDER BY codigo::integer")
         df_cargos = pd.read_sql(query_lista, con=engine)
         st.dataframe(df_cargos, use_container_width=True, hide_index=True)
