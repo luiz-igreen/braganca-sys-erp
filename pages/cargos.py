@@ -3,10 +3,10 @@ import pandas as pd
 from sqlalchemy import text
 
 def render(engine, *args, **kwargs):
-    st.title("Cadastro de Cargos")
-    st.markdown("Gerenciamento de cargos padronizado (Referência: Domínio Sistemas).")
+    st.title("Gestão de Cargos e CBO")
+    st.markdown("Cadastro e consulta de cargos padronizados (Referência: Domínio Sistemas).")
 
-    # Inicialização de estados da interface
+    # 1. Inicialização das variáveis de estado (Correção do erro de carregamento)
     if 'cargo_modo' not in st.session_state:
         st.session_state.cargo_modo = 'novo'
     if 'cargo_codigo' not in st.session_state:
@@ -22,12 +22,13 @@ def render(engine, *args, **kwargs):
         st.session_state.cargo_nome = ''
         st.session_state.cargo_cbo = ''
 
-    # Layout principal: Formulário à esquerda, Botões à direita
+    # 2. Layout Principal
     col_form, col_botoes = st.columns([3, 1])
 
     with col_form:
         st.subheader("Dados do Cargo")
 
+        # Campos de entrada controlados pelo estado
         codigo_input = st.text_input(
             "Código:", 
             value=st.session_state.cargo_codigo, 
@@ -53,12 +54,12 @@ def render(engine, *args, **kwargs):
             limpar_formulario()
             st.rerun()
 
-        if st.button("Consultar", use_container_width=True):
+        if st.button("Consulta", use_container_width=True):
             if codigo_input:
                 try:
                     query = text("SELECT codigo, nome, cbo FROM cadastro_cargos WHERE codigo = :codigo")
                     with engine.connect() as conn:
-                        result = conn.execute(query, {"codigo": codigo_input}).fetchone()
+                        result = conn.execute(query, {"codigo": str(codigo_input)}).fetchone()
 
                     if result:
                         st.session_state.cargo_modo = 'consultando'
@@ -99,7 +100,7 @@ def render(engine, *args, **kwargs):
                             """)
 
                         conn.execute(query, {
-                            "codigo": codigo_input,
+                            "codigo": str(codigo_input),
                             "nome": nome_input.upper(),
                             "cbo": cbo_input
                         })
@@ -115,7 +116,7 @@ def render(engine, *args, **kwargs):
                 try:
                     query = text("DELETE FROM cadastro_cargos WHERE codigo = :codigo")
                     with engine.begin() as conn:
-                        conn.execute(query, {"codigo": codigo_input})
+                        conn.execute(query, {"codigo": str(codigo_input)})
                     st.success("Registro excluído com sucesso.")
                     limpar_formulario()
                     st.rerun()
@@ -128,8 +129,7 @@ def render(engine, *args, **kwargs):
     st.subheader("Listagem Geral de Cargos")
 
     try:
-        # A conversão ::integer na ordenação garante que o código 2 venha antes do 10
-        query_lista = text("SELECT codigo AS \"Código\", nome AS \"Nome\", cbo AS \"C.B.O. 2002\" FROM cadastro_cargos ORDER BY codigo::integer")
+        query_lista = text("SELECT codigo AS \"Código\", nome AS \"Nome\", cbo AS \"C.B.O. 2002\" FROM cadastro_cargos ORDER BY codigo")
         df_cargos = pd.read_sql(query_lista, con=engine)
         st.dataframe(df_cargos, use_container_width=True, hide_index=True)
     except Exception as e:
