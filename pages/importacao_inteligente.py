@@ -42,10 +42,10 @@ def render(engine, *args, **kwargs):
             df = df.loc[:, df.columns.notna()]
             df = df.loc[:, ~df.columns.astype(str).str.contains('^Unnamed', case=False)]
 
-            # 5. Mapeamento Dinâmico
+            # 5. Mapeamento Dinâmico (Ajustado para 'codigo' sem acento)
             def mapear_coluna(col_name):
                 nome_limpo = str(col_name).lower().strip()
-                if 'código' in nome_limpo or 'codigo' in nome_limpo: return 'código'
+                if 'código' in nome_limpo or 'codigo' in nome_limpo: return 'codigo'
                 if 'nome' in nome_limpo: return 'nome'
                 if 'salário mês' in nome_limpo or 'salario mes' in nome_limpo: return 'salario_mes'
                 if 'salário hora' in nome_limpo or 'salario hora' in nome_limpo: return 'salario_hora'
@@ -73,7 +73,7 @@ def render(engine, *args, **kwargs):
             df['taxa_de_manutencao_zaut'] = 1.00
             df['observacoes'] = ''
 
-            # 7. Tratamento de Valores Monetários (Correção do SyntaxError com raw string r'R\$')
+            # 7. Tratamento de Valores Monetários
             colunas_financeiras = ['salario_mes', 'salario_hora', 'total_hp', 'valor_hp_em_R$']
             for col in colunas_financeiras:
                 if col in df.columns:
@@ -96,9 +96,9 @@ def render(engine, *args, **kwargs):
                 df = df.dropna(subset=['nome'])
                 df = df[df['nome'].astype(str).str.strip() != '']
 
-            # 10. Ordenação para o banco de dados (ignorando 'ord' para auto-incremento do BD)
+            # 10. Ordenação para o banco de dados (utilizando 'codigo' sem acento)
             colunas_finais = [
-                'código', 'nome', 'cargo', 'cpf', 'obra', 'salario_mes', 'salario_hora', 
+                'codigo', 'nome', 'cargo', 'cpf', 'obra', 'salario_mes', 'salario_hora', 
                 'total_hp', 'total_hp_convertido', 'valor_hp_em_R$', 'soma_total_hp', 
                 'valor_total_premio_R$', 'taxa_de_manutencao_zaut', 'lista_descricao_premio', 
                 'chave_pix', 'observacoes', 'competencia'
