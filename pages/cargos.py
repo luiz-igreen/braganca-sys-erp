@@ -13,7 +13,7 @@ st.title("📋 Cadastro de Cargos (CBO)")
 # Estado da aplicação (session_state)
 # -------------------------------------------------
 if "cargo_modo" not in st.session_state:
-    # modos possíveis: "visualizando", "novo", "consultando", "editando"
+    # modos: visualizando, novo, consultando, editando
     st.session_state.cargo_modo = "visualizando"
 
 if "cargo_selecionado" not in st.session_state:
@@ -23,7 +23,7 @@ if "cargo_selecionado" not in st.session_state:
 # Funções auxiliares
 # -------------------------------------------------
 def limpar_formulario():
-    """Reseta os campos do formulário e volta ao modo visualização."""
+    """Reseta os campos e volta ao modo visualização."""
     st.session_state.codigo_input = ""
     st.session_state.nome_input = ""
     st.session_state.cbo_input = ""
@@ -60,90 +60,64 @@ with tab_consultar:
                     """
                     SELECT codigo AS "Código",
                            nome   AS "Nome",
-                           cbo    AS "C.B.O. 2002"
+                           cbo    AS "C.B.O. 2002"
                     FROM cadastro_cargos
                     ORDER BY codigo::integer
                     """
                 ),
                 conn,
             )
-        if df_cargos.empty:
-            st.info("Nenhum cargo cadastrado ainda.")
-        else:
-            st.dataframe(df_cargos, use_container_width=True, hide_index=True)
+        st.dataframe(df_cargos, use_container_width=True, hide_index=True)
     except Exception as e:
-        st.error(f"Erro ao carregar a listagem de cargos: {e}")
+        st.error(f"Erro ao carregar a listagem: {e}")
 
     st.markdown("---")
-    st.subheader("🔎 Consultar / Excluir um Cargo")
+    st.subheader("Operações")
 
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        codigo_consulta = st.text_input(
-            "Código do Cargo", placeholder="Informe o código para consulta"
-        )
-    with col2:
-        if st.button("Consultar"):
-            if codigo_consulta:
-                cargo = buscar_cargo(codigo_consulta)
+    # Campos de ação
+    col_codigo, col_consultar = st.columns([2, 1])
+    with col_codigo:
+        codigo_input = st.text_input("Código do Cargo", key="codigo_input")
+    with col_consultar:
+        if st.button("Consultar", use_container_width=True):
+            if codigo_input:
+                cargo = buscar_cargo(codigo_input)
                 if cargo is not None:
-                    st.session_state.cargo_modo = "consultando"
                     st.session_state.cargo_selecionado = cargo
-                    st.success("Cargo encontrado – agora você pode Alterar ou Excluir.")
+                    st.session_state.cargo_modo = "consultando"
+                    st.success("Cargo encontrado – preencha os campos abaixo para alterar ou excluir.")
                 else:
-                    st.warning("Cargo não encontrado.")
+                    st.warning("Código não encontrado.")
             else:
-                st.warning("Informe um código para consultar.")
-
-    if st.session_state.cargo_modo in ["consultando", "editando"]:
-        cargo = st.session_state.cargo_selecionado
-        st.info(
-            f"**Código:** {cargo['codigo']}  |  **Nome:** {cargo['nome']}  |  **C.B.O.:** {cargo['cbo']}"
-        )
-        col_del, col_blank = st.columns([1, 1])
-        with col_del:
-            if st.button("Excluir", type="primary"):
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(
-                            text("DELETE FROM cadastro_cargos WHERE codigo = :codigo"),
-                            {"codigo": cargo["codigo"]},
-                        )
-                    st.success("Cargo excluído com sucesso.")
-                    limpar_formulario()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro ao excluir o cargo: {e}")
+                st.warning("Informe o código para consultar.")
 
 # -------------------------------------------------
 # Aba 2 – Novo / Alterar
 # -------------------------------------------------
 with tab_novo:
-    st.subheader("🆕 Novo Cargo / ✏️ Alterar Cargo")
+    st.subheader("🛠️ Formulário de Cargo")
+    # Preenche campos caso esteja em modo de edição/consulta
+    if st.session_state.cargo_modo in ["consultando", "editando"]:
+        cargo = st.session_state.cargo_selecionado
+        codigo_default = cargo["codigo"]
+        nome_default = cargo["nome"]
+        cbo_default = cargo["cbo"]
+    else:
+        codigo_default = ""
+        nome_default = ""
+        cbo_default = ""
 
-    # Formulário (mantém valores entre reruns)
     with st.form("form_cargo", clear_on_submit=False):
-        col_codigo, col_nome, col_cbo = st.columns([1, 2, 2])
-
-        codigo_input = col_codigo.text_input(
-            "Código",
-            value=st.session_state.get("codigo_input", ""),
-            key="codigo_input",
-            disabled=st.session_state.cargo_modo == "editando",
-        )
-        nome_input = col_nome.text_input(
-            "Nome do Cargo",
-            value=st.session_state.get("nome_input", ""),
-            key="nome_input",
-        )
-        cbo_input = col_cbo.text_input(
-            "C.B.O. 2002",
-            value=st.session_state.get("cbo_input", ""),
-            key="cbo_input",
-        )
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            codigo_input = st.text_input("Código", value=codigo_default, key="form_codigo")
+        with col2:
+            nome_input = st.text_input("Nome", value=nome_default, key="form_nome")
+        with col3:
+            cbo_input = st.text_input("C.B.O. 2002", value=cbo_default, key="form_cbo")
 
         # Botões de ação
-        col_novo, col_alterar, col_salvar, col_cancel = st.columns([1, 1, 1, 1])
+        col_novo, col_alterar, col_salvar, col_excluir, col_cancel = st.columns([1, 1, 1, 1, 1])
 
         with col_novo:
             if st.form_submit_button("Novo", type="secondary"):
@@ -154,11 +128,6 @@ with tab_novo:
         with col_alterar:
             if st.session_state.cargo_modo == "consultando":
                 if st.form_submit_button("Alterar", type="secondary"):
-                    # Carrega os dados do cargo selecionado no formulário
-                    cargo = st.session_state.cargo_selecionado
-                    st.session_state.codigo_input = cargo["codigo"]
-                    st.session_state.nome_input = cargo["nome"]
-                    st.session_state.cbo_input = cargo["cbo"]
                     st.session_state.cargo_modo = "editando"
                     st.rerun()
 
@@ -186,7 +155,7 @@ with tab_novo:
                                     """
                                 )
                             else:
-                                st.warning("Nenhum modo de operação definido.")
+                                st.warning("Selecione Novo ou Alterar antes de salvar.")
                                 st.stop()
 
                             conn.execute(
@@ -201,7 +170,24 @@ with tab_novo:
                         limpar_formulario()
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Erro ao salvar o cargo: {e}")
+                        st.error(f"Erro ao salvar: {e}")
+
+        with col_excluir:
+            if st.form_submit_button("Excluir", type="secondary"):
+                if st.session_state.cargo_modo in ["consultando", "editando"] and codigo_input:
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(
+                                text("DELETE FROM cadastro_cargos WHERE codigo = :codigo"),
+                                {"codigo": codigo_input},
+                            )
+                        st.success("Registro excluído com sucesso.")
+                        limpar_formulario()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao excluir: {e}")
+                else:
+                    st.warning("Consulte um cargo antes de excluir.")
 
         with col_cancel:
             if st.form_submit_button("Cancelar", type="secondary"):
@@ -212,6 +198,4 @@ with tab_novo:
 # Rodapé
 # -------------------------------------------------
 st.markdown("---")
-st.caption(
-    "BRAGANÇA SYS – Infraestrutura de Dados | Conexão: Supabase PostgreSQL"
-)
+st.caption("BRAGANÇA SYS – Infraestrutura de Dados | Conexão: Supabase PostgreSQL")
