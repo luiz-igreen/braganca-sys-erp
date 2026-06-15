@@ -2,161 +2,97 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text
 
-def render(engine, parse_br_date_smart, format_cpf, LISTA_SITUACOES_ESOCIAL):
+def render(engine, *args, **kwargs):
     """
-    Módulo Completo de Gestão de Cadastros (BRAGANÇA SYS).
-    Inclui formatação de salário no padrão Domínio Web e remoção de colunas obsoletas.
+    Módulo de Cadastro Geral de Colaboradores (BRAGANÇA SYS).
+    Permite a visualização da base atual e o cadastro manual de novos funcionários.
     """
-    st.title("Gestão de Cadastros")
-    st.markdown("Módulo central para administração de Obras, Departamentos e Colaboradores.")
+    st.title("Cadastro Geral de Colaboradores")
+    st.markdown("Gerenciamento da base principal de funcionários da Construart.")
 
-    # Criação de abas para organizar o layout e manter todas as funcionalidades
-    tab_obras, tab_dept, tab_colab = st.tabs([
-        "🏢 Obras (Construart)", 
-        "📁 Departamentos", 
-        "👥 Colaboradores"
-    ])
+    tab1, tab2 = st.tabs(["Consultar Base de Dados", "Novo Colaborador"])
 
     # ==========================================
-    # ABA 1: GESTÃO DE OBRAS
+    # ABA 1: CONSULTAR BASE DE DADOS
     # ==========================================
-    with tab_obras:
-        st.subheader("Dashboard de Obras")
-
-        # Formulário para adicionar ou atualizar obras diretamente pela interface
-        with st.expander("➕ Adicionar / Atualizar Obra", expanded=False):
-            with st.form("form_obra", clear_on_submit=True):
-                col1, col2 = st.columns(2)
-                obra_id = col1.text_input("Código da Obra (ID) *", help="Identificador em formato de texto")
-                obra_nome = col2.text_input("Nome da Obra *")
-                obra_cnpj = col1.text_input("CNPJ")
-                obra_cno = col2.text_input("CNO (Opcional)")
-
-                submit_obra = st.form_submit_button("Salvar Registro")
-
-                if submit_obra:
-                    if obra_id and obra_nome:
-                        try:
-                            with engine.begin() as conn:
-                                conn.execute(
-                                    text("""
-                                        INSERT INTO cadastro_obras (id, nome, cnpj, cno) 
-                                        VALUES (:id, :nome, :cnpj, :cno)
-                                        ON CONFLICT (id) DO UPDATE 
-                                        SET nome = EXCLUDED.nome, cnpj = EXCLUDED.cnpj, cno = EXCLUDED.cno
-                                    """),
-                                    {"id": str(obra_id), "nome": obra_nome, "cnpj": obra_cnpj or None, "cno": obra_cno or None}
-                                )
-                            st.success(f"Obra '{obra_nome}' registrada com sucesso!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Erro no banco de dados: {e}")
-                    else:
-                        st.warning("Os campos Código e Nome são obrigatórios.")
-
-        # Tabela de visualização de Obras
-        try:
-            df_obras = pd.read_sql("SELECT id, nome, cnpj, cno FROM cadastro_obras ORDER BY id::int", con=engine)
-            st.dataframe(
-                df_obras,
-                column_config={
-                    "id": st.column_config.TextColumn("Código", width="small"),
-                    "nome": st.column_config.TextColumn("Nome da Obra", width="large"),
-                    "cnpj": st.column_config.TextColumn("CNPJ", width="medium"),
-                    "cno": st.column_config.TextColumn("CNO", width="medium")
-                },
-                hide_index=True,
-                use_container_width=True
-            )
-        except Exception as e:
-            st.error(f"Erro ao carregar cadastro_obras: {e}")
-
-    # ==========================================
-    # ABA 2: GESTÃO DE DEPARTAMENTOS
-    # ==========================================
-    with tab_dept:
-        st.subheader("Dashboard de Departamentos")
-
-        with st.expander("➕ Adicionar / Atualizar Departamento", expanded=False):
-            with st.form("form_dept", clear_on_submit=True):
-                dept_id = st.text_input("Código do Departamento (ID) *")
-                dept_nome = st.text_input("Nome do Departamento *")
-                submit_dept = st.form_submit_button("Salvar Departamento")
-
-                if submit_dept:
-                    if dept_id and dept_nome:
-                        try:
-                            with engine.begin() as conn:
-                                conn.execute(
-                                    text("""
-                                        INSERT INTO cadastro_departamentos (id, nome) 
-                                        VALUES (:id, :nome)
-                                        ON CONFLICT (id) DO UPDATE SET nome = EXCLUDED.nome
-                                    """),
-                                    {"id": str(dept_id), "nome": dept_nome}
-                                )
-                            st.success("Departamento salvo com sucesso!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Erro: {e}")
-                    else:
-                        st.warning("Preencha todos os campos obrigatórios.")
+    with tab1:
+        st.subheader("Colaboradores Cadastrados")
+        st.markdown("Analise as informações constantes no banco de dados para verificar se há necessidade de alterações.")
 
         try:
-            df_dept = pd.read_sql("SELECT * FROM cadastro_departamentos ORDER BY id::int", con=engine)
-            st.dataframe(df_dept, hide_index=True, use_container_width=True)
+            # Busca todos os registros da tabela principal
+            query_select = text("SELECT * FROM cadastro_geral_colaborador ORDER BY nome")
+            df_colaboradores = pd.read_sql(query_select, con=engine)
+
+            if not df_colaboradores.empty:
+                # Formatação de exibição para valores monetários
+                colunas_monetarias = ['salario_mes', 'salario_hora']
+                for col in colunas_monetarias:
+                    if col in df_colaboradores.columns:
+                        df_colaboradores[col] = pd.to_numeric(df_colaboradores[col], errors='coerce')
+                        df_colaboradores[col] = df_colaboradores[col].apply(
+                            lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') if pd.notnull(x) else ""
+                        )
+
+                # Exibe o dataframe completo
+                st.dataframe(df_colaboradores, use_container_width=True, hide_index=True)
+                st.caption(f"Total de colaboradores registrados: {len(df_colaboradores)}")
+            else:
+                st.info("Nenhum colaborador encontrado na tabela 'cadastro_geral_colaborador'.")
+
         except Exception as e:
-            st.info("Nenhum departamento cadastrado ou erro de leitura.")
+            st.error(f"Erro ao carregar a base de colaboradores. Verifique se a tabela existe no Supabase. Detalhe: {e}")
 
     # ==========================================
-    # ABA 3: GESTÃO DE COLABORADORES
+    # ABA 2: NOVO COLABORADOR (LANÇAMENTO MANUAL)
     # ==========================================
-    with tab_colab:
-        st.subheader("Dashboard de Colaboradores")
-        st.markdown("Visão geral da tabela mãe (cadastro_geral_colaborador).")
+    with tab2:
+        st.subheader("Adicionar Novo Colaborador")
 
-        # Filtros básicos para a tabela de colaboradores
-        col_f1, col_f2 = st.columns(2)
-        busca_nome = col_f1.text_input("Buscar por Nome", key="busca_nome_colab")
+        with st.form("form_novo_colaborador", clear_on_submit=True):
+            col1, col2, col3 = st.columns(3)
+            codigo = col1.text_input("Código do Colaborador (Identificador)")
+            nome = col2.text_input("Nome Completo")
+            cpf = col3.text_input("CPF")
 
-        # Trava de segurança: ignora registros onde o nome é nulo ou 'nan'
-        query_colab = "SELECT * FROM cadastro_geral_colaborador WHERE nome IS NOT NULL AND nome != 'nan'"
+            col4, col5, col6 = st.columns(3)
+            cargo = col4.text_input("Cargo")
+            obra = col5.text_input("Obra", value="Construart")
+            admissao = col6.date_input("Data de Admissão")
 
-        if busca_nome:
-            query_colab += f" AND nome ILIKE '%%{busca_nome}%%'"
+            col7, col8, col9 = st.columns(3)
+            salario_mes = col7.number_input("Salário Mês (R$)", min_value=0.0, format="%.2f")
+            salario_hora = col8.number_input("Salário Hora (R$)", min_value=0.0, format="%.2f")
+            status_esocial = col9.selectbox("Status eSocial", ["Ativo", "9 - Férias", "Afastado", "Desligado"])
 
-        # Ordenação numérica crescente extraindo apenas os números do ID
-        query_colab += " ORDER BY NULLIF(regexp_replace(id, '\D', '', 'g'), '')::int ASC NULLS LAST LIMIT 500"
+            submit_button = st.form_submit_button("Salvar Colaborador", type="primary")
 
-        try:
-            df_colab = pd.read_sql(query_colab, con=engine)
+            if submit_button:
+                if not codigo or not nome:
+                    st.error("Os campos 'Código' e 'Nome' são obrigatórios.")
+                else:
+                    query_insert = text("""
+                        INSERT INTO cadastro_geral_colaborador (
+                            codigo, nome, cpf, cargo, obra, admissao, 
+                            salario_mes, salario_hora, status_esocial
+                        ) VALUES (
+                            :codigo, :nome, :cpf, :cargo, :obra, :admissao, 
+                            :salario_mes, :salario_hora, :status_esocial
+                        )
+                    """)
 
-            # 1. Remoção das colunas obsoletas de salário da visualização
-            colunas_remover = ['salario_mes_12_24', 'salario_hora_12_24']
-            df_colab = df_colab.drop(columns=[col for col in colunas_remover if col in df_colab.columns])
+                    parametros = {
+                        "codigo": codigo, "nome": nome, "cpf": cpf, "cargo": cargo,
+                        "obra": obra, "admissao": admissao, "salario_mes": salario_mes,
+                        "salario_hora": salario_hora, "status_esocial": status_esocial
+                    }
 
-            # 2. Formatação do salário para o padrão Domínio Web (ex: 9.726,00)
-            colunas_salario = ['salario_mes', 'salario_mes_01_26']
-            for col in colunas_salario:
-                if col in df_colab.columns:
-                    # Converte para numérico forçando erros a virarem NaN
-                    df_colab[col] = pd.to_numeric(df_colab[col], errors='coerce')
-                    # Aplica a formatação com 2 casas decimais, trocando ponto por vírgula e vírgula por ponto
-                    df_colab[col] = df_colab[col].apply(
-                        lambda x: f"{x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') if pd.notnull(x) else ""
-                    )
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(query_insert, parametros)
+                        st.success(f"Colaborador {nome} cadastrado com sucesso na base geral!")
+                    except Exception as e:
+                        st.error(f"Erro ao salvar no banco de dados. Detalhe: {e}")
 
-            st.dataframe(
-                df_colab,
-                hide_index=True,
-                use_container_width=True
-            )
-            st.caption(f"Mostrando {len(df_colab)} registros válidos (Ordenados por ID).")
-        except Exception as e:
-            st.info(f"Tabela de colaboradores vazia ou aguardando carga de dados. Detalhe: {e}")
-
-    # ==========================================
-    # RODAPÉ
-    # ==========================================
     st.markdown("---")
     st.caption("BRAGANÇA SYS - Infraestrutura de Dados | Conexão: Supabase PostgreSQL")
