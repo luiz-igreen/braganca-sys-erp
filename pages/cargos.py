@@ -5,6 +5,7 @@ from sqlalchemy import create_engine, text
 import os
 
 # --- Inicialização do st.session_state ---
+# É crucial inicializar as chaves do session_state antes de usá-las.
 if 'edit_mode' not in st.session_state:
     st.session_state.edit_mode = False
 if 'current_cargo' not in st.session_state:
@@ -15,15 +16,14 @@ if 'confirm_delete' not in st.session_state:
     st.session_state.confirm_delete = False
 if 'delete_codigo' not in st.session_state:
     st.session_state.delete_codigo = ""
+# Estas chaves serão usadas para controlar o valor dos text_inputs
 if 'input_codigo_tab2_value' not in st.session_state:
     st.session_state.input_codigo_tab2_value = ""
 if 'input_nome_tab2_value' not in st.session_state:
     st.session_state.input_nome_tab2_value = ""
 if 'input_cbo_tab2_value' not in st.session_state:
     st.session_state.input_cbo_tab2_value = ""
-# Nova chave para controlar a aba ativa
-if 'active_tab' not in st.session_state:
-    st.session_state.active_tab = "Consultar Cargos" # Aba inicial
+
 
 # --- Configuração do Banco de Dados (Supabase) ---
 try:
@@ -103,47 +103,9 @@ def delete_cargo(codigo):
         st.error(f"Erro ao excluir cargo: {e}")
         return False
 
-# --- Funções de Callback ---
-def on_consultar_click():
-    """Callback para o botão Consultar."""
-    codigo_para_consultar = st.session_state.input_codigo_tab2_widget
-
-    if codigo_para_consultar:
-        cargo_encontrado = get_cargo_by_codigo(codigo_para_consultar)
-        if cargo_encontrado is not None:
-            st.session_state.edit_mode = True
-            st.session_state.original_codigo = codigo_para_consultar
-            st.session_state.input_codigo_tab2_value = cargo_encontrado['codigo']
-            st.session_state.input_nome_tab2_value = cargo_encontrado['nome']
-            st.session_state.input_cbo_tab2_value = cargo_encontrado['cbo']
-            st.success(f"Cargo '{codigo_para_consultar}' encontrado. Preencha os campos para alterar.")
-            st.session_state.active_tab = "Novo / Alterar Cargo" # Força a permanência na aba de edição
-        else:
-            st.warning(f"Cargo com código '{codigo_para_consultar}' não encontrado.")
-            st.session_state.edit_mode = False
-            st.session_state.current_cargo = {}
-            st.session_state.original_codigo = ""
-            st.session_state.input_codigo_tab2_value = ""
-            st.session_state.input_nome_tab2_value = ""
-            st.session_state.input_cbo_tab2_value = ""
-            st.session_state.active_tab = "Novo / Alterar Cargo" # Permanece na aba de edição mesmo se não encontrar
-    else:
-        st.warning("Por favor, insira um Código para consultar.")
-        st.session_state.active_tab = "Novo / Alterar Cargo" # Permanece na aba de edição
-
-def on_novo_click():
-    """Callback para o botão Novo."""
-    st.session_state.edit_mode = False
-    st.session_state.current_cargo = {}
-    st.session_state.original_codigo = ""
-    st.session_state.input_codigo_tab2_value = ""
-    st.session_state.input_nome_tab2_value = ""
-    st.session_state.input_cbo_tab2_value = ""
-    st.info("Pronto para cadastrar um novo cargo.")
-    st.session_state.active_tab = "Novo / Alterar Cargo" # Garante que a aba de edição esteja ativa
-
-def on_cancelar_click():
-    """Callback para o botão Cancelar."""
+# --- Funções Auxiliares para Limpar/Resetar o Estado ---
+def reset_form_state():
+    """Reseta o estado do formulário para um novo cadastro ou após uma operação."""
     st.session_state.edit_mode = False
     st.session_state.current_cargo = {}
     st.session_state.original_codigo = ""
@@ -152,99 +114,122 @@ def on_cancelar_click():
     st.session_state.input_codigo_tab2_value = ""
     st.session_state.input_nome_tab2_value = ""
     st.session_state.input_cbo_tab2_value = ""
-    st.info("Operação cancelada.")
-    st.session_state.active_tab = "Novo / Alterar Cargo" # Garante que a aba de edição esteja ativa
 
 # --- Layout do Dashboard de Cargos ---
 
 st.title("Dashboard de Cadastro de Cargos")
 
 # Abas para Consultar e Gerenciar
-# Usamos o st.session_state.active_tab para controlar qual aba está selecionada
-selected_tab = st.tabs(["Consultar Cargos", "Novo / Alterar Cargo"], key="main_tabs", index=0 if st.session_state.active_tab == "Consultar Cargos" else 1)
+tab1, tab2 = st.tabs(["Consultar Cargos", "Novo / Alterar Cargo"])
 
-# Renderiza o conteúdo da aba selecionada
-if selected_tab[0] == "Consultar Cargos": # Conteúdo da primeira aba
-    with st.container(): # Usa um container para garantir que o conteúdo esteja dentro da aba
-        st.header("Consultar Cargos")
-        df_cargos = get_all_cargos()
+with tab1:
+    st.header("Consultar Cargos")
+    df_cargos = get_all_cargos()
 
-        if not df_cargos.empty:
-            st.dataframe(df_cargos.set_index('codigo'), use_container_width=True)
-        else:
-            st.info("Nenhum cargo cadastrado ainda.")
-elif selected_tab[0] == "Novo / Alterar Cargo": # Conteúdo da segunda aba
-    with st.container(): # Usa um container para garantir que o conteúdo esteja dentro da aba
-        st.header("Novo / Alterar Cargo")
+    if not df_cargos.empty:
+        st.dataframe(df_cargos.set_index('codigo'), use_container_width=True)
+    else:
+        st.info("Nenhum cargo cadastrado ainda.")
 
-        # Campos de entrada
-        col_codigo, col_nome, col_cbo = st.columns([1, 2, 1])
-        with col_codigo:
-            input_codigo_widget = st.text_input(
-                "Código do Cargo",
-                value=st.session_state.input_codigo_tab2_value,
-                key="input_codigo_tab2_widget",
-                on_change=lambda: st.session_state.update(input_codigo_tab2_value=st.session_state.input_codigo_tab2_widget)
-            )
-        with col_nome:
-            input_nome_widget = st.text_input(
-                "Nome do Cargo",
-                value=st.session_state.input_nome_tab2_value,
-                key="input_nome_tab2_widget",
-                on_change=lambda: st.session_state.update(input_nome_tab2_value=st.session_state.input_nome_tab2_widget)
-            )
-        with col_cbo:
-            input_cbo_widget = st.text_input(
-                "C.B.O. 2002",
-                value=st.session_state.input_cbo_tab2_value,
-                key="input_cbo_tab2_widget",
-                on_change=lambda: st.session_state.update(input_cbo_tab2_value=st.session_state.input_cbo_tab2_widget)
-            )
+with tab2:
+    st.header("Novo / Alterar Cargo")
 
-        # Botões de Ação
-        col_botoes = st.columns(5)
+    # Campos de entrada
+    # O valor dos st.text_input é diretamente controlado pelas chaves '_value' do session_state.
+    # O on_change é usado para atualizar essas chaves quando o usuário digita.
+    col_codigo, col_nome, col_cbo = st.columns([1, 2, 1])
+    with col_codigo:
+        # Usamos uma key diferente para o widget para evitar conflitos com a key do session_state
+        input_codigo_widget = st.text_input(
+            "Código do Cargo",
+            value=st.session_state.input_codigo_tab2_value,
+            key="input_codigo_tab2_widget",
+            on_change=lambda: st.session_state.update(input_codigo_tab2_value=st.session_state.input_codigo_tab2_widget)
+        )
+    with col_nome:
+        input_nome_widget = st.text_input(
+            "Nome do Cargo",
+            value=st.session_state.input_nome_tab2_value,
+            key="input_nome_tab2_widget",
+            on_change=lambda: st.session_state.update(input_nome_tab2_value=st.session_state.input_nome_tab2_widget)
+        )
+    with col_cbo:
+        input_cbo_widget = st.text_input(
+            "C.B.O. 2002",
+            value=st.session_state.input_cbo_tab2_value,
+            key="input_cbo_tab2_widget",
+            on_change=lambda: st.session_state.update(input_cbo_tab2_value=st.session_state.input_cbo_tab2_widget)
+        )
 
-        with col_botoes[0]:
-            st.button("Consultar", key="btn_consultar_tab2", on_click=on_consultar_click)
+    # Botões de Ação
+    col_botoes = st.columns(5)
 
-        with col_botoes[1]:
-            st.button("Novo", key="btn_novo_tab2", on_click=on_novo_click)
+    with col_botoes[0]:
+        if st.button("Consultar", key="btn_consultar_tab2"):
+            codigo_para_consultar = st.session_state.input_codigo_tab2_value # Pega o valor atual do input
 
-        with col_botoes[2]:
-            if st.button("Salvar", key="btn_salvar_tab2"):
-                if not st.session_state.input_codigo_tab2_value or not st.session_state.input_nome_tab2_value:
-                    st.error("Código e Nome do Cargo são obrigatórios.")
+            if codigo_para_consultar:
+                cargo_encontrado = get_cargo_by_codigo(codigo_para_consultar)
+                if cargo_encontrado is not None:
+                    st.session_state.edit_mode = True
+                    st.session_state.original_codigo = codigo_para_consultar
+                    # Atualiza os valores no session_state para que os widgets sejam renderizados com os novos valores
+                    st.session_state.input_codigo_tab2_value = cargo_encontrado['codigo']
+                    st.session_state.input_nome_tab2_value = cargo_encontrado['nome']
+                    st.session_state.input_cbo_tab2_value = cargo_encontrado['cbo']
+                    st.success(f"Cargo '{codigo_para_consultar}' encontrado. Preencha os campos para alterar.")
                 else:
-                    if st.session_state.get("edit_mode", False) and st.session_state.get("original_codigo"):
-                        if update_cargo(st.session_state.original_codigo, st.session_state.input_codigo_tab2_value, st.session_state.input_nome_tab2_value, st.session_state.input_cbo_tab2_value):
-                            st.success(f"Cargo '{st.session_state.input_codigo_tab2_value}' atualizado com sucesso!")
-                            on_cancelar_click()
-                        else:
-                            st.error("Falha ao atualizar cargo.")
-                    else:
-                        if insert_cargo(st.session_state.input_codigo_tab2_value, st.session_state.input_nome_tab2_value, st.session_state.input_cbo_tab2_value):
-                            st.success(f"Cargo '{st.session_state.input_codigo_tab2_value}' cadastrado com sucesso!")
-                            on_cancelar_click()
-                        else:
-                            st.error("Falha ao cadastrar cargo. O código pode já existir.")
+                    st.warning(f"Cargo com código '{codigo_para_consultar}' não encontrado.")
+                    reset_form_state() # Limpa os campos se não encontrar
+            else:
+                st.warning("Por favor, insira um Código para consultar.")
 
-        with col_botoes[3]:
-            if st.button("Excluir", key="btn_excluir_tab2"):
-                if st.session_state.input_codigo_tab2_value:
-                    if st.session_state.get("confirm_delete", False) and st.session_state.get("delete_codigo") == st.session_state.input_codigo_tab2_value:
-                        if delete_cargo(st.session_state.input_codigo_tab2_value):
-                            st.success(f"Cargo '{st.session_state.input_codigo_tab2_value}' excluído com sucesso!")
-                            on_cancelar_click()
-                        else:
-                            st.error("Falha ao excluir cargo. Verifique se há colaboradores associados a este cargo.")
-                        st.session_state.confirm_delete = False
-                        st.session_state.delete_codigo = ""
+    with col_botoes[1]:
+        if st.button("Novo", key="btn_novo_tab2"):
+            reset_form_state()
+            st.info("Pronto para cadastrar um novo cargo.")
+
+    with col_botoes[2]:
+        if st.button("Salvar", key="btn_salvar_tab2"):
+            # Validação de campos obrigatórios usando os valores do session_state
+            if not st.session_state.input_codigo_tab2_value or not st.session_state.input_nome_tab2_value:
+                st.error("Código e Nome do Cargo são obrigatórios.")
+            else:
+                if st.session_state.get("edit_mode", False) and st.session_state.get("original_codigo"):
+                    # Modo de Edição
+                    if update_cargo(st.session_state.original_codigo, st.session_state.input_codigo_tab2_value, st.session_state.input_nome_tab2_value, st.session_state.input_cbo_tab2_value):
+                        st.success(f"Cargo '{st.session_state.input_codigo_tab2_value}' atualizado com sucesso!")
+                        reset_form_state() # Limpa os campos após salvar
                     else:
-                        st.warning(f"Tem certeza que deseja excluir o cargo '{st.session_state.input_codigo_tab2_value}'? Clique em Excluir novamente para confirmar.")
-                        st.session_state.confirm_delete = True
-                        st.session_state.delete_codigo = st.session_state.input_codigo_tab2_value
+                        st.error("Falha ao atualizar cargo.")
                 else:
-                    st.warning("Por favor, insira um Código para excluir.")
+                    # Modo de Inserção
+                    if insert_cargo(st.session_state.input_codigo_tab2_value, st.session_state.input_nome_tab2_value, st.session_state.input_cbo_tab2_value):
+                        st.success(f"Cargo '{st.session_state.input_codigo_tab2_value}' cadastrado com sucesso!")
+                        reset_form_state() # Limpa os campos após salvar
+                    else:
+                        st.error("Falha ao cadastrar cargo. O código pode já existir.")
 
-        with col_botoes[4]:
-            st.button("Cancelar", key="btn_cancelar_tab2", on_click=on_cancelar_click)
+    with col_botoes[3]:
+        if st.button("Excluir", key="btn_excluir_tab2"):
+            if st.session_state.input_codigo_tab2_value:
+                # Confirmação de exclusão
+                if st.session_state.get("confirm_delete", False) and st.session_state.get("delete_codigo") == st.session_state.input_codigo_tab2_value:
+                    if delete_cargo(st.session_state.input_codigo_tab2_value):
+                        st.success(f"Cargo '{st.session_state.input_codigo_tab2_value}' excluído com sucesso!")
+                        reset_form_state() # Limpa os campos após excluir
+                    else:
+                        st.error("Falha ao excluir cargo. Verifique se há colaboradores associados a este cargo.")
+                    st.session_state.confirm_delete = False # Reseta a confirmação
+                    st.session_state.delete_codigo = ""
+                else:
+                    st.warning(f"Tem certeza que deseja excluir o cargo '{st.session_state.input_codigo_tab2_value}'? Clique em Excluir novamente para confirmar.")
+                    st.session_state.confirm_delete = True
+                    st.session_state.delete_codigo = st.session_state.input_codigo_tab2_value
+            else:
+                st.warning("Por favor, insira um Código para excluir.")
+
+    with col_botoes[4]:
+        if st.button("Cancelar", key="btn_cancelar_tab2"):
+            reset_form_state()
+            st.info("Operação cancelada.")
