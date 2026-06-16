@@ -20,8 +20,8 @@ if 'input_codigo_tab2_value' not in st.session_state:
     st.session_state.input_codigo_tab2_value = ""
 if 'input_nome_tab2_value' not in st.session_state:
     st.session_state.input_nome_tab2_value = ""
-if 'input_cbo_tab2_value' not in st.session_state:
-    st.session_state.input_cbo_tab2_value = ""
+if 'input_cbo_2002_tab2_value' not in st.session_state: # ATUALIZADO: cbo_2002
+    st.session_state.input_cbo_2002_tab2_value = ""
 # Nova chave para controlar a aba ativa - Usaremos o nome da aba diretamente
 if 'active_tab_name' not in st.session_state:
     st.session_state.active_tab_name = "Consultar Cargos" # Aba inicial
@@ -43,7 +43,8 @@ def get_all_cargos():
     """Retorna todos os cargos da tabela cadastro_cargos."""
     try:
         with engine.connect() as connection:
-            query = text("SELECT codigo, nome, cbo FROM cadastro_cargos ORDER BY codigo")
+            # ATUALIZADO: Usando cbo_2002
+            query = text("SELECT codigo, nome, cbo_2002 FROM cadastro_cargos ORDER BY codigo")
             df = pd.read_sql(query, connection)
             return df
     except Exception as e:
@@ -54,36 +55,40 @@ def get_cargo_by_codigo(codigo):
     """Retorna um cargo específico pelo código."""
     try:
         with engine.connect() as connection:
-            query = text("SELECT codigo, nome, cbo FROM cadastro_cargos WHERE codigo = :codigo")
+            # ATUALIZADO: Usando cbo_2002
+            query = text("SELECT codigo, nome, cbo_2002 FROM cadastro_cargos WHERE codigo = :codigo")
             df = pd.read_sql(query, connection, params={"codigo": codigo})
             if not df.empty:
-                return df.iloc[0]
+                # ATUALIZADO: Retornando cbo_2002
+                return {'codigo': df.iloc[0]['codigo'], 'nome': df.iloc[0]['nome'], 'cbo_2002': df.iloc[0]['cbo_2002']}
             return None
     except Exception as e:
         st.error(f"Erro ao buscar cargo por código: {e}")
         return None
 
-def insert_cargo(codigo, nome, cbo):
+def insert_cargo(codigo, nome, cbo_2002): # ATUALIZADO: cbo_2002
     """Insere um novo cargo na tabela cadastro_cargos."""
     try:
         with engine.connect() as connection:
-            query = text("INSERT INTO cadastro_cargos (codigo, nome, cbo) VALUES (:codigo, :nome, :cbo)")
-            connection.execute(query, {"codigo": codigo, "nome": nome, "cbo": cbo})
+            # ATUALIZADO: Usando cbo_2002
+            query = text("INSERT INTO cadastro_cargos (codigo, nome, cbo_2002) VALUES (:codigo, :nome, :cbo_2002)")
+            connection.execute(query, {"codigo": codigo, "nome": nome, "cbo_2002": cbo_2002})
             connection.commit()
         return True
     except Exception as e:
         st.error(f"Erro ao inserir cargo: {e}")
         return False
 
-def update_cargo(codigo_original, novo_codigo, novo_nome, novo_cbo):
+def update_cargo(codigo_original, novo_codigo, novo_nome, novo_cbo_2002): # ATUALIZADO: novo_cbo_2002
     """Atualiza um cargo existente na tabela cadastro_cargos."""
     try:
         with engine.connect() as connection:
-            query = text("UPDATE cadastro_cargos SET codigo = :novo_codigo, nome = :novo_nome, cbo = :novo_cbo WHERE codigo = :codigo_original")
+            # ATUALIZADO: Usando cbo_2002
+            query = text("UPDATE cadastro_cargos SET codigo = :novo_codigo, nome = :novo_nome, cbo_2002 = :novo_cbo_2002 WHERE codigo = :codigo_original")
             connection.execute(query, {
                 "novo_codigo": novo_codigo,
                 "novo_nome": novo_nome,
-                "novo_cbo": novo_cbo,
+                "novo_cbo_2002": novo_cbo_2002,
                 "codigo_original": codigo_original
             })
             connection.commit()
@@ -114,7 +119,7 @@ def reset_form_state():
     st.session_state.delete_codigo = ""
     st.session_state.input_codigo_tab2_value = ""
     st.session_state.input_nome_tab2_value = ""
-    st.session_state.input_cbo_tab2_value = ""
+    st.session_state.input_cbo_2002_tab2_value = "" # ATUALIZADO: cbo_2002
 
 # --- Layout do Dashboard de Cargos ---
 
@@ -135,7 +140,9 @@ if st.session_state.main_tabs == "Consultar Cargos": # Verifica o valor da key "
         df_cargos = get_all_cargos()
 
         if not df_cargos.empty:
-            st.dataframe(df_cargos.set_index('codigo'), use_container_width=True)
+            # ATUALIZADO: Renomeando a coluna 'cbo_2002' para exibição
+            df_display = df_cargos.rename(columns={'cbo_2002': 'C.B.O. 2002'})
+            st.dataframe(df_display.set_index('codigo'), use_container_width=True)
         else:
             st.info("Nenhum cargo cadastrado ainda.")
 
@@ -160,11 +167,11 @@ elif st.session_state.main_tabs == "Novo / Alterar Cargo": # Verifica o valor da
                 on_change=lambda: st.session_state.update(input_nome_tab2_value=st.session_state.input_nome_tab2_widget)
             )
         with col_cbo:
-            input_cbo_widget = st.text_input(
+            input_cbo_2002_widget = st.text_input( # ATUALIZADO: cbo_2002
                 "C.B.O. 2002",
-                value=st.session_state.input_cbo_tab2_value,
-                key="input_cbo_tab2_widget",
-                on_change=lambda: st.session_state.update(input_cbo_tab2_value=st.session_state.input_cbo_tab2_widget)
+                value=st.session_state.input_cbo_2002_tab2_value, # ATUALIZADO: cbo_2002
+                key="input_cbo_2002_tab2_widget", # ATUALIZADO: cbo_2002
+                on_change=lambda: st.session_state.update(input_cbo_2002_tab2_value=st.session_state.input_cbo_2002_tab2_widget) # ATUALIZADO: cbo_2002
             )
 
         # Botões de Ação
@@ -181,9 +188,8 @@ elif st.session_state.main_tabs == "Novo / Alterar Cargo": # Verifica o valor da
                         st.session_state.original_codigo = codigo_para_consultar
                         st.session_state.input_codigo_tab2_value = cargo_encontrado['codigo']
                         st.session_state.input_nome_tab2_value = cargo_encontrado['nome']
-                        st.session_state.input_cbo_tab2_value = cargo_encontrado['cbo']
+                        st.session_state.input_cbo_2002_tab2_value = cargo_encontrado['cbo_2002'] # ATUALIZADO: cbo_2002
                         st.success(f"Cargo '{codigo_para_consultar}' encontrado. Preencha os campos para alterar.")
-                        # Não precisamos mais forçar active_tab_name aqui, pois o st.tabs já está vinculado
                     else:
                         st.warning(f"Cargo com código '{codigo_para_consultar}' não encontrado.")
                         reset_form_state()
@@ -201,13 +207,13 @@ elif st.session_state.main_tabs == "Novo / Alterar Cargo": # Verifica o valor da
                     st.error("Código e Nome do Cargo são obrigatórios.")
                 else:
                     if st.session_state.get("edit_mode", False) and st.session_state.get("original_codigo"):
-                        if update_cargo(st.session_state.original_codigo, st.session_state.input_codigo_tab2_value, st.session_state.input_nome_tab2_value, st.session_state.input_cbo_tab2_value):
+                        if update_cargo(st.session_state.original_codigo, st.session_state.input_codigo_tab2_value, st.session_state.input_nome_tab2_value, st.session_state.input_cbo_2002_tab2_value): # ATUALIZADO: cbo_2002
                             st.success(f"Cargo '{st.session_state.input_codigo_tab2_value}' atualizado com sucesso!")
                             reset_form_state()
                         else:
                             st.error("Falha ao atualizar cargo.")
                     else:
-                        if insert_cargo(st.session_state.input_codigo_tab2_value, st.session_state.input_nome_tab2_value, st.session_state.input_cbo_tab2_value):
+                        if insert_cargo(st.session_state.input_codigo_tab2_value, st.session_state.input_nome_tab2_value, st.session_state.input_cbo_2002_tab2_value): # ATUALIZADO: cbo_2002
                             st.success(f"Cargo '{st.session_state.input_codigo_tab2_value}' cadastrado com sucesso!")
                             reset_form_state()
                         else:
@@ -216,7 +222,11 @@ elif st.session_state.main_tabs == "Novo / Alterar Cargo": # Verifica o valor da
         with col_botoes[3]:
             if st.button("Excluir", key="btn_excluir_tab2"):
                 if st.session_state.input_codigo_tab2_value:
-                    if st.session_state.get("confirm_delete", False) and st.session_state.get("delete_codigo") == st.session_state.input_codigo_tab2_value:
+                    # Antes de confirmar a exclusão, verificar se o cargo tem CBO preenchido
+                    cargo_para_excluir = get_cargo_by_codigo(st.session_state.input_codigo_tab2_value)
+                    if cargo_para_excluir and cargo_para_excluir['cbo_2002']: # Verifica se cbo_2002 existe e não é vazio
+                        st.error(f"Não é possível excluir o cargo '{st.session_state.input_codigo_tab2_value}' pois ele possui C.B.O. 2002 preenchido.")
+                    elif st.session_state.get("confirm_delete", False) and st.session_state.get("delete_codigo") == st.session_state.input_codigo_tab2_value:
                         if delete_cargo(st.session_state.input_codigo_tab2_value):
                             st.success(f"Cargo '{st.session_state.input_codigo_tab2_value}' excluído com sucesso!")
                             reset_form_state()
