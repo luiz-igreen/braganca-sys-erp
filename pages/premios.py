@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import text
+from datetime import datetime
 
 # ==========================================
 # FUNÇÕES DE CACHE E BUSCA DE DADOS
@@ -32,19 +33,12 @@ def carregar_dados_iniciais(_engine):
         return pd.DataFrame(), ["Erro"], {"Erro": 0.0}
 
 # ==========================================
-# RENDERIZAÇÃO DA PÁGINA (Com Catch-All)
+# RENDERIZAÇÃO DA PÁGINA
 # ==========================================
-# O *args e **kwargs garantem que a função aceita qualquer número de argumentos do app.py
-def render(engine, *args, **kwargs):
+# Assinatura garantida para funcionar com a sua chamada em app.py
+def render(engine, format_brl_number, format_currency_brl, clean_money_to_db, LISTA_SERVICOS_PREMIO):
     st.title("🏆 Gestão de Prêmios ZAUT")
     st.markdown("Módulo automatizado para lançamento, consulta e transferência de prêmios e obras.")
-
-    # Tenta importar funções de formatação do app.py (se existirem)
-    try:
-        from app import format_currency_brl, format_brl_number
-    except:
-        format_currency_brl = lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') if pd.notna(x) else "R$ 0,00"
-        format_brl_number = lambda x: f"{x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') if pd.notna(x) else "0,00"
 
     tab1, tab2, tab3 = st.tabs(["Lançar Prêmio (Salvar)", "Consultar / Excluir", "Transferência de Obra"])
 
@@ -87,7 +81,7 @@ def render(engine, *args, **kwargs):
                 st.markdown("#### 🏢 Alocação e Classificação")
                 col5, col6, col7 = st.columns(3)
                 obra = col5.selectbox("Obra / Centro de Custo", lista_obras)
-                competencia = col6.text_input("Competência (Mês/Ano)", value=pd.Timestamp.now().strftime('%m/%Y'))
+                competencia = col6.text_input("Competência (Mês/Ano)", value=datetime.today().strftime('%m/%Y'))
                 
                 lista_nome_premios = list(dict_premios.keys())
                 premio_selecionado = col7.selectbox("Descrição do Prêmio ZAUT", lista_nome_premios)
@@ -208,7 +202,7 @@ def render(engine, *args, **kwargs):
             if st.button("Executar Transferência", type="primary"):
                 if obra_origem != obra_destino:
                     try:
-                        nota = f" [Transferido de {obra_origem} para {obra_destino} em {pd.Timestamp.now().strftime('%d/%m/%Y')}]"
+                        nota = f" [Transferido de {obra_origem} para {obra_destino} em {datetime.today().strftime('%d/%m/%Y')}]"
                         query_update = text("UPDATE gestao_premios_zaut SET obra = :obra_destino, observacoes = COALESCE(observacoes, '') || :nota WHERE codigo = :codigo")
                         with engine.begin() as conn:
                             res = conn.execute(query_update, {"obra_destino": obra_destino, "nota": nota, "codigo": id_transf_limpo})
@@ -219,4 +213,4 @@ def render(engine, *args, **kwargs):
                     except Exception as e:
                         st.error(f"Erro: {e}")
                 else:
-                    st.warning("Obras de origem e destino devem ser diferentes.")
+                    st.warning("Obras de origem e destino devem ser diferentes.")    
