@@ -146,6 +146,16 @@ criar_tabelas()
 
 st.set_page_config(page_title="BRAGANCA SYS ERP", layout="wide", initial_sidebar_state="expanded")
 
+# --- OCULTAR MENU NATIVO DO STREAMLIT ---
+st.markdown("""
+    <style>
+        /* Oculta o menu automático da pasta 'pages' */
+        [data-testid="stSidebarNav"] {
+            display: none !important;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 from pages import cadastros as gestao_cadastros_page
 from pages import importacao_inteligente
 from pages import premios as premios_page
