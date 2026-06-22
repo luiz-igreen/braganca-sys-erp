@@ -2,45 +2,54 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text
 
+# ==========================================
+# FUNÇÕES DE CACHE E BUSCA DE DADOS
+# ==========================================
+@st.cache_data(ttl=60)
+def carregar_dados_iniciais(_engine):
+    try:
+        with _engine.connect() as conn:
+            # 1. Colaboradores
+            df_colab = pd.read_sql("SELECT id, nome, cpf, cargo, salario_mes_12_24 FROM cadastro_geral_colaborador ORDER BY nome", conn)
+            
+            # 2. Obras (Unidades de Negócio)
+            try:
+                df_obras = pd.read_sql("SELECT id, nome_unidade FROM unidade_negocio ORDER BY nome_unidade", conn)
+                lista_obras = df_obras['nome_unidade'].tolist() if not df_obras.empty else ["Construart (Padrão)"]
+            except:
+                lista_obras = ["Construart (Padrão)"]
+            
+            # 3. Prêmios Base
+            try:
+                df_base_premios = pd.read_sql("SELECT id, descricao_premio, valor_padrao FROM premios_zaut ORDER BY descricao_premio", conn)
+                dict_premios = dict(zip(df_base_premios['descricao_premio'], df_base_premios['valor_padrao'])) if not df_base_premios.empty else {"Prêmio Manual": 0.0}
+            except:
+                dict_premios = {"Prêmio Extra": 100.0, "Prêmio Assiduidade": 50.0, "Outro (Digitar Manual)": 0.0}
+            
+        return df_colab, lista_obras, dict_premios
+    except Exception as e:
+        st.error(f"Erro ao carregar bases: {e}")
+        return pd.DataFrame(), ["Erro"], {"Erro": 0.0}
+
+# ==========================================
+# RENDERIZAÇÃO DA PÁGINA (Com Catch-All)
+# ==========================================
+# O *args e **kwargs garantem que a função aceita qualquer número de argumentos do app.py
 def render(engine, *args, **kwargs):
     st.title("🏆 Gestão de Prêmios ZAUT")
     st.markdown("Módulo automatizado para lançamento, consulta e transferência de prêmios e obras.")
 
+    # Tenta importar funções de formatação do app.py (se existirem)
+    try:
+        from app import format_currency_brl, format_brl_number
+    except:
+        format_currency_brl = lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') if pd.notna(x) else "R$ 0,00"
+        format_brl_number = lambda x: f"{x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') if pd.notna(x) else "0,00"
+
     tab1, tab2, tab3 = st.tabs(["Lançar Prêmio (Salvar)", "Consultar / Excluir", "Transferência de Obra"])
 
-    # ==========================================
-    # FUNÇÕES DE CACHE (CARREGAMENTO RÁPIDO)
-    # ==========================================
-    @st.cache_data(ttl=60) # Atualiza a cada minuto para não pesar no banco
-    def carregar_dados_iniciais():
-        try:
-            with engine.connect() as conn:
-                # 1. Lista de Colaboradores (para o dropdown)
-                df_colab = pd.read_sql("SELECT id, nome, cpf, cargo, salario_mes_12_24 FROM cadastro_geral_colaborador ORDER BY nome", conn)
-                
-                # 2. Lista de Obras/Unidades de Negócio (Assumindo que a tabela se chama 'unidade_negocio')
-                try:
-                    df_obras = pd.read_sql("SELECT id, nome_unidade FROM unidade_negocio ORDER BY nome_unidade", conn)
-                    lista_obras = df_obras['nome_unidade'].tolist() if not df_obras.empty else ["Construart (Padrão)"]
-                except:
-                    lista_obras = ["Construart (Padrão)"] # Fallback se a tabela não existir
-                
-                # 3. Lista Base de Prêmios (Assumindo que a tabela se chama 'premios_zaut' ou similar)
-                try:
-                    # Ajuste o nome da tabela abaixo se a sua tabela base de prêmios tiver outro nome
-                    df_base_premios = pd.read_sql("SELECT id, descricao_premio, valor_padrao FROM premios_zaut ORDER BY descricao_premio", conn)
-                    dict_premios = dict(zip(df_base_premios['descricao_premio'], df_base_premios['valor_padrao'])) if not df_base_premios.empty else {"Prêmio Manual": 0.0}
-                except:
-                    dict_premios = {"Prêmio Extra": 100.0, "Prêmio Assiduidade": 50.0, "Outro (Digitar Manual)": 0.0} # Fallback
-                
-            return df_colab, lista_obras, dict_premios
-        except Exception as e:
-            st.error(f"Erro ao carregar bases: {e}")
-            return pd.DataFrame(), ["Erro"], {"Erro": 0.0}
+    df_colab, lista_obras, dict_premios = carregar_dados_iniciais(engine)
 
-    df_colab, lista_obras, dict_premios = carregar_dados_iniciais()
-
-    # Cria a lista amigável para o Selectbox do Colaborador
     opcoes_colab = ["Selecione um Colaborador..."]
     mapa_colab_dados = {}
     if not df_colab.empty:
@@ -55,29 +64,23 @@ def render(engine, *args, **kwargs):
                 "salario_mes": float(row['salario_mes_12_24']) if pd.notna(row['salario_mes_12_24']) else 0.0
             }
 
-
     # ==========================================
-    # ABA 1: LANÇAMENTO AUTOMATIZADO (SALVAR)
+    # ABA 1: LANÇAMENTO AUTOMATIZADO
     # ==========================================
     with tab1:
         st.subheader("Novo Lançamento Inteligente")
-
-        # 1. Seleção do Colaborador (Fora do Form para atualização em tempo real)
         colaborador_selecionado = st.selectbox("Buscar Colaborador (ID, Nome ou CPF):", opcoes_colab)
 
-        # Só abre o formulário se um colaborador for escolhido
         if colaborador_selecionado != "Selecione um Colaborador...":
             dados_c = mapa_colab_dados[colaborador_selecionado]
-            
-            # Cálculo automático do Salário Hora
             sal_hora_auto = dados_c["salario_mes"] / 220.0 if dados_c["salario_mes"] > 0 else 0.0
 
             st.markdown("---")
             with st.form("form_lancamento_premio", clear_on_submit=True):
-                st.markdown("#### 👤 Dados do Colaborador (Preenchimento Automático)")
+                st.markdown("#### 👤 Dados do Colaborador (Automático)")
                 col1, col2, col3, col4 = st.columns(4)
                 codigo = col1.text_input("Código", value=dados_c["id"], disabled=True)
-                nome = col2.text_input("Nome Completo", value=dados_c["nome"], disabled=True)
+                nome = col2.text_input("Nome", value=dados_c["nome"], disabled=True)
                 cpf = col3.text_input("CPF", value=dados_c["cpf"], disabled=True)
                 cargo = col4.text_input("Cargo", value=dados_c["cargo"], disabled=True)
 
@@ -86,40 +89,32 @@ def render(engine, *args, **kwargs):
                 obra = col5.selectbox("Obra / Centro de Custo", lista_obras)
                 competencia = col6.text_input("Competência (Mês/Ano)", value=pd.Timestamp.now().strftime('%m/%Y'))
                 
-                # Seletor de Prêmio Puxando da Tabela Base
                 lista_nome_premios = list(dict_premios.keys())
                 premio_selecionado = col7.selectbox("Descrição do Prêmio ZAUT", lista_nome_premios)
 
-                st.markdown("#### 💰 Dados Financeiros e Horas")
+                st.markdown("#### 💰 Financeiro")
                 col8, col9, col10 = st.columns(3)
-                
-                # Salários puxados da base (Podem ser editados se necessário)
                 salario_mes = col8.number_input("Salário Mês Base (R$)", value=dados_c["salario_mes"], min_value=0.0, format="%.2f")
                 salario_hora = col9.number_input("Salário Hora Base (R$)", value=sal_hora_auto, min_value=0.0, format="%.2f")
-                total_hp = col10.number_input("Total HP (Horas a adicionar)", min_value=0.0, format="%.2f")
+                total_hp = col10.number_input("Total HP a adicionar", min_value=0.0, format="%.2f")
 
                 col11, col12, col13 = st.columns(3)
-                # O valor em R$ do prêmio já vem preenchido conforme a tabela base
                 valor_padrao_premio = dict_premios.get(premio_selecionado, 0.0)
-                valor_hp_em_R = col11.number_input("Valor do Prêmio Fixo em R$", value=float(valor_padrao_premio), min_value=0.0, format="%.2f")
-                
-                taxa_zaut = col12.number_input("Taxa Manutenção Zaut (R$)", value=1.00, format="%.2f")
+                valor_hp_em_R = col11.number_input("Prêmio Fixo em R$", value=float(valor_padrao_premio), min_value=0.0, format="%.2f")
+                taxa_zaut = col12.number_input("Taxa Zaut (R$)", value=1.00, format="%.2f")
                 chave_pix = col13.text_input("Chave PIX")
 
-                observacoes = st.text_area("Observações", placeholder="Adicione detalhes extras aqui...")
-
+                observacoes = st.text_area("Observações")
                 submit_button = st.form_submit_button("Salvar Lançamento ZAUT", type="primary", use_container_width=True)
 
                 if submit_button:
                     if salario_hora <= 0 and valor_hp_em_R > 0:
-                        st.error("Para converter o Prêmio Fixo em horas, o 'Salário Hora' do colaborador deve ser maior que zero na Ficha Cadastral.")
+                        st.error("Para converter prêmio em horas, o 'Salário Hora' precisa ser maior que zero.")
                     else:
-                        # Execução das Regras de Negócio (Cálculos)
                         total_hp_convertido = (valor_hp_em_R / salario_hora) if salario_hora > 0 else 0.0
                         soma_total_hp = total_hp + total_hp_convertido
                         valor_total_premio = (soma_total_hp * salario_hora) + taxa_zaut
 
-                        # Inserção na tabela original do módulo
                         query_insert = text("""
                             INSERT INTO gestao_premios_zaut (
                                 codigo, nome, cargo, cpf, obra, salario_mes, salario_hora, 
@@ -147,10 +142,9 @@ def render(engine, *args, **kwargs):
                         try:
                             with engine.begin() as conn:
                                 conn.execute(query_insert, parametros)
-                            st.success(f"🎉 Lançamento ZAUT salvo com sucesso para: {nome}")
-                            st.info(f"Resumo do Cálculo: HP Convertido ({total_hp_convertido:.2f}h) | Soma HP ({soma_total_hp:.2f}h) | Prêmio Final: R$ {valor_total_premio:.2f}")
+                            st.success(f"Lançamento ZAUT salvo para: {nome}")
                         except Exception as e:
-                            st.error(f"Erro ao salvar no banco de dados. Detalhe técnico: {e}")
+                            st.error(f"Erro ao salvar: {e}")
 
     # ==========================================
     # ABA 2: CONSULTAR E EXCLUIR
@@ -166,15 +160,13 @@ def render(engine, *args, **kwargs):
                     df_busca = pd.read_sql(query_select, con=engine, params={"codigo": str(busca_codigo)})
 
                     if not df_busca.empty:
-                        # Formatação visual de moeda para 2 casas decimais
                         colunas_moeda = ['salario_mes', 'salario_hora', 'valor_hp_em_R$', 'valor_total_premio_R$', 'taxa_de_manutencao_zaut']
                         for col in colunas_moeda:
                             if col in df_busca.columns:
-                                df_busca[col] = df_busca[col].apply(lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-
+                                df_busca[col] = df_busca[col].apply(format_currency_brl)
                         st.dataframe(df_busca, use_container_width=True)
                     else:
-                        st.warning("Nenhum prêmio ZAUT encontrado para esta matrícula.")
+                        st.warning("Nenhum prêmio encontrado para esta matrícula.")
                 except Exception as e:
                     st.error(f"Erro na consulta: {e}")
             else:
@@ -183,68 +175,48 @@ def render(engine, *args, **kwargs):
         st.markdown("---")
         st.subheader("Excluir Registro de Prêmio")
         codigo_exclusao = st.text_input("Código do Colaborador para exclusão:")
-        competencia_exclusao = st.text_input("Competência do registro a excluir (ex: 06/2026):")
-
-        confirmar_exclusao = st.checkbox("Confirmo que desejo excluir este prêmio permanentemente da base.")
+        competencia_exclusao = st.text_input("Competência a excluir (ex: 06/2026):")
+        confirmar_exclusao = st.checkbox("Confirmo a exclusão permanente deste prêmio.")
 
         if st.button("Excluir Registro", type="primary"):
-            if codigo_exclusao and competencia_exclusao:
-                if confirmar_exclusao:
-                    try:
-                        query_delete = text("DELETE FROM gestao_premios_zaut WHERE codigo = :codigo AND competencia = :competencia")
-                        with engine.begin() as conn:
-                            result = conn.execute(query_delete, {"codigo": str(codigo_exclusao), "competencia": competencia_exclusao})
-                            if result.rowcount > 0:
-                                st.success("Registro de prêmio excluído com sucesso.")
-                            else:
-                                st.warning("Nenhum registro encontrado com estes dados para exclusão.")
-                    except Exception as e:
-                        st.error(f"Erro ao excluir: {e}")
-                else:
-                    st.error("Por favor, marque a caixa de confirmação antes de excluir.")
+            if codigo_exclusao and competencia_exclusao and confirmar_exclusao:
+                try:
+                    query_delete = text("DELETE FROM gestao_premios_zaut WHERE codigo = :codigo AND competencia = :competencia")
+                    with engine.begin() as conn:
+                        result = conn.execute(query_delete, {"codigo": str(codigo_exclusao), "competencia": competencia_exclusao})
+                        if result.rowcount > 0:
+                            st.success("Prêmio excluído.")
+                        else:
+                            st.warning("Prêmio não encontrado.")
+                except Exception as e:
+                    st.error(f"Erro: {e}")
             else:
-                st.warning("Informe o código e a competência para realizar a exclusão.")
+                st.error("Preencha todos os campos e confirme a exclusão.")
 
     # ==========================================
     # ABA 3: TRANSFERÊNCIA DE OBRA
     # ==========================================
     with tab3:
-        st.subheader("Transferir para Outra Obra")
-        st.markdown("Atualiza a obra atual do colaborador e registra a origem nas observações.")
-
-        transf_codigo = st.selectbox("Selecione o Colaborador a transferir:", opcoes_colab, key="sel_transf")
+        st.subheader("Transferir Obra do Colaborador")
+        transf_codigo = st.selectbox("Selecione o Colaborador:", opcoes_colab, key="sel_transf")
         
-        # Só libera os campos se um colaborador for escolhido
         if transf_codigo != "Selecione um Colaborador...":
             id_transf_limpo = mapa_colab_dados[transf_codigo]["id"]
-            
             obra_origem = st.selectbox("Obra de Origem:", lista_obras, key="obra_orig")
-            obra_destino = st.selectbox("Obra de Destino (Nova Obra):", lista_obras, key="obra_dest")
+            obra_destino = st.selectbox("Nova Obra (Destino):", lista_obras, key="obra_dest")
 
-            if st.button("Executar Transferência de Obra", type="primary"):
-                if obra_origem == obra_destino:
-                    st.warning("A Obra de Origem e a Obra de Destino não podem ser iguais.")
-                else:
+            if st.button("Executar Transferência", type="primary"):
+                if obra_origem != obra_destino:
                     try:
-                        nota_transferencia = f" [Transferido de {obra_origem} para {obra_destino} em {pd.Timestamp.now().strftime('%d/%m/%Y')}]"
-                        query_update = text("""
-                            UPDATE gestao_premios_zaut 
-                            SET obra = :obra_destino, 
-                                observacoes = COALESCE(observacoes, '') || :nota 
-                            WHERE codigo = :codigo
-                        """)
+                        nota = f" [Transferido de {obra_origem} para {obra_destino} em {pd.Timestamp.now().strftime('%d/%m/%Y')}]"
+                        query_update = text("UPDATE gestao_premios_zaut SET obra = :obra_destino, observacoes = COALESCE(observacoes, '') || :nota WHERE codigo = :codigo")
                         with engine.begin() as conn:
-                            result = conn.execute(query_update, {
-                                "obra_destino": obra_destino, 
-                                "nota": nota_transferencia, 
-                                "codigo": id_transf_limpo
-                            })
-                            if result.rowcount > 0:
-                                st.success(f"Colaborador transferido com sucesso para: {obra_destino}.")
+                            res = conn.execute(query_update, {"obra_destino": obra_destino, "nota": nota, "codigo": id_transf_limpo})
+                            if res.rowcount > 0:
+                                st.success("Transferência concluída!")
                             else:
-                                st.warning("Nenhum histórico de prêmios encontrado para transferir este colaborador.")
+                                st.warning("Histórico não encontrado.")
                     except Exception as e:
-                        st.error(f"Erro ao transferir: {e}")
-
-    st.markdown("---")
-    st.caption("🏗️ BRAGANÇA SYS | Infraestrutura de Automação ZAUT")
+                        st.error(f"Erro: {e}")
+                else:
+                    st.warning("Obras de origem e destino devem ser diferentes.")
