@@ -2,9 +2,21 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text
 
+# Motor de Cache para deixar o sistema ultrarrápido (Evita consultar o banco 7 vezes a cada clique)
+@st.cache_data(ttl=300, show_spinner=False)
+def get_cached_dataframe(_engine, query):
+    return pd.read_sql(text(query), _engine)
+
 def render(engine, *args, **kwargs):
     st.title("Gestão de Cadastros e Tabelas Base")
     st.markdown("Gerenciamento central da base de funcionários e dos domínios estruturais do sistema.")
+
+    # Função para limpar os campos após Salvar/Cancelar/Excluir
+    def limpar_estado(chaves):
+        get_cached_dataframe.clear() # Limpa a memória para forçar atualização
+        for chave in chaves:
+            if chave in st.session_state:
+                del st.session_state[chave]
 
     tabs = st.tabs([
         "Consultar Base", 
@@ -20,7 +32,7 @@ def render(engine, *args, **kwargs):
 
     def buscar_opcoes(query_sql, coluna_retorno, fallback_list):
         try:
-            df = pd.read_sql(text(query_sql), con=engine)
+            df = get_cached_dataframe(engine, query_sql)
             if not df.empty and coluna_retorno in df.columns:
                 opcoes = df[df[coluna_retorno].notna()][coluna_retorno].astype(str).str.strip().unique().tolist()
                 opcoes = [op for op in opcoes if op]
@@ -36,9 +48,7 @@ def render(engine, *args, **kwargs):
     with tab_consultar:
         st.subheader("Colaboradores Cadastrados")
         try:
-            query_select = text("SELECT * FROM cadastro_geral_colaborador ORDER BY nome")
-            df_colaboradores = pd.read_sql(query_select, con=engine)
-
+            df_colaboradores = get_cached_dataframe(engine, "SELECT * FROM cadastro_geral_colaborador ORDER BY nome")
             if not df_colaboradores.empty:
                 colunas_monetarias = ['salario_mes', 'salario_hora']
                 for col in colunas_monetarias:
@@ -106,7 +116,8 @@ def render(engine, *args, **kwargs):
                     try:
                         with engine.begin() as conn:
                             conn.execute(query_insert, parametros)
-                        st.success(f"Colaborador {nome} cadastrado com sucesso!")
+                        st.toast(f"✅ Colaborador {nome} cadastrado com sucesso!")
+                        get_cached_dataframe.clear()
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao salvar: {e}")
@@ -119,20 +130,27 @@ def render(engine, *args, **kwargs):
     # ==========================================
     with tab_obras:
         st.subheader("Gestão de Obras")
-        df_obras = pd.read_sql("SELECT * FROM cadastro_obras ORDER BY nome", engine)
+        df_obras = get_cached_dataframe(engine, "SELECT * FROM cadastro_obras ORDER BY nome")
+        
+        st.markdown("#### 🔍 Consulta e Seleção")
+        c1, c2 = st.columns([1, 2])
+        busca_ob = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_ob")
         
         opcoes_obras = ["➕ Novo Registro (Criar)"] + [f"{r['id']} | {r['nome']}" for _, r in df_obras.iterrows()]
-        selecao_obra = st.selectbox("Consultar / Selecionar Obra:", opcoes_obras, key="sel_obra")
-        
+        if busca_ob:
+            opcoes_obras = [op for op in opcoes_obras if busca_ob.lower() in str(op).lower() or "➕" in op]
+            
+        selecao_obra = c2.selectbox("Selecione o Registro abaixo:", opcoes_obras, key="sel_obra")
         st.markdown("---")
+        
         if selecao_obra == "➕ Novo Registro (Criar)":
             with st.form("form_obra_novo", clear_on_submit=True):
                 st.markdown("#### Criar Nova Obra")
-                obra_id = st.text_input("ID / Código da Obra", key="ob_id_n")
-                obra_nome = st.text_input("Nome da Obra", key="ob_nm_n")
+                obra_id = st.text_input("ID / Código da Obra")
+                obra_nome = st.text_input("Nome da Obra")
                 col1, col2 = st.columns(2)
-                obra_cnpj = col1.text_input("CNPJ (Opcional)", key="ob_cn_n")
-                obra_cno = col2.text_input("CNO (Opcional)", key="ob_co_n")
+                obra_cnpj = col1.text_input("CNPJ (Opcional)")
+                obra_cno = col2.text_input("CNO (Opcional)")
                 
                 b1, b2 = st.columns(2)
                 if b1.form_submit_button("💾 Salvar Obra", type="primary", use_container_width=True):
@@ -141,13 +159,15 @@ def render(engine, *args, **kwargs):
                             with engine.begin() as conn:
                                 conn.execute(text("INSERT INTO cadastro_obras (id, nome, cnpj, cno) VALUES (:id, :nome, :cnpj, :cno)"), 
                                              {"id": obra_id, "nome": obra_nome, "cnpj": obra_cnpj, "cno": obra_cno})
-                            st.success("Obra cadastrada!")
+                            st.toast("✅ Obra cadastrada com sucesso!")
+                            limpar_estado(['busca_ob', 'sel_obra'])
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erro: {e}")
                     else:
                         st.warning("ID e Nome são obrigatórios.")
                 if b2.form_submit_button("❌ Cancelar", use_container_width=True):
+                    limpar_estado(['busca_ob', 'sel_obra'])
                     st.rerun()
         else:
             id_sel = selecao_obra.split(" | ")[0]
@@ -155,11 +175,11 @@ def render(engine, *args, **kwargs):
             
             with st.form(f"form_obra_editar_{id_sel}"):
                 st.markdown("#### Alterar / Excluir Obra")
-                obra_id = st.text_input("ID / Código (Inalterável)", value=row['id'], disabled=True, key=f"ob_id_e_{id_sel}")
-                obra_nome = st.text_input("Nome da Obra", value=row['nome'], key=f"ob_nm_e_{id_sel}")
+                obra_id = st.text_input("ID / Código (Inalterável)", value=row['id'], disabled=True)
+                obra_nome = st.text_input("Nome da Obra", value=row['nome'])
                 col1, col2 = st.columns(2)
-                obra_cnpj = col1.text_input("CNPJ", value=str(row['cnpj']) if pd.notna(row['cnpj']) else "", key=f"ob_cn_e_{id_sel}")
-                obra_cno = col2.text_input("CNO", value=str(row['cno']) if pd.notna(row['cno']) else "", key=f"ob_co_e_{id_sel}")
+                obra_cnpj = col1.text_input("CNPJ", value=str(row['cnpj']) if pd.notna(row['cnpj']) else "")
+                obra_cno = col2.text_input("CNO", value=str(row['cno']) if pd.notna(row['cno']) else "")
                 
                 b1, b2, b3 = st.columns(3)
                 if b1.form_submit_button("✏️ Alterar Obra", type="primary", use_container_width=True):
@@ -167,7 +187,8 @@ def render(engine, *args, **kwargs):
                         with engine.begin() as conn:
                             conn.execute(text("UPDATE cadastro_obras SET nome=:nome, cnpj=:cnpj, cno=:cno WHERE id=:id"), 
                                          {"id": obra_id, "nome": obra_nome, "cnpj": obra_cnpj, "cno": obra_cno})
-                        st.success("Obra atualizada!")
+                        st.toast("✅ Obra atualizada!")
+                        limpar_estado(['busca_ob', 'sel_obra'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
@@ -175,11 +196,13 @@ def render(engine, *args, **kwargs):
                     try:
                         with engine.begin() as conn:
                             conn.execute(text("DELETE FROM cadastro_obras WHERE id=:id"), {"id": obra_id})
-                        st.success("Obra removida!")
+                        st.toast("🗑️ Obra removida!")
+                        limpar_estado(['busca_ob', 'sel_obra'])
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Erro (Pode estar vinculada a colaboradores): {e}")
+                        st.error(f"Erro (Pode estar em uso): {e}")
                 if b3.form_submit_button("❌ Cancelar", use_container_width=True):
+                    limpar_estado(['busca_ob', 'sel_obra'])
                     st.rerun()
 
         st.markdown("---")
@@ -190,19 +213,26 @@ def render(engine, *args, **kwargs):
     # ==========================================
     with tab_cargos:
         st.subheader("Gestão de Cargos")
-        df_cargos = pd.read_sql("SELECT * FROM cadastro_cargos ORDER BY nome", engine)
+        df_cargos = get_cached_dataframe(engine, "SELECT * FROM cadastro_cargos ORDER BY nome")
+        
+        st.markdown("#### 🔍 Consulta e Seleção")
+        c1, c2 = st.columns([1, 2])
+        busca_cg = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_cg")
         
         opcoes_cargos = ["➕ Novo Registro (Criar)"] + [f"{r['codigo']} | {r['nome']}" for _, r in df_cargos.iterrows()]
-        selecao_cargo = st.selectbox("Consultar / Selecionar Cargo:", opcoes_cargos, key="sel_cg")
-        
+        if busca_cg:
+            opcoes_cargos = [op for op in opcoes_cargos if busca_cg.lower() in str(op).lower() or "➕" in op]
+            
+        selecao_cargo = c2.selectbox("Selecione o Registro abaixo:", opcoes_cargos, key="sel_cg")
         st.markdown("---")
+        
         if selecao_cargo == "➕ Novo Registro (Criar)":
             with st.form("form_cargo_novo", clear_on_submit=True):
                 st.markdown("#### Criar Novo Cargo")
                 col1, col2 = st.columns([1, 3])
-                cg_cod = col1.number_input("Código", min_value=1, step=1, key="cg_cod_n")
-                cg_nome = col2.text_input("Nome do Cargo", key="cg_nm_n")
-                cg_cbo = st.text_input("CBO 2002", key="cg_cbo_n")
+                cg_cod = col1.number_input("Código", min_value=1, step=1)
+                cg_nome = col2.text_input("Nome do Cargo")
+                cg_cbo = st.text_input("CBO 2002")
                 
                 b1, b2 = st.columns(2)
                 if b1.form_submit_button("💾 Salvar Cargo", type="primary", use_container_width=True):
@@ -211,13 +241,15 @@ def render(engine, *args, **kwargs):
                             with engine.begin() as conn:
                                 conn.execute(text("INSERT INTO cadastro_cargos (codigo, nome, cbo_2002) VALUES (:cod, :nome, :cbo)"), 
                                              {"cod": cg_cod, "nome": cg_nome, "cbo": cg_cbo})
-                            st.success("Cargo cadastrado!")
+                            st.toast("✅ Cargo cadastrado!")
+                            limpar_estado(['busca_cg', 'sel_cg'])
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erro: {e}")
                     else:
                         st.warning("O Nome do Cargo é obrigatório.")
                 if b2.form_submit_button("❌ Cancelar", use_container_width=True):
+                    limpar_estado(['busca_cg', 'sel_cg'])
                     st.rerun()
         else:
             id_sel = selecao_cargo.split(" | ")[0]
@@ -226,9 +258,9 @@ def render(engine, *args, **kwargs):
             with st.form(f"form_cargo_editar_{id_sel}"):
                 st.markdown("#### Alterar / Excluir Cargo")
                 col1, col2 = st.columns([1, 3])
-                cg_cod = col1.number_input("Código (Inalterável)", value=int(row['codigo']), disabled=True, key=f"cg_cod_e_{id_sel}")
-                cg_nome = col2.text_input("Nome do Cargo", value=row['nome'], key=f"cg_nm_e_{id_sel}")
-                cg_cbo = st.text_input("CBO 2002", value=str(row['cbo_2002']) if pd.notna(row['cbo_2002']) else "", key=f"cg_cbo_e_{id_sel}")
+                cg_cod = col1.number_input("Código (Inalterável)", value=int(row['codigo']), disabled=True)
+                cg_nome = col2.text_input("Nome do Cargo", value=row['nome'])
+                cg_cbo = st.text_input("CBO 2002", value=str(row['cbo_2002']) if pd.notna(row['cbo_2002']) else "")
                 
                 b1, b2, b3 = st.columns(3)
                 if b1.form_submit_button("✏️ Alterar Cargo", type="primary", use_container_width=True):
@@ -236,7 +268,8 @@ def render(engine, *args, **kwargs):
                         with engine.begin() as conn:
                             conn.execute(text("UPDATE cadastro_cargos SET nome=:nome, cbo_2002=:cbo WHERE codigo=:cod"), 
                                          {"cod": cg_cod, "nome": cg_nome, "cbo": cg_cbo})
-                        st.success("Cargo alterado!")
+                        st.toast("✅ Cargo atualizado!")
+                        limpar_estado(['busca_cg', 'sel_cg'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
@@ -244,11 +277,13 @@ def render(engine, *args, **kwargs):
                     try:
                         with engine.begin() as conn:
                             conn.execute(text("DELETE FROM cadastro_cargos WHERE codigo=:cod"), {"cod": cg_cod})
-                        st.success("Cargo excluído!")
+                        st.toast("🗑️ Cargo removido!")
+                        limpar_estado(['busca_cg', 'sel_cg'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
                 if b3.form_submit_button("❌ Cancelar", use_container_width=True):
+                    limpar_estado(['busca_cg', 'sel_cg'])
                     st.rerun()
 
         st.markdown("---")
@@ -259,17 +294,24 @@ def render(engine, *args, **kwargs):
     # ==========================================
     with tab_deptos:
         st.subheader("Gestão de Departamentos")
-        df_deptos = pd.read_sql("SELECT * FROM cadastro_departamentos ORDER BY nome", engine)
+        df_deptos = get_cached_dataframe(engine, "SELECT * FROM cadastro_departamentos ORDER BY nome")
+        
+        st.markdown("#### 🔍 Consulta e Seleção")
+        c1, c2 = st.columns([1, 2])
+        busca_dp = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_dp")
         
         opcoes_dp = ["➕ Novo Registro (Criar)"] + [f"{r['id']} | {r['nome']}" for _, r in df_deptos.iterrows()]
-        selecao_dp = st.selectbox("Consultar / Selecionar Departamento:", opcoes_dp, key="sel_dp")
-        
+        if busca_dp:
+            opcoes_dp = [op for op in opcoes_dp if busca_dp.lower() in str(op).lower() or "➕" in op]
+            
+        selecao_dp = c2.selectbox("Selecione o Registro abaixo:", opcoes_dp, key="sel_dp")
         st.markdown("---")
+        
         if selecao_dp == "➕ Novo Registro (Criar)":
             with st.form("form_depto_novo", clear_on_submit=True):
                 st.markdown("#### Criar Novo Departamento")
-                dp_id = st.text_input("ID / Sigla do Departamento", key="dp_id_n")
-                dp_nome = st.text_input("Nome do Departamento", key="dp_nm_n")
+                dp_id = st.text_input("ID / Sigla do Departamento")
+                dp_nome = st.text_input("Nome do Departamento")
                 
                 b1, b2 = st.columns(2)
                 if b1.form_submit_button("💾 Salvar Departamento", type="primary", use_container_width=True):
@@ -278,13 +320,15 @@ def render(engine, *args, **kwargs):
                             with engine.begin() as conn:
                                 conn.execute(text("INSERT INTO cadastro_departamentos (id, nome) VALUES (:id, :nome)"), 
                                              {"id": dp_id, "nome": dp_nome})
-                            st.success("Departamento cadastrado!")
+                            st.toast("✅ Departamento cadastrado!")
+                            limpar_estado(['busca_dp', 'sel_dp'])
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erro: {e}")
                     else:
                         st.warning("ID e Nome são obrigatórios.")
                 if b2.form_submit_button("❌ Cancelar", use_container_width=True):
+                    limpar_estado(['busca_dp', 'sel_dp'])
                     st.rerun()
         else:
             id_sel = selecao_dp.split(" | ")[0]
@@ -292,8 +336,8 @@ def render(engine, *args, **kwargs):
             
             with st.form(f"form_depto_editar_{id_sel}"):
                 st.markdown("#### Alterar / Excluir Departamento")
-                dp_id = st.text_input("ID / Sigla (Inalterável)", value=row['id'], disabled=True, key=f"dp_id_e_{id_sel}")
-                dp_nome = st.text_input("Nome do Departamento", value=row['nome'], key=f"dp_nm_e_{id_sel}")
+                dp_id = st.text_input("ID / Sigla (Inalterável)", value=row['id'], disabled=True)
+                dp_nome = st.text_input("Nome do Departamento", value=row['nome'])
                 
                 b1, b2, b3 = st.columns(3)
                 if b1.form_submit_button("✏️ Alterar Depto", type="primary", use_container_width=True):
@@ -301,7 +345,8 @@ def render(engine, *args, **kwargs):
                         with engine.begin() as conn:
                             conn.execute(text("UPDATE cadastro_departamentos SET nome=:nome WHERE id=:id"), 
                                          {"id": dp_id, "nome": dp_nome})
-                        st.success("Departamento atualizado!")
+                        st.toast("✅ Departamento atualizado!")
+                        limpar_estado(['busca_dp', 'sel_dp'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
@@ -309,11 +354,13 @@ def render(engine, *args, **kwargs):
                     try:
                         with engine.begin() as conn:
                             conn.execute(text("DELETE FROM cadastro_departamentos WHERE id=:id"), {"id": dp_id})
-                        st.success("Departamento excluído!")
+                        st.toast("🗑️ Departamento removido!")
+                        limpar_estado(['busca_dp', 'sel_dp'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
                 if b3.form_submit_button("❌ Cancelar", use_container_width=True):
+                    limpar_estado(['busca_dp', 'sel_dp'])
                     st.rerun()
 
         st.markdown("---")
@@ -324,17 +371,24 @@ def render(engine, *args, **kwargs):
     # ==========================================
     with tab_situacoes:
         st.subheader("Gestão de Situações (eSocial)")
-        df_sit = pd.read_sql("SELECT * FROM dominio_situacoes_esocial ORDER BY codigo", engine)
+        df_sit = get_cached_dataframe(engine, "SELECT * FROM dominio_situacoes_esocial ORDER BY codigo")
+        
+        st.markdown("#### 🔍 Consulta e Seleção")
+        c1, c2 = st.columns([1, 2])
+        busca_sit = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_sit")
         
         opcoes_sit = ["➕ Novo Registro (Criar)"] + [f"{r['codigo']} | {r['descricao']}" for _, r in df_sit.iterrows()]
-        selecao_sit = st.selectbox("Consultar / Selecionar Situação:", opcoes_sit, key="sel_sit")
-        
+        if busca_sit:
+            opcoes_sit = [op for op in opcoes_sit if busca_sit.lower() in str(op).lower() or "➕" in op]
+            
+        selecao_sit = c2.selectbox("Selecione o Registro abaixo:", opcoes_sit, key="sel_sit")
         st.markdown("---")
+        
         if selecao_sit == "➕ Novo Registro (Criar)":
             with st.form("form_sit_novo", clear_on_submit=True):
                 st.markdown("#### Criar Nova Situação")
-                sit_cod = st.text_input("Código da Situação", key="sit_cod_n")
-                sit_desc = st.text_input("Descrição da Situação", key="sit_desc_n")
+                sit_cod = st.text_input("Código da Situação")
+                sit_desc = st.text_input("Descrição da Situação")
                 
                 b1, b2 = st.columns(2)
                 if b1.form_submit_button("💾 Salvar Situação", type="primary", use_container_width=True):
@@ -343,13 +397,15 @@ def render(engine, *args, **kwargs):
                             with engine.begin() as conn:
                                 conn.execute(text("INSERT INTO dominio_situacoes_esocial (codigo, descricao) VALUES (:cod, :desc)"), 
                                              {"cod": sit_cod, "desc": sit_desc})
-                            st.success("Situação salva!")
+                            st.toast("✅ Situação salva!")
+                            limpar_estado(['busca_sit', 'sel_sit'])
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erro: {e}")
                     else:
                         st.warning("Código e Descrição são obrigatórios.")
                 if b2.form_submit_button("❌ Cancelar", use_container_width=True):
+                    limpar_estado(['busca_sit', 'sel_sit'])
                     st.rerun()
         else:
             id_sel = selecao_sit.split(" | ")[0]
@@ -357,8 +413,8 @@ def render(engine, *args, **kwargs):
             
             with st.form(f"form_sit_editar_{id_sel}"):
                 st.markdown("#### Alterar / Excluir Situação")
-                sit_cod = st.text_input("Código (Inalterável)", value=row['codigo'], disabled=True, key=f"sit_cod_e_{id_sel}")
-                sit_desc = st.text_input("Descrição", value=row['descricao'], key=f"sit_desc_e_{id_sel}")
+                sit_cod = st.text_input("Código (Inalterável)", value=row['codigo'], disabled=True)
+                sit_desc = st.text_input("Descrição", value=row['descricao'])
                 
                 b1, b2, b3 = st.columns(3)
                 if b1.form_submit_button("✏️ Alterar Situação", type="primary", use_container_width=True):
@@ -366,7 +422,8 @@ def render(engine, *args, **kwargs):
                         with engine.begin() as conn:
                             conn.execute(text("UPDATE dominio_situacoes_esocial SET descricao=:desc WHERE codigo=:cod"), 
                                          {"cod": sit_cod, "desc": sit_desc})
-                        st.success("Situação atualizada!")
+                        st.toast("✅ Situação atualizada!")
+                        limpar_estado(['busca_sit', 'sel_sit'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
@@ -374,11 +431,13 @@ def render(engine, *args, **kwargs):
                     try:
                         with engine.begin() as conn:
                             conn.execute(text("DELETE FROM dominio_situacoes_esocial WHERE codigo=:cod"), {"cod": sit_cod})
-                        st.success("Situação removida!")
+                        st.toast("🗑️ Situação removida!")
+                        limpar_estado(['busca_sit', 'sel_sit'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
                 if b3.form_submit_button("❌ Cancelar", use_container_width=True):
+                    limpar_estado(['busca_sit', 'sel_sit'])
                     st.rerun()
 
         st.markdown("---")
@@ -389,19 +448,26 @@ def render(engine, *args, **kwargs):
     # ==========================================
     with tab_premios:
         st.subheader("Base de Descrições de Prêmios")
-        df_prem = pd.read_sql("SELECT * FROM lista_descricoes_premios ORDER BY nome_descricao", engine)
+        df_prem = get_cached_dataframe(engine, "SELECT * FROM lista_descricoes_premios ORDER BY nome_descricao")
+        
+        st.markdown("#### 🔍 Consulta e Seleção")
+        c1, c2 = st.columns([1, 2])
+        busca_pr = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_pr")
         
         opcoes_prem = ["➕ Novo Registro (Criar)"] + [f"{r['codigo_descricao']} | {r['nome_descricao']}" for _, r in df_prem.iterrows()]
-        selecao_prem = st.selectbox("Consultar / Selecionar Prêmio:", opcoes_prem, key="sel_prem")
-        
+        if busca_pr:
+            opcoes_prem = [op for op in opcoes_prem if busca_pr.lower() in str(op).lower() or "➕" in op]
+            
+        selecao_prem = c2.selectbox("Selecione o Registro abaixo:", opcoes_prem, key="sel_pr")
         st.markdown("---")
+        
         if selecao_prem == "➕ Novo Registro (Criar)":
             with st.form("form_premio_novo", clear_on_submit=True):
                 st.markdown("#### Criar Nova Descrição de Prêmio")
                 col1, col2 = st.columns([1, 2])
-                pr_cod = col1.text_input("Código da Descrição", key="pr_cod_n")
-                pr_nome = col2.text_input("Nome da Descrição", key="pr_nm_n")
-                pr_obra = st.text_input("Obra Vinculada (Opcional)", key="pr_ob_n")
+                pr_cod = col1.text_input("Código da Descrição")
+                pr_nome = col2.text_input("Nome da Descrição")
+                pr_obra = st.text_input("Obra Vinculada (Opcional)")
                 
                 b1, b2 = st.columns(2)
                 if b1.form_submit_button("💾 Salvar Prêmio", type="primary", use_container_width=True):
@@ -410,13 +476,15 @@ def render(engine, *args, **kwargs):
                             with engine.begin() as conn:
                                 conn.execute(text("INSERT INTO lista_descricoes_premios (codigo_descricao, nome_descricao, obra_vinculada) VALUES (:cod, :nome, :obra)"), 
                                              {"cod": pr_cod, "nome": pr_nome, "obra": pr_obra})
-                            st.success("Descrição de prêmio cadastrada!")
+                            st.toast("✅ Descrição de prêmio cadastrada!")
+                            limpar_estado(['busca_pr', 'sel_pr'])
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erro: {e}")
                     else:
                         st.warning("Código e Nome da Descrição são obrigatórios.")
                 if b2.form_submit_button("❌ Cancelar", use_container_width=True):
+                    limpar_estado(['busca_pr', 'sel_pr'])
                     st.rerun()
         else:
             id_sel = selecao_prem.split(" | ")[0]
@@ -425,9 +493,9 @@ def render(engine, *args, **kwargs):
             with st.form(f"form_premio_editar_{id_sel}"):
                 st.markdown("#### Alterar / Excluir Descrição de Prêmio")
                 col1, col2 = st.columns([1, 2])
-                pr_cod = col1.text_input("Código (Inalterável)", value=row['codigo_descricao'], disabled=True, key=f"pr_cod_e_{id_sel}")
-                pr_nome = col2.text_input("Nome da Descrição", value=row['nome_descricao'], key=f"pr_nm_e_{id_sel}")
-                pr_obra = st.text_input("Obra Vinculada (Opcional)", value=str(row['obra_vinculada']) if pd.notna(row['obra_vinculada']) else "", key=f"pr_ob_e_{id_sel}")
+                pr_cod = col1.text_input("Código (Inalterável)", value=row['codigo_descricao'], disabled=True)
+                pr_nome = col2.text_input("Nome da Descrição", value=row['nome_descricao'])
+                pr_obra = st.text_input("Obra Vinculada (Opcional)", value=str(row['obra_vinculada']) if pd.notna(row['obra_vinculada']) else "")
                 
                 b1, b2, b3 = st.columns(3)
                 if b1.form_submit_button("✏️ Alterar Prêmio", type="primary", use_container_width=True):
@@ -435,7 +503,8 @@ def render(engine, *args, **kwargs):
                         with engine.begin() as conn:
                             conn.execute(text("UPDATE lista_descricoes_premios SET nome_descricao=:nome, obra_vinculada=:obra WHERE codigo_descricao=:cod"), 
                                          {"cod": pr_cod, "nome": pr_nome, "obra": pr_obra})
-                        st.success("Descrição de prêmio alterada!")
+                        st.toast("✅ Descrição de prêmio alterada!")
+                        limpar_estado(['busca_pr', 'sel_pr'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
@@ -443,11 +512,13 @@ def render(engine, *args, **kwargs):
                     try:
                         with engine.begin() as conn:
                             conn.execute(text("DELETE FROM lista_descricoes_premios WHERE codigo_descricao=:cod"), {"cod": pr_cod})
-                        st.success("Descrição de prêmio removida!")
+                        st.toast("🗑️ Descrição de prêmio removida!")
+                        limpar_estado(['busca_pr', 'sel_pr'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
                 if b3.form_submit_button("❌ Cancelar", use_container_width=True):
+                    limpar_estado(['busca_pr', 'sel_pr'])
                     st.rerun()
 
         st.markdown("---")
