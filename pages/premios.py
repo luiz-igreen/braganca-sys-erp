@@ -131,7 +131,6 @@ def render(engine, *args, **kwargs):
                     st.rerun()
     else:
         id_lanc = selecao_reg.split(" | ")[0]
-        # Aqui estava o erro (aspa extra), agora corrigido:
         row_l = df_lancamentos[df_lancamentos['id'].astype(str) == id_lanc].iloc[0]
         
         with st.form(f"form_premio_editar_{id_lanc}"):
@@ -219,4 +218,4 @@ def render(engine, *args, **kwargs):
         st.info(f"Nenhum lançamento efetuado para a obra '{obra_selecionada}' em {mes_referencia}.")
 
     st.markdown("---")
-    st.caption("🏗️ BRAGANÇA SYS | Módulo de Lançamento de Prêmios")
+    st.caption("🏗️ BRAGANÇA SYS | Módulo de Lançamento de Prêmios")    
