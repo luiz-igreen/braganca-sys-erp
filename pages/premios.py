@@ -131,7 +131,8 @@ def render(engine, *args, **kwargs):
                     st.rerun()
     else:
         id_lanc = selecao_reg.split(" | ")[0]
-        row_l = df_lancamentos[df_lancamentos['id'].astype(str) == id_lanc'].iloc[0]
+        # Aqui estava o erro (aspa extra), agora corrigido:
+        row_l = df_lancamentos[df_lancamentos['id'].astype(str) == id_lanc].iloc[0]
         
         with st.form(f"form_premio_editar_{id_lanc}"):
             st.markdown(f"#### Modificar Prêmios de {row_l['nome']}")
