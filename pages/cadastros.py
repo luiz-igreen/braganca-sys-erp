@@ -410,8 +410,8 @@ def render(engine, *args, **kwargs):
                             with engine.begin() as conn:
                                 conn.execute(text("INSERT INTO lista_descricoes_premios (codigo_descricao, nome_descricao, obra_vinculada) VALUES (:cod, :nome, :obra)"), 
                                              {"cod": pr_cod, "nome": pr_nome, "obra": pr_obra})
-                        st.success("Descrição de prêmio cadastrada!")
-                        st.rerun()
+                            st.success("Descrição de prêmio cadastrada!")
+                            st.rerun()
                         except Exception as e:
                             st.error(f"Erro: {e}")
                     else:
