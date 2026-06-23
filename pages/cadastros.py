@@ -11,14 +11,25 @@ def render(engine, *args, **kwargs):
     st.title("Gestão de Cadastros e Tabelas Base")
     st.markdown("Gerenciamento central da base de funcionários e dos domínios estruturais do sistema.")
 
-    # Função para limpar os campos após Salvar/Cancelar/Excluir
+    # LISTA DE TODAS AS VARIÁVEIS DE PESQUISA PARA LIMPEZA
+    chaves_busca = [
+        'busca_ob', 'sel_obra', 'last_busca_ob',
+        'busca_cg', 'sel_cg', 'last_busca_cg',
+        'busca_dp', 'sel_dp', 'last_busca_dp',
+        'busca_sit', 'sel_sit', 'last_busca_sit',
+        'busca_pr', 'sel_pr', 'last_busca_pr'
+    ]
+
     def limpar_estado(chaves):
         get_cached_dataframe.clear() # Limpa a memória para forçar atualização
         for chave in chaves:
             if chave in st.session_state:
                 del st.session_state[chave]
 
-    tabs = st.tabs([
+    # ==========================================
+    # MENU INTERNO INTELIGENTE (Substitui as Tabs)
+    # ==========================================
+    opcoes_menu = [
         "Consultar Base", 
         "Novo Colaborador", 
         "🏢 Obras", 
@@ -26,9 +37,30 @@ def render(engine, *args, **kwargs):
         "🏢 Departamentos", 
         "🏥 Situações eSocial", 
         "🏆 Prêmios"
-    ])
+    ]
+    
+    # CSS para deixar o menu visualmente bonito e horizontal
+    st.markdown("""
+    <style>
+        div[data-testid="stRadio"] > div {
+            display: flex;
+            flex-direction: row;
+            gap: 10px;
+            flex-wrap: wrap;
+            padding-bottom: 10px;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    menu_selecionado = st.radio("Navegação de Cadastros:", opcoes_menu, horizontal=True, label_visibility="collapsed")
 
-    tab_consultar, tab_novo, tab_obras, tab_cargos, tab_deptos, tab_situacoes, tab_premios = tabs
+    # GATILHO MÁGICO: Se o utilizador clicar noutro menu, limpa a tela toda e recarrega!
+    if st.session_state.get('menu_cadastros_ativo') != menu_selecionado:
+        limpar_estado(chaves_busca)
+        st.session_state['menu_cadastros_ativo'] = menu_selecionado
+        st.rerun()
+
+    st.markdown("---")
 
     def buscar_opcoes(query_sql, coluna_retorno, fallback_list):
         try:
@@ -45,7 +77,7 @@ def render(engine, *args, **kwargs):
     # ==========================================
     # ABA 1: CONSULTAR BASE DE DADOS
     # ==========================================
-    with tab_consultar:
+    if menu_selecionado == "Consultar Base":
         st.subheader("Colaboradores Cadastrados")
         try:
             df_colaboradores = get_cached_dataframe(engine, "SELECT * FROM cadastro_geral_colaborador ORDER BY nome")
@@ -67,7 +99,7 @@ def render(engine, *args, **kwargs):
     # ==========================================
     # ABA 2: NOVO COLABORADOR
     # ==========================================
-    with tab_novo:
+    elif menu_selecionado == "Novo Colaborador":
         st.subheader("Adicionar Novo Colaborador")
         
         lista_departamentos = buscar_opcoes("SELECT nome FROM cadastro_departamentos", "nome", ["ADMINISTRAÇÃO CENTRAL"])
@@ -128,7 +160,7 @@ def render(engine, *args, **kwargs):
     # ==========================================
     # ABA 3: GERENCIAR OBRAS
     # ==========================================
-    with tab_obras:
+    elif menu_selecionado == "🏢 Obras":
         st.subheader("Gestão de Obras")
         df_obras = get_cached_dataframe(engine, "SELECT * FROM cadastro_obras ORDER BY nome")
         
@@ -236,7 +268,7 @@ def render(engine, *args, **kwargs):
     # ==========================================
     # ABA 4: GERENCIAR CARGOS
     # ==========================================
-    with tab_cargos:
+    elif menu_selecionado == "👔 Cargos":
         st.subheader("Gestão de Cargos")
         df_cargos = get_cached_dataframe(engine, "SELECT * FROM cadastro_cargos ORDER BY nome")
         
@@ -342,7 +374,7 @@ def render(engine, *args, **kwargs):
     # ==========================================
     # ABA 5: GERENCIAR DEPARTAMENTOS
     # ==========================================
-    with tab_deptos:
+    elif menu_selecionado == "🏢 Departamentos":
         st.subheader("Gestão de Departamentos")
         df_deptos = get_cached_dataframe(engine, "SELECT * FROM cadastro_departamentos ORDER BY nome")
         
@@ -444,7 +476,7 @@ def render(engine, *args, **kwargs):
     # ==========================================
     # ABA 6: SITUAÇÕES ESOCIAL
     # ==========================================
-    with tab_situacoes:
+    elif menu_selecionado == "🏥 Situações eSocial":
         st.subheader("Gestão de Situações (eSocial)")
         df_sit = get_cached_dataframe(engine, "SELECT * FROM dominio_situacoes_esocial ORDER BY codigo")
         
@@ -546,7 +578,7 @@ def render(engine, *args, **kwargs):
     # ==========================================
     # ABA 7: TABELA DE PRÊMIOS
     # ==========================================
-    with tab_premios:
+    elif menu_selecionado == "🏆 Prêmios":
         st.subheader("Base de Descrições de Prêmios")
         df_prem = get_cached_dataframe(engine, "SELECT * FROM lista_descricoes_premios ORDER BY nome_descricao")
         
