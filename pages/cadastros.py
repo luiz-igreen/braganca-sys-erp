@@ -108,9 +108,9 @@ def render(engine, *args, **kwargs):
 
         with st.form("form_novo_colaborador", clear_on_submit=True):
             col1, col2, col3 = st.columns(3)
-            codigo = col1.text_input("Código do Colaborador")
-            nome = col2.text_input("Nome Completo")
-            cpf = col3.text_input("CPF")
+            codigo = col1.text_input("Código do Colaborador", autocomplete="off")
+            nome = col2.text_input("Nome Completo", autocomplete="off")
+            cpf = col3.text_input("CPF", autocomplete="off")
 
             col4, col5, col6 = st.columns(3)
             cargo = col4.selectbox("Cargo", options=lista_cargos)
@@ -121,7 +121,7 @@ def render(engine, *args, **kwargs):
             admissao = col7.date_input("Data de Admissão")
             salario_mes = col8.number_input("Salário Mês (R$)", min_value=0.0, format="%.2f")
             salario_hora = col9.number_input("Salário Hora (R$)", min_value=0.0, format="%.2f")
-            status_esocial = col10.text_input("Status eSocial", value="Ativo", disabled=True)
+            status_esocial = col10.text_input("Status eSocial", value="Ativo", disabled=True, autocomplete="off")
 
             c_col1, c_col2 = st.columns(2)
             submit_button = c_col1.form_submit_button("💾 Salvar Colaborador", type="primary", use_container_width=True)
@@ -166,7 +166,6 @@ def render(engine, *args, **kwargs):
         
         st.markdown("#### 🔍 Consulta e Seleção")
         c1, c2 = st.columns([1, 2])
-        # autocomplete="off" inserido para blindar contra o histórico do navegador
         busca_ob = c1.text_input("Busca Rápida (ID Exato ou Parte do Nome):", key="busca_ob", autocomplete="off")
         
         lista_completa_ob = [f"{r['id']} | {r['nome']}" for _, r in df_obras.iterrows()]
@@ -204,11 +203,11 @@ def render(engine, *args, **kwargs):
         if selecao_obra == "➕ Novo Registro (Criar)":
             with st.form("form_obra_novo", clear_on_submit=True):
                 st.markdown("#### Criar Nova Obra")
-                obra_id = st.text_input("ID / Código da Obra")
-                obra_nome = st.text_input("Nome da Obra")
+                obra_id = st.text_input("ID / Código da Obra", autocomplete="off")
+                obra_nome = st.text_input("Nome da Obra", autocomplete="off")
                 col1, col2 = st.columns(2)
-                obra_cnpj = col1.text_input("CNPJ (Opcional)")
-                obra_cno = col2.text_input("CNO (Opcional)")
+                obra_cnpj = col1.text_input("CNPJ (Opcional)", autocomplete="off")
+                obra_cno = col2.text_input("CNO (Opcional)", autocomplete="off")
                 
                 b1, b2 = st.columns(2)
                 if b1.form_submit_button("💾 Salvar Obra", type="primary", use_container_width=True):
@@ -233,11 +232,11 @@ def render(engine, *args, **kwargs):
             
             with st.form(f"form_obra_editar_{id_sel}"):
                 st.markdown("#### Alterar / Excluir Obra")
-                obra_id = st.text_input("ID / Código (Inalterável)", value=row['id'], disabled=True)
-                obra_nome = st.text_input("Nome da Obra", value=row['nome'])
+                obra_id = st.text_input("ID / Código (Inalterável)", value=row['id'], disabled=True, autocomplete="off")
+                obra_nome = st.text_input("Nome da Obra", value=row['nome'], autocomplete="off")
                 col1, col2 = st.columns(2)
-                obra_cnpj = col1.text_input("CNPJ", value=str(row['cnpj']) if pd.notna(row['cnpj']) else "")
-                obra_cno = col2.text_input("CNO", value=str(row['cno']) if pd.notna(row['cno']) else "")
+                obra_cnpj = col1.text_input("CNPJ", value=str(row['cnpj']) if pd.notna(row['cnpj']) else "", autocomplete="off")
+                obra_cno = col2.text_input("CNO", value=str(row['cno']) if pd.notna(row['cno']) else "", autocomplete="off")
                 
                 b1, b2, b3 = st.columns(3)
                 if b1.form_submit_button("✏️ Alterar Obra", type="primary", use_container_width=True):
@@ -314,8 +313,8 @@ def render(engine, *args, **kwargs):
                 st.markdown("#### Criar Novo Cargo")
                 col1, col2 = st.columns([1, 3])
                 cg_cod = col1.number_input("Código", min_value=1, step=1)
-                cg_nome = col2.text_input("Nome do Cargo")
-                cg_cbo = st.text_input("CBO 2002")
+                cg_nome = col2.text_input("Nome do Cargo", autocomplete="off")
+                cg_cbo = st.text_input("CBO 2002", autocomplete="off")
                 
                 b1, b2 = st.columns(2)
                 if b1.form_submit_button("💾 Salvar Cargo", type="primary", use_container_width=True):
@@ -342,8 +341,8 @@ def render(engine, *args, **kwargs):
                 st.markdown("#### Alterar / Excluir Cargo")
                 col1, col2 = st.columns([1, 3])
                 cg_cod = col1.number_input("Código (Inalterável)", value=int(row['codigo']), disabled=True)
-                cg_nome = col2.text_input("Nome do Cargo", value=row['nome'])
-                cg_cbo = st.text_input("CBO 2002", value=str(row['cbo_2002']) if pd.notna(row['cbo_2002']) else "")
+                cg_nome = col2.text_input("Nome do Cargo", value=row['nome'], autocomplete="off")
+                cg_cbo = st.text_input("CBO 2002", value=str(row['cbo_2002']) if pd.notna(row['cbo_2002']) else "", autocomplete="off")
                 
                 b1, b2, b3 = st.columns(3)
                 if b1.form_submit_button("✏️ Alterar Cargo", type="primary", use_container_width=True):
@@ -418,8 +417,8 @@ def render(engine, *args, **kwargs):
         if selecao_dp == "➕ Novo Registro (Criar)":
             with st.form("form_depto_novo", clear_on_submit=True):
                 st.markdown("#### Criar Novo Departamento")
-                dp_id = st.text_input("ID / Sigla do Departamento")
-                dp_nome = st.text_input("Nome do Departamento")
+                dp_id = st.text_input("ID / Sigla do Departamento", autocomplete="off")
+                dp_nome = st.text_input("Nome do Departamento", autocomplete="off")
                 
                 b1, b2 = st.columns(2)
                 if b1.form_submit_button("💾 Salvar Departamento", type="primary", use_container_width=True):
@@ -444,8 +443,8 @@ def render(engine, *args, **kwargs):
             
             with st.form(f"form_depto_editar_{id_sel}"):
                 st.markdown("#### Alterar / Excluir Departamento")
-                dp_id = st.text_input("ID / Sigla (Inalterável)", value=row['id'], disabled=True)
-                dp_nome = st.text_input("Nome do Departamento", value=row['nome'])
+                dp_id = st.text_input("ID / Sigla (Inalterável)", value=row['id'], disabled=True, autocomplete="off")
+                dp_nome = st.text_input("Nome do Departamento", value=row['nome'], autocomplete="off")
                 
                 b1, b2, b3 = st.columns(3)
                 if b1.form_submit_button("✏️ Alterar Depto", type="primary", use_container_width=True):
@@ -520,8 +519,8 @@ def render(engine, *args, **kwargs):
         if selecao_sit == "➕ Novo Registro (Criar)":
             with st.form("form_sit_novo", clear_on_submit=True):
                 st.markdown("#### Criar Nova Situação")
-                sit_cod = st.text_input("Código da Situação")
-                sit_desc = st.text_input("Descrição da Situação")
+                sit_cod = st.text_input("Código da Situação", autocomplete="off")
+                sit_desc = st.text_input("Descrição da Situação", autocomplete="off")
                 
                 b1, b2 = st.columns(2)
                 if b1.form_submit_button("💾 Salvar Situação", type="primary", use_container_width=True):
@@ -546,8 +545,8 @@ def render(engine, *args, **kwargs):
             
             with st.form(f"form_sit_editar_{id_sel}"):
                 st.markdown("#### Alterar / Excluir Situação")
-                sit_cod = st.text_input("Código (Inalterável)", value=row['codigo'], disabled=True)
-                sit_desc = st.text_input("Descrição", value=row['descricao'])
+                sit_cod = st.text_input("Código (Inalterável)", value=row['codigo'], disabled=True, autocomplete="off")
+                sit_desc = st.text_input("Descrição", value=row['descricao'], autocomplete="off")
                 
                 b1, b2, b3 = st.columns(3)
                 if b1.form_submit_button("✏️ Alterar Situação", type="primary", use_container_width=True):
@@ -623,9 +622,9 @@ def render(engine, *args, **kwargs):
             with st.form("form_premio_novo", clear_on_submit=True):
                 st.markdown("#### Criar Nova Descrição de Prêmio")
                 col1, col2 = st.columns([1, 2])
-                pr_cod = col1.text_input("Código da Descrição")
-                pr_nome = col2.text_input("Nome da Descrição")
-                pr_obra = st.text_input("Obra Vinculada (Opcional)")
+                pr_cod = col1.text_input("Código da Descrição", autocomplete="off")
+                pr_nome = col2.text_input("Nome da Descrição", autocomplete="off")
+                pr_obra = st.text_input("Obra Vinculada (Opcional)", autocomplete="off")
                 
                 b1, b2 = st.columns(2)
                 if b1.form_submit_button("💾 Salvar Prêmio", type="primary", use_container_width=True):
@@ -651,9 +650,9 @@ def render(engine, *args, **kwargs):
             with st.form(f"form_premio_editar_{id_sel}"):
                 st.markdown("#### Alterar / Excluir Descrição de Prêmio")
                 col1, col2 = st.columns([1, 2])
-                pr_cod = col1.text_input("Código (Inalterável)", value=row['codigo_descricao'], disabled=True)
-                pr_nome = col2.text_input("Nome da Descrição", value=row['nome_descricao'])
-                pr_obra = st.text_input("Obra Vinculada (Opcional)", value=str(row['obra_vinculada']) if pd.notna(row['obra_vinculada']) else "")
+                pr_cod = col1.text_input("Código (Inalterável)", value=row['codigo_descricao'], disabled=True, autocomplete="off")
+                pr_nome = col2.text_input("Nome da Descrição", value=row['nome_descricao'], autocomplete="off")
+                pr_obra = st.text_input("Obra Vinculada (Opcional)", value=str(row['obra_vinculada']) if pd.notna(row['obra_vinculada']) else "", autocomplete="off")
                 
                 b1, b2, b3 = st.columns(3)
                 if b1.form_submit_button("✏️ Alterar Prêmio", type="primary", use_container_width=True):
