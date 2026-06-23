@@ -137,14 +137,28 @@ def render(engine, *args, **kwargs):
         busca_ob = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_ob")
         
         lista_completa_ob = [f"{r['id']} | {r['nome']}" for _, r in df_obras.iterrows()]
-        if busca_ob:
-            opcoes_obras = [op for op in lista_completa_ob if busca_ob.lower() in op.lower()]
-            if not opcoes_obras:
-                opcoes_obras = ["➕ Novo Registro (Criar)"]
+        busca_atual_ob = str(busca_ob).strip()
+        ultima_busca_ob = st.session_state.get('last_busca_ob', '')
+
+        # Auto-selecionar ao digitar
+        if busca_atual_ob != ultima_busca_ob:
+            st.session_state['last_busca_ob'] = busca_atual_ob
+            if busca_atual_ob:
+                filtrados = [op for op in lista_completa_ob if busca_atual_ob.lower() in op.lower()]
+                if filtrados:
+                    st.session_state['sel_obra'] = filtrados[0]
+                else:
+                    st.session_state['sel_obra'] = "➕ Novo Registro (Criar)"
+            else:
+                st.session_state['sel_obra'] = "➕ Novo Registro (Criar)"
+
+        if busca_atual_ob:
+            filtrados = [op for op in lista_completa_ob if busca_atual_ob.lower() in op.lower()]
+            opcoes_obras = ["➕ Novo Registro (Criar)"] + filtrados
         else:
             opcoes_obras = ["➕ Novo Registro (Criar)"] + lista_completa_ob
             
-        selecao_obra = c2.selectbox("Selecione o Registro:", opcoes_obras, key="sel_obra")
+        selecao_obra = c2.selectbox("Selecione o Registro abaixo:", opcoes_obras, key="sel_obra")
         st.markdown("---")
         
         if selecao_obra == "➕ Novo Registro (Criar)":
@@ -164,14 +178,14 @@ def render(engine, *args, **kwargs):
                                 conn.execute(text("INSERT INTO cadastro_obras (id, nome, cnpj, cno) VALUES (:id, :nome, :cnpj, :cno)"), 
                                              {"id": obra_id, "nome": obra_nome, "cnpj": obra_cnpj, "cno": obra_cno})
                             st.toast("✅ Obra cadastrada com sucesso!")
-                            limpar_estado(['busca_ob', 'sel_obra'])
+                            limpar_estado(['busca_ob', 'sel_obra', 'last_busca_ob'])
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erro: {e}")
                     else:
                         st.warning("ID e Nome são obrigatórios.")
                 if b2.form_submit_button("❌ Cancelar", use_container_width=True):
-                    limpar_estado(['busca_ob', 'sel_obra'])
+                    limpar_estado(['busca_ob', 'sel_obra', 'last_busca_ob'])
                     st.rerun()
         else:
             id_sel = selecao_obra.split(" | ")[0]
@@ -192,7 +206,7 @@ def render(engine, *args, **kwargs):
                             conn.execute(text("UPDATE cadastro_obras SET nome=:nome, cnpj=:cnpj, cno=:cno WHERE id=:id"), 
                                          {"id": obra_id, "nome": obra_nome, "cnpj": obra_cnpj, "cno": obra_cno})
                         st.toast("✅ Obra atualizada!")
-                        limpar_estado(['busca_ob', 'sel_obra'])
+                        limpar_estado(['busca_ob', 'sel_obra', 'last_busca_ob'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
@@ -201,12 +215,12 @@ def render(engine, *args, **kwargs):
                         with engine.begin() as conn:
                             conn.execute(text("DELETE FROM cadastro_obras WHERE id=:id"), {"id": obra_id})
                         st.toast("🗑️ Obra removida!")
-                        limpar_estado(['busca_ob', 'sel_obra'])
+                        limpar_estado(['busca_ob', 'sel_obra', 'last_busca_ob'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro (Pode estar em uso): {e}")
                 if b3.form_submit_button("❌ Cancelar", use_container_width=True):
-                    limpar_estado(['busca_ob', 'sel_obra'])
+                    limpar_estado(['busca_ob', 'sel_obra', 'last_busca_ob'])
                     st.rerun()
 
         st.markdown("---")
@@ -224,14 +238,27 @@ def render(engine, *args, **kwargs):
         busca_cg = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_cg")
         
         lista_completa_cg = [f"{r['codigo']} | {r['nome']}" for _, r in df_cargos.iterrows()]
-        if busca_cg:
-            opcoes_cargos = [op for op in lista_completa_cg if busca_cg.lower() in op.lower()]
-            if not opcoes_cargos:
-                opcoes_cargos = ["➕ Novo Registro (Criar)"]
+        busca_atual_cg = str(busca_cg).strip()
+        ultima_busca_cg = st.session_state.get('last_busca_cg', '')
+
+        if busca_atual_cg != ultima_busca_cg:
+            st.session_state['last_busca_cg'] = busca_atual_cg
+            if busca_atual_cg:
+                filtrados = [op for op in lista_completa_cg if busca_atual_cg.lower() in op.lower()]
+                if filtrados:
+                    st.session_state['sel_cg'] = filtrados[0]
+                else:
+                    st.session_state['sel_cg'] = "➕ Novo Registro (Criar)"
+            else:
+                st.session_state['sel_cg'] = "➕ Novo Registro (Criar)"
+
+        if busca_atual_cg:
+            filtrados = [op for op in lista_completa_cg if busca_atual_cg.lower() in op.lower()]
+            opcoes_cargos = ["➕ Novo Registro (Criar)"] + filtrados
         else:
             opcoes_cargos = ["➕ Novo Registro (Criar)"] + lista_completa_cg
             
-        selecao_cargo = c2.selectbox("Selecione o Registro:", opcoes_cargos, key="sel_cg")
+        selecao_cargo = c2.selectbox("Selecione o Registro abaixo:", opcoes_cargos, key="sel_cg")
         st.markdown("---")
         
         if selecao_cargo == "➕ Novo Registro (Criar)":
@@ -250,14 +277,14 @@ def render(engine, *args, **kwargs):
                                 conn.execute(text("INSERT INTO cadastro_cargos (codigo, nome, cbo_2002) VALUES (:cod, :nome, :cbo)"), 
                                              {"cod": cg_cod, "nome": cg_nome, "cbo": cg_cbo})
                             st.toast("✅ Cargo cadastrado!")
-                            limpar_estado(['busca_cg', 'sel_cg'])
+                            limpar_estado(['busca_cg', 'sel_cg', 'last_busca_cg'])
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erro: {e}")
                     else:
                         st.warning("O Nome do Cargo é obrigatório.")
                 if b2.form_submit_button("❌ Cancelar", use_container_width=True):
-                    limpar_estado(['busca_cg', 'sel_cg'])
+                    limpar_estado(['busca_cg', 'sel_cg', 'last_busca_cg'])
                     st.rerun()
         else:
             id_sel = selecao_cargo.split(" | ")[0]
@@ -277,7 +304,7 @@ def render(engine, *args, **kwargs):
                             conn.execute(text("UPDATE cadastro_cargos SET nome=:nome, cbo_2002=:cbo WHERE codigo=:cod"), 
                                          {"cod": cg_cod, "nome": cg_nome, "cbo": cg_cbo})
                         st.toast("✅ Cargo atualizado!")
-                        limpar_estado(['busca_cg', 'sel_cg'])
+                        limpar_estado(['busca_cg', 'sel_cg', 'last_busca_cg'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
@@ -286,12 +313,12 @@ def render(engine, *args, **kwargs):
                         with engine.begin() as conn:
                             conn.execute(text("DELETE FROM cadastro_cargos WHERE codigo=:cod"), {"cod": cg_cod})
                         st.toast("🗑️ Cargo removido!")
-                        limpar_estado(['busca_cg', 'sel_cg'])
+                        limpar_estado(['busca_cg', 'sel_cg', 'last_busca_cg'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
                 if b3.form_submit_button("❌ Cancelar", use_container_width=True):
-                    limpar_estado(['busca_cg', 'sel_cg'])
+                    limpar_estado(['busca_cg', 'sel_cg', 'last_busca_cg'])
                     st.rerun()
 
         st.markdown("---")
@@ -309,14 +336,27 @@ def render(engine, *args, **kwargs):
         busca_dp = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_dp")
         
         lista_completa_dp = [f"{r['id']} | {r['nome']}" for _, r in df_deptos.iterrows()]
-        if busca_dp:
-            opcoes_dp = [op for op in lista_completa_dp if busca_dp.lower() in op.lower()]
-            if not opcoes_dp:
-                opcoes_dp = ["➕ Novo Registro (Criar)"]
+        busca_atual_dp = str(busca_dp).strip()
+        ultima_busca_dp = st.session_state.get('last_busca_dp', '')
+
+        if busca_atual_dp != ultima_busca_dp:
+            st.session_state['last_busca_dp'] = busca_atual_dp
+            if busca_atual_dp:
+                filtrados = [op for op in lista_completa_dp if busca_atual_dp.lower() in op.lower()]
+                if filtrados:
+                    st.session_state['sel_dp'] = filtrados[0]
+                else:
+                    st.session_state['sel_dp'] = "➕ Novo Registro (Criar)"
+            else:
+                st.session_state['sel_dp'] = "➕ Novo Registro (Criar)"
+
+        if busca_atual_dp:
+            filtrados = [op for op in lista_completa_dp if busca_atual_dp.lower() in op.lower()]
+            opcoes_dp = ["➕ Novo Registro (Criar)"] + filtrados
         else:
             opcoes_dp = ["➕ Novo Registro (Criar)"] + lista_completa_dp
             
-        selecao_dp = c2.selectbox("Selecione o Registro:", opcoes_dp, key="sel_dp")
+        selecao_dp = c2.selectbox("Selecione o Registro abaixo:", opcoes_dp, key="sel_dp")
         st.markdown("---")
         
         if selecao_dp == "➕ Novo Registro (Criar)":
@@ -333,14 +373,14 @@ def render(engine, *args, **kwargs):
                                 conn.execute(text("INSERT INTO cadastro_departamentos (id, nome) VALUES (:id, :nome)"), 
                                              {"id": dp_id, "nome": dp_nome})
                             st.toast("✅ Departamento cadastrado!")
-                            limpar_estado(['busca_dp', 'sel_dp'])
+                            limpar_estado(['busca_dp', 'sel_dp', 'last_busca_dp'])
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erro: {e}")
                     else:
                         st.warning("ID e Nome são obrigatórios.")
                 if b2.form_submit_button("❌ Cancelar", use_container_width=True):
-                    limpar_estado(['busca_dp', 'sel_dp'])
+                    limpar_estado(['busca_dp', 'sel_dp', 'last_busca_dp'])
                     st.rerun()
         else:
             id_sel = selecao_dp.split(" | ")[0]
@@ -358,7 +398,7 @@ def render(engine, *args, **kwargs):
                             conn.execute(text("UPDATE cadastro_departamentos SET nome=:nome WHERE id=:id"), 
                                          {"id": dp_id, "nome": dp_nome})
                         st.toast("✅ Departamento atualizado!")
-                        limpar_estado(['busca_dp', 'sel_dp'])
+                        limpar_estado(['busca_dp', 'sel_dp', 'last_busca_dp'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
@@ -367,12 +407,12 @@ def render(engine, *args, **kwargs):
                         with engine.begin() as conn:
                             conn.execute(text("DELETE FROM cadastro_departamentos WHERE id=:id"), {"id": dp_id})
                         st.toast("🗑️ Departamento removido!")
-                        limpar_estado(['busca_dp', 'sel_dp'])
+                        limpar_estado(['busca_dp', 'sel_dp', 'last_busca_dp'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
                 if b3.form_submit_button("❌ Cancelar", use_container_width=True):
-                    limpar_estado(['busca_dp', 'sel_dp'])
+                    limpar_estado(['busca_dp', 'sel_dp', 'last_busca_dp'])
                     st.rerun()
 
         st.markdown("---")
@@ -390,14 +430,27 @@ def render(engine, *args, **kwargs):
         busca_sit = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_sit")
         
         lista_completa_sit = [f"{r['codigo']} | {r['descricao']}" for _, r in df_sit.iterrows()]
-        if busca_sit:
-            opcoes_sit = [op for op in lista_completa_sit if busca_sit.lower() in op.lower()]
-            if not opcoes_sit:
-                opcoes_sit = ["➕ Novo Registro (Criar)"]
+        busca_atual_sit = str(busca_sit).strip()
+        ultima_busca_sit = st.session_state.get('last_busca_sit', '')
+
+        if busca_atual_sit != ultima_busca_sit:
+            st.session_state['last_busca_sit'] = busca_atual_sit
+            if busca_atual_sit:
+                filtrados = [op for op in lista_completa_sit if busca_atual_sit.lower() in op.lower()]
+                if filtrados:
+                    st.session_state['sel_sit'] = filtrados[0]
+                else:
+                    st.session_state['sel_sit'] = "➕ Novo Registro (Criar)"
+            else:
+                st.session_state['sel_sit'] = "➕ Novo Registro (Criar)"
+
+        if busca_atual_sit:
+            filtrados = [op for op in lista_completa_sit if busca_atual_sit.lower() in op.lower()]
+            opcoes_sit = ["➕ Novo Registro (Criar)"] + filtrados
         else:
             opcoes_sit = ["➕ Novo Registro (Criar)"] + lista_completa_sit
             
-        selecao_sit = c2.selectbox("Selecione o Registro:", opcoes_sit, key="sel_sit")
+        selecao_sit = c2.selectbox("Selecione o Registro abaixo:", opcoes_sit, key="sel_sit")
         st.markdown("---")
         
         if selecao_sit == "➕ Novo Registro (Criar)":
@@ -414,14 +467,14 @@ def render(engine, *args, **kwargs):
                                 conn.execute(text("INSERT INTO dominio_situacoes_esocial (codigo, descricao) VALUES (:cod, :desc)"), 
                                              {"cod": sit_cod, "desc": sit_desc})
                             st.toast("✅ Situação salva!")
-                            limpar_estado(['busca_sit', 'sel_sit'])
+                            limpar_estado(['busca_sit', 'sel_sit', 'last_busca_sit'])
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erro: {e}")
                     else:
                         st.warning("Código e Descrição são obrigatórios.")
                 if b2.form_submit_button("❌ Cancelar", use_container_width=True):
-                    limpar_estado(['busca_sit', 'sel_sit'])
+                    limpar_estado(['busca_sit', 'sel_sit', 'last_busca_sit'])
                     st.rerun()
         else:
             id_sel = selecao_sit.split(" | ")[0]
@@ -439,7 +492,7 @@ def render(engine, *args, **kwargs):
                             conn.execute(text("UPDATE dominio_situacoes_esocial SET descricao=:desc WHERE codigo=:cod"), 
                                          {"cod": sit_cod, "desc": sit_desc})
                         st.toast("✅ Situação atualizada!")
-                        limpar_estado(['busca_sit', 'sel_sit'])
+                        limpar_estado(['busca_sit', 'sel_sit', 'last_busca_sit'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
@@ -448,12 +501,12 @@ def render(engine, *args, **kwargs):
                         with engine.begin() as conn:
                             conn.execute(text("DELETE FROM dominio_situacoes_esocial WHERE codigo=:cod"), {"cod": sit_cod})
                         st.toast("🗑️ Situação removida!")
-                        limpar_estado(['busca_sit', 'sel_sit'])
+                        limpar_estado(['busca_sit', 'sel_sit', 'last_busca_sit'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
                 if b3.form_submit_button("❌ Cancelar", use_container_width=True):
-                    limpar_estado(['busca_sit', 'sel_sit'])
+                    limpar_estado(['busca_sit', 'sel_sit', 'last_busca_sit'])
                     st.rerun()
 
         st.markdown("---")
@@ -471,14 +524,27 @@ def render(engine, *args, **kwargs):
         busca_pr = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_pr")
         
         lista_completa_pr = [f"{r['codigo_descricao']} | {r['nome_descricao']}" for _, r in df_prem.iterrows()]
-        if busca_pr:
-            opcoes_prem = [op for op in lista_completa_pr if busca_pr.lower() in op.lower()]
-            if not opcoes_prem:
-                opcoes_prem = ["➕ Novo Registro (Criar)"]
+        busca_atual_pr = str(busca_pr).strip()
+        ultima_busca_pr = st.session_state.get('last_busca_pr', '')
+
+        if busca_atual_pr != ultima_busca_pr:
+            st.session_state['last_busca_pr'] = busca_atual_pr
+            if busca_atual_pr:
+                filtrados = [op for op in lista_completa_pr if busca_atual_pr.lower() in op.lower()]
+                if filtrados:
+                    st.session_state['sel_pr'] = filtrados[0]
+                else:
+                    st.session_state['sel_pr'] = "➕ Novo Registro (Criar)"
+            else:
+                st.session_state['sel_pr'] = "➕ Novo Registro (Criar)"
+
+        if busca_atual_pr:
+            filtrados = [op for op in lista_completa_pr if busca_atual_pr.lower() in op.lower()]
+            opcoes_prem = ["➕ Novo Registro (Criar)"] + filtrados
         else:
             opcoes_prem = ["➕ Novo Registro (Criar)"] + lista_completa_pr
             
-        selecao_prem = c2.selectbox("Selecione o Registro:", opcoes_prem, key="sel_pr")
+        selecao_prem = c2.selectbox("Selecione o Registro abaixo:", opcoes_prem, key="sel_pr")
         st.markdown("---")
         
         if selecao_prem == "➕ Novo Registro (Criar)":
@@ -497,14 +563,14 @@ def render(engine, *args, **kwargs):
                                 conn.execute(text("INSERT INTO lista_descricoes_premios (codigo_descricao, nome_descricao, obra_vinculada) VALUES (:cod, :nome, :obra)"), 
                                              {"cod": pr_cod, "nome": pr_nome, "obra": pr_obra})
                             st.toast("✅ Descrição de prêmio cadastrada!")
-                            limpar_estado(['busca_pr', 'sel_pr'])
+                            limpar_estado(['busca_pr', 'sel_pr', 'last_busca_pr'])
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erro: {e}")
                     else:
                         st.warning("Código e Nome da Descrição são obrigatórios.")
                 if b2.form_submit_button("❌ Cancelar", use_container_width=True):
-                    limpar_estado(['busca_pr', 'sel_pr'])
+                    limpar_estado(['busca_pr', 'sel_pr', 'last_busca_pr'])
                     st.rerun()
         else:
             id_sel = selecao_prem.split(" | ")[0]
@@ -524,7 +590,7 @@ def render(engine, *args, **kwargs):
                             conn.execute(text("UPDATE lista_descricoes_premios SET nome_descricao=:nome, obra_vinculada=:obra WHERE codigo_descricao=:cod"), 
                                          {"cod": pr_cod, "nome": pr_nome, "obra": pr_obra})
                         st.toast("✅ Descrição de prêmio alterada!")
-                        limpar_estado(['busca_pr', 'sel_pr'])
+                        limpar_estado(['busca_pr', 'sel_pr', 'last_busca_pr'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
@@ -533,12 +599,12 @@ def render(engine, *args, **kwargs):
                         with engine.begin() as conn:
                             conn.execute(text("DELETE FROM lista_descricoes_premios WHERE codigo_descricao=:cod"), {"cod": pr_cod})
                         st.toast("🗑️ Descrição de prêmio removida!")
-                        limpar_estado(['busca_pr', 'sel_pr'])
+                        limpar_estado(['busca_pr', 'sel_pr', 'last_busca_pr'])
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
                 if b3.form_submit_button("❌ Cancelar", use_container_width=True):
-                    limpar_estado(['busca_pr', 'sel_pr'])
+                    limpar_estado(['busca_pr', 'sel_pr', 'last_busca_pr'])
                     st.rerun()
 
         st.markdown("---")
