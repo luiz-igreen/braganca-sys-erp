@@ -89,7 +89,23 @@ def render(engine, *args, **kwargs):
                         df_colaboradores[col] = df_colaboradores[col].apply(
                             lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') if pd.notnull(x) else ""
                         )
-                st.dataframe(df_colaboradores, use_container_width=True, hide_index=True)
+                
+                # MÁSCARA VISUAL DOS CABEÇALHOS
+                df_display = df_colaboradores.rename(columns={
+                    'id': 'ID Sistema',
+                    'codigo': 'Código / Matrícula',
+                    'nome': 'Nome Completo',
+                    'cpf': 'CPF',
+                    'cargo': 'Cargo Atual',
+                    'departamento': 'Departamento',
+                    'obra': 'Obra Alocada',
+                    'admissao': 'Data de Admissão',
+                    'salario_mes': 'Salário Mês',
+                    'salario_hora': 'Salário Hora',
+                    'status_esocial': 'Status eSocial'
+                })
+                
+                st.dataframe(df_display, use_container_width=True, hide_index=True)
                 st.caption(f"Total de colaboradores registrados: {len(df_colaboradores)}")
             else:
                 st.info("Nenhum colaborador encontrado na tabela.")
@@ -263,7 +279,14 @@ def render(engine, *args, **kwargs):
                     st.rerun()
 
         st.markdown("---")
-        st.dataframe(df_obras, use_container_width=True, hide_index=True)
+        # Aplicação da Máscara Visual
+        df_display_obras = df_obras.rename(columns={
+            'id': 'Cód. Obra',
+            'nome': 'Nome do Empreendimento/Obra',
+            'cnpj': 'CNPJ Vinculado',
+            'cno': 'CNO'
+        })
+        st.dataframe(df_display_obras, use_container_width=True, hide_index=True)
 
     # ==========================================
     # ABA 4: GERENCIAR CARGOS
@@ -369,7 +392,13 @@ def render(engine, *args, **kwargs):
                     st.rerun()
 
         st.markdown("---")
-        st.dataframe(df_cargos, use_container_width=True, hide_index=True)
+        # Aplicação da Máscara Visual
+        df_display_cargos = df_cargos.rename(columns={
+            'codigo': 'Código do Cargo',
+            'nome': 'Descrição do Cargo',
+            'cbo_2002': 'Código CBO'
+        })
+        st.dataframe(df_display_cargos, use_container_width=True, hide_index=True)
 
     # ==========================================
     # ABA 5: GERENCIAR DEPARTAMENTOS
@@ -471,7 +500,12 @@ def render(engine, *args, **kwargs):
                     st.rerun()
 
         st.markdown("---")
-        st.dataframe(df_deptos, use_container_width=True, hide_index=True)
+        # Aplicação da Máscara Visual
+        df_display_deptos = df_deptos.rename(columns={
+            'id': 'Sigla / Código',
+            'nome': 'Nome do Departamento'
+        })
+        st.dataframe(df_display_deptos, use_container_width=True, hide_index=True)
 
     # ==========================================
     # ABA 6: SITUAÇÕES ESOCIAL
@@ -573,7 +607,12 @@ def render(engine, *args, **kwargs):
                     st.rerun()
 
         st.markdown("---")
-        st.dataframe(df_sit, use_container_width=True, hide_index=True)
+        # Aplicação da Máscara Visual
+        df_display_sit = df_sit.rename(columns={
+            'codigo': 'Código eSocial',
+            'descricao': 'Descrição Oficial'
+        })
+        st.dataframe(df_display_sit, use_container_width=True, hide_index=True)
 
     # ==========================================
     # ABA 7: TABELA DE PRÊMIOS
@@ -679,7 +718,14 @@ def render(engine, *args, **kwargs):
                     st.rerun()
 
         st.markdown("---")
-        st.dataframe(df_prem, use_container_width=True, hide_index=True)
+        # Aplicação da Máscara Visual
+        df_display_premios = df_prem.rename(columns={
+            'codigo_descricao': 'Cód. Verba/Prêmio',
+            'nome_descricao': 'Descrição',
+            'obra_vinculada': 'Obra Exclusiva',
+            'data_cadastro': 'Criado em'
+        })
+        st.dataframe(df_display_premios, use_container_width=True, hide_index=True)
 
     st.markdown("---")
     st.caption("🏗️ BRAGANÇA SYS | Módulo de Gestão Estrutural")
