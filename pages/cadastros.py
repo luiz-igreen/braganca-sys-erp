@@ -105,7 +105,19 @@ def render(engine, *args, **kwargs):
                     'status_esocial': 'Status eSocial'
                 })
                 
-                st.dataframe(df_display, use_container_width=True, hide_index=True)
+                # Configuração inteligente de larguras
+                st.dataframe(
+                    df_display, 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config={
+                        "ID Sistema": st.column_config.NumberColumn(width="small"),
+                        "Código / Matrícula": st.column_config.TextColumn(width="small"),
+                        "CPF": st.column_config.TextColumn(width="medium"),
+                        "Data de Admissão": st.column_config.DateColumn(width="small"),
+                        "Nome Completo": st.column_config.TextColumn(width="large")
+                    }
+                )
                 st.caption(f"Total de colaboradores registrados: {len(df_colaboradores)}")
             else:
                 st.info("Nenhum colaborador encontrado na tabela.")
@@ -286,7 +298,15 @@ def render(engine, *args, **kwargs):
             'cnpj': 'CNPJ Vinculado',
             'cno': 'CNO'
         })
-        st.dataframe(df_display_obras, use_container_width=True, hide_index=True)
+        st.dataframe(
+            df_display_obras, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "Cód. Obra": st.column_config.TextColumn(width="small"),
+                "Nome do Empreendimento/Obra": st.column_config.TextColumn(width="large")
+            }
+        )
 
     # ==========================================
     # ABA 4: GERENCIAR CARGOS
@@ -398,7 +418,15 @@ def render(engine, *args, **kwargs):
             'nome': 'Descrição do Cargo',
             'cbo_2002': 'Código CBO'
         })
-        st.dataframe(df_display_cargos, use_container_width=True, hide_index=True)
+        st.dataframe(
+            df_display_cargos, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "Código do Cargo": st.column_config.NumberColumn(width="small"),
+                "Descrição do Cargo": st.column_config.TextColumn(width="large")
+            }
+        )
 
     # ==========================================
     # ABA 5: GERENCIAR DEPARTAMENTOS
@@ -505,7 +533,15 @@ def render(engine, *args, **kwargs):
             'id': 'Sigla / Código',
             'nome': 'Nome do Departamento'
         })
-        st.dataframe(df_display_deptos, use_container_width=True, hide_index=True)
+        st.dataframe(
+            df_display_deptos, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "Sigla / Código": st.column_config.TextColumn(width="small"),
+                "Nome do Departamento": st.column_config.TextColumn(width="large")
+            }
+        )
 
     # ==========================================
     # ABA 6: SITUAÇÕES ESOCIAL
@@ -612,7 +648,15 @@ def render(engine, *args, **kwargs):
             'codigo': 'Código eSocial',
             'descricao': 'Descrição Oficial'
         })
-        st.dataframe(df_display_sit, use_container_width=True, hide_index=True)
+        st.dataframe(
+            df_display_sit, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "Código eSocial": st.column_config.TextColumn(width="small"),
+                "Descrição Oficial": st.column_config.TextColumn(width="large")
+            }
+        )
 
     # ==========================================
     # ABA 7: TABELA DE PRÊMIOS
@@ -725,7 +769,16 @@ def render(engine, *args, **kwargs):
             'obra_vinculada': 'Obra Exclusiva',
             'data_cadastro': 'Criado em'
         })
-        st.dataframe(df_display_premios, use_container_width=True, hide_index=True)
+        st.dataframe(
+            df_display_premios, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "Cód. Verba/Prêmio": st.column_config.TextColumn(width="small"),
+                "Descrição": st.column_config.TextColumn(width="large"),
+                "Criado em": st.column_config.DatetimeColumn(width="small", format="DD/MM/YYYY")
+            }
+        )
 
     st.markdown("---")
     st.caption("🏗️ BRAGANÇA SYS | Módulo de Gestão Estrutural")
