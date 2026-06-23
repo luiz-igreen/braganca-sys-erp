@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text
 
-# Motor de Cache para deixar o sistema ultrarrápido (Evita consultar o banco 7 vezes a cada clique)
+# Motor de Cache para deixar o sistema ultrarrápido
 @st.cache_data(ttl=300, show_spinner=False)
 def get_cached_dataframe(_engine, query):
     return pd.read_sql(text(query), _engine)
@@ -134,27 +134,34 @@ def render(engine, *args, **kwargs):
         
         st.markdown("#### 🔍 Consulta e Seleção")
         c1, c2 = st.columns([1, 2])
-        busca_ob = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_ob")
+        busca_ob = c1.text_input("Busca Rápida (ID Exato ou Parte do Nome):", key="busca_ob")
         
         lista_completa_ob = [f"{r['id']} | {r['nome']}" for _, r in df_obras.iterrows()]
         busca_atual_ob = str(busca_ob).strip()
         ultima_busca_ob = st.session_state.get('last_busca_ob', '')
 
-        # Auto-selecionar ao digitar
+        filtrados_ob = []
+        if busca_atual_ob:
+            for op in lista_completa_ob:
+                parts = op.split(" | ", 1)
+                if len(parts) == 2:
+                    id_part, nome_part = parts
+                    if busca_atual_ob.lower() == id_part.strip().lower() or busca_atual_ob.lower() in nome_part.lower():
+                        filtrados_ob.append(op)
+
         if busca_atual_ob != ultima_busca_ob:
             st.session_state['last_busca_ob'] = busca_atual_ob
-            if busca_atual_ob:
-                filtrados = [op for op in lista_completa_ob if busca_atual_ob.lower() in op.lower()]
-                if filtrados:
-                    st.session_state['sel_obra'] = filtrados[0]
-                else:
-                    st.session_state['sel_obra'] = "➕ Novo Registro (Criar)"
+            if busca_atual_ob and filtrados_ob:
+                st.session_state['sel_obra'] = filtrados_ob[0]
             else:
                 st.session_state['sel_obra'] = "➕ Novo Registro (Criar)"
 
         if busca_atual_ob:
-            filtrados = [op for op in lista_completa_ob if busca_atual_ob.lower() in op.lower()]
-            opcoes_obras = ["➕ Novo Registro (Criar)"] + filtrados
+            if not filtrados_ob:
+                st.warning("⚠️ Obra não encontrada. Digite um código ou nome válido.")
+                opcoes_obras = ["➕ Novo Registro (Criar)"]
+            else:
+                opcoes_obras = ["➕ Novo Registro (Criar)"] + filtrados_ob
         else:
             opcoes_obras = ["➕ Novo Registro (Criar)"] + lista_completa_ob
             
@@ -235,26 +242,34 @@ def render(engine, *args, **kwargs):
         
         st.markdown("#### 🔍 Consulta e Seleção")
         c1, c2 = st.columns([1, 2])
-        busca_cg = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_cg")
+        busca_cg = c1.text_input("Busca Rápida (ID Exato ou Parte do Nome):", key="busca_cg")
         
         lista_completa_cg = [f"{r['codigo']} | {r['nome']}" for _, r in df_cargos.iterrows()]
         busca_atual_cg = str(busca_cg).strip()
         ultima_busca_cg = st.session_state.get('last_busca_cg', '')
 
+        filtrados_cg = []
+        if busca_atual_cg:
+            for op in lista_completa_cg:
+                parts = op.split(" | ", 1)
+                if len(parts) == 2:
+                    id_part, nome_part = parts
+                    if busca_atual_cg.lower() == id_part.strip().lower() or busca_atual_cg.lower() in nome_part.lower():
+                        filtrados_cg.append(op)
+
         if busca_atual_cg != ultima_busca_cg:
             st.session_state['last_busca_cg'] = busca_atual_cg
-            if busca_atual_cg:
-                filtrados = [op for op in lista_completa_cg if busca_atual_cg.lower() in op.lower()]
-                if filtrados:
-                    st.session_state['sel_cg'] = filtrados[0]
-                else:
-                    st.session_state['sel_cg'] = "➕ Novo Registro (Criar)"
+            if busca_atual_cg and filtrados_cg:
+                st.session_state['sel_cg'] = filtrados_cg[0]
             else:
                 st.session_state['sel_cg'] = "➕ Novo Registro (Criar)"
 
         if busca_atual_cg:
-            filtrados = [op for op in lista_completa_cg if busca_atual_cg.lower() in op.lower()]
-            opcoes_cargos = ["➕ Novo Registro (Criar)"] + filtrados
+            if not filtrados_cg:
+                st.warning("⚠️ Cargo não encontrado. Digite um código ou nome válido.")
+                opcoes_cargos = ["➕ Novo Registro (Criar)"]
+            else:
+                opcoes_cargos = ["➕ Novo Registro (Criar)"] + filtrados_cg
         else:
             opcoes_cargos = ["➕ Novo Registro (Criar)"] + lista_completa_cg
             
@@ -333,26 +348,34 @@ def render(engine, *args, **kwargs):
         
         st.markdown("#### 🔍 Consulta e Seleção")
         c1, c2 = st.columns([1, 2])
-        busca_dp = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_dp")
+        busca_dp = c1.text_input("Busca Rápida (ID Exato ou Parte do Nome):", key="busca_dp")
         
         lista_completa_dp = [f"{r['id']} | {r['nome']}" for _, r in df_deptos.iterrows()]
         busca_atual_dp = str(busca_dp).strip()
         ultima_busca_dp = st.session_state.get('last_busca_dp', '')
 
+        filtrados_dp = []
+        if busca_atual_dp:
+            for op in lista_completa_dp:
+                parts = op.split(" | ", 1)
+                if len(parts) == 2:
+                    id_part, nome_part = parts
+                    if busca_atual_dp.lower() == id_part.strip().lower() or busca_atual_dp.lower() in nome_part.lower():
+                        filtrados_dp.append(op)
+
         if busca_atual_dp != ultima_busca_dp:
             st.session_state['last_busca_dp'] = busca_atual_dp
-            if busca_atual_dp:
-                filtrados = [op for op in lista_completa_dp if busca_atual_dp.lower() in op.lower()]
-                if filtrados:
-                    st.session_state['sel_dp'] = filtrados[0]
-                else:
-                    st.session_state['sel_dp'] = "➕ Novo Registro (Criar)"
+            if busca_atual_dp and filtrados_dp:
+                st.session_state['sel_dp'] = filtrados_dp[0]
             else:
                 st.session_state['sel_dp'] = "➕ Novo Registro (Criar)"
 
         if busca_atual_dp:
-            filtrados = [op for op in lista_completa_dp if busca_atual_dp.lower() in op.lower()]
-            opcoes_dp = ["➕ Novo Registro (Criar)"] + filtrados
+            if not filtrados_dp:
+                st.warning("⚠️ Departamento não encontrado. Digite um código ou nome válido.")
+                opcoes_dp = ["➕ Novo Registro (Criar)"]
+            else:
+                opcoes_dp = ["➕ Novo Registro (Criar)"] + filtrados_dp
         else:
             opcoes_dp = ["➕ Novo Registro (Criar)"] + lista_completa_dp
             
@@ -427,26 +450,34 @@ def render(engine, *args, **kwargs):
         
         st.markdown("#### 🔍 Consulta e Seleção")
         c1, c2 = st.columns([1, 2])
-        busca_sit = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_sit")
+        busca_sit = c1.text_input("Busca Rápida (ID Exato ou Parte do Nome):", key="busca_sit")
         
         lista_completa_sit = [f"{r['codigo']} | {r['descricao']}" for _, r in df_sit.iterrows()]
         busca_atual_sit = str(busca_sit).strip()
         ultima_busca_sit = st.session_state.get('last_busca_sit', '')
 
+        filtrados_sit = []
+        if busca_atual_sit:
+            for op in lista_completa_sit:
+                parts = op.split(" | ", 1)
+                if len(parts) == 2:
+                    id_part, nome_part = parts
+                    if busca_atual_sit.lower() == id_part.strip().lower() or busca_atual_sit.lower() in nome_part.lower():
+                        filtrados_sit.append(op)
+
         if busca_atual_sit != ultima_busca_sit:
             st.session_state['last_busca_sit'] = busca_atual_sit
-            if busca_atual_sit:
-                filtrados = [op for op in lista_completa_sit if busca_atual_sit.lower() in op.lower()]
-                if filtrados:
-                    st.session_state['sel_sit'] = filtrados[0]
-                else:
-                    st.session_state['sel_sit'] = "➕ Novo Registro (Criar)"
+            if busca_atual_sit and filtrados_sit:
+                st.session_state['sel_sit'] = filtrados_sit[0]
             else:
                 st.session_state['sel_sit'] = "➕ Novo Registro (Criar)"
 
         if busca_atual_sit:
-            filtrados = [op for op in lista_completa_sit if busca_atual_sit.lower() in op.lower()]
-            opcoes_sit = ["➕ Novo Registro (Criar)"] + filtrados
+            if not filtrados_sit:
+                st.warning("⚠️ Situação não encontrada. Digite um código ou nome válido.")
+                opcoes_sit = ["➕ Novo Registro (Criar)"]
+            else:
+                opcoes_sit = ["➕ Novo Registro (Criar)"] + filtrados_sit
         else:
             opcoes_sit = ["➕ Novo Registro (Criar)"] + lista_completa_sit
             
@@ -521,26 +552,34 @@ def render(engine, *args, **kwargs):
         
         st.markdown("#### 🔍 Consulta e Seleção")
         c1, c2 = st.columns([1, 2])
-        busca_pr = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_pr")
+        busca_pr = c1.text_input("Busca Rápida (ID Exato ou Parte do Nome):", key="busca_pr")
         
         lista_completa_pr = [f"{r['codigo_descricao']} | {r['nome_descricao']}" for _, r in df_prem.iterrows()]
         busca_atual_pr = str(busca_pr).strip()
         ultima_busca_pr = st.session_state.get('last_busca_pr', '')
 
+        filtrados_pr = []
+        if busca_atual_pr:
+            for op in lista_completa_pr:
+                parts = op.split(" | ", 1)
+                if len(parts) == 2:
+                    id_part, nome_part = parts
+                    if busca_atual_pr.lower() == id_part.strip().lower() or busca_atual_pr.lower() in nome_part.lower():
+                        filtrados_pr.append(op)
+
         if busca_atual_pr != ultima_busca_pr:
             st.session_state['last_busca_pr'] = busca_atual_pr
-            if busca_atual_pr:
-                filtrados = [op for op in lista_completa_pr if busca_atual_pr.lower() in op.lower()]
-                if filtrados:
-                    st.session_state['sel_pr'] = filtrados[0]
-                else:
-                    st.session_state['sel_pr'] = "➕ Novo Registro (Criar)"
+            if busca_atual_pr and filtrados_pr:
+                st.session_state['sel_pr'] = filtrados_pr[0]
             else:
                 st.session_state['sel_pr'] = "➕ Novo Registro (Criar)"
 
         if busca_atual_pr:
-            filtrados = [op for op in lista_completa_pr if busca_atual_pr.lower() in op.lower()]
-            opcoes_prem = ["➕ Novo Registro (Criar)"] + filtrados
+            if not filtrados_pr:
+                st.warning("⚠️ Prêmio não encontrado. Digite um código ou nome válido.")
+                opcoes_prem = ["➕ Novo Registro (Criar)"]
+            else:
+                opcoes_prem = ["➕ Novo Registro (Criar)"] + filtrados_pr
         else:
             opcoes_prem = ["➕ Novo Registro (Criar)"] + lista_completa_pr
             
