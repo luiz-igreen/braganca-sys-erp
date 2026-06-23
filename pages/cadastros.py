@@ -136,11 +136,15 @@ def render(engine, *args, **kwargs):
         c1, c2 = st.columns([1, 2])
         busca_ob = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_ob")
         
-        opcoes_obras = ["➕ Novo Registro (Criar)"] + [f"{r['id']} | {r['nome']}" for _, r in df_obras.iterrows()]
+        lista_completa_ob = [f"{r['id']} | {r['nome']}" for _, r in df_obras.iterrows()]
         if busca_ob:
-            opcoes_obras = [op for op in opcoes_obras if busca_ob.lower() in str(op).lower() or "➕" in op]
+            opcoes_obras = [op for op in lista_completa_ob if busca_ob.lower() in op.lower()]
+            if not opcoes_obras:
+                opcoes_obras = ["➕ Novo Registro (Criar)"]
+        else:
+            opcoes_obras = ["➕ Novo Registro (Criar)"] + lista_completa_ob
             
-        selecao_obra = c2.selectbox("Selecione o Registro abaixo:", opcoes_obras, key="sel_obra")
+        selecao_obra = c2.selectbox("Selecione o Registro:", opcoes_obras, key="sel_obra")
         st.markdown("---")
         
         if selecao_obra == "➕ Novo Registro (Criar)":
@@ -219,11 +223,15 @@ def render(engine, *args, **kwargs):
         c1, c2 = st.columns([1, 2])
         busca_cg = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_cg")
         
-        opcoes_cargos = ["➕ Novo Registro (Criar)"] + [f"{r['codigo']} | {r['nome']}" for _, r in df_cargos.iterrows()]
+        lista_completa_cg = [f"{r['codigo']} | {r['nome']}" for _, r in df_cargos.iterrows()]
         if busca_cg:
-            opcoes_cargos = [op for op in opcoes_cargos if busca_cg.lower() in str(op).lower() or "➕" in op]
+            opcoes_cargos = [op for op in lista_completa_cg if busca_cg.lower() in op.lower()]
+            if not opcoes_cargos:
+                opcoes_cargos = ["➕ Novo Registro (Criar)"]
+        else:
+            opcoes_cargos = ["➕ Novo Registro (Criar)"] + lista_completa_cg
             
-        selecao_cargo = c2.selectbox("Selecione o Registro abaixo:", opcoes_cargos, key="sel_cg")
+        selecao_cargo = c2.selectbox("Selecione o Registro:", opcoes_cargos, key="sel_cg")
         st.markdown("---")
         
         if selecao_cargo == "➕ Novo Registro (Criar)":
@@ -300,11 +308,15 @@ def render(engine, *args, **kwargs):
         c1, c2 = st.columns([1, 2])
         busca_dp = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_dp")
         
-        opcoes_dp = ["➕ Novo Registro (Criar)"] + [f"{r['id']} | {r['nome']}" for _, r in df_deptos.iterrows()]
+        lista_completa_dp = [f"{r['id']} | {r['nome']}" for _, r in df_deptos.iterrows()]
         if busca_dp:
-            opcoes_dp = [op for op in opcoes_dp if busca_dp.lower() in str(op).lower() or "➕" in op]
+            opcoes_dp = [op for op in lista_completa_dp if busca_dp.lower() in op.lower()]
+            if not opcoes_dp:
+                opcoes_dp = ["➕ Novo Registro (Criar)"]
+        else:
+            opcoes_dp = ["➕ Novo Registro (Criar)"] + lista_completa_dp
             
-        selecao_dp = c2.selectbox("Selecione o Registro abaixo:", opcoes_dp, key="sel_dp")
+        selecao_dp = c2.selectbox("Selecione o Registro:", opcoes_dp, key="sel_dp")
         st.markdown("---")
         
         if selecao_dp == "➕ Novo Registro (Criar)":
@@ -377,11 +389,15 @@ def render(engine, *args, **kwargs):
         c1, c2 = st.columns([1, 2])
         busca_sit = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_sit")
         
-        opcoes_sit = ["➕ Novo Registro (Criar)"] + [f"{r['codigo']} | {r['descricao']}" for _, r in df_sit.iterrows()]
+        lista_completa_sit = [f"{r['codigo']} | {r['descricao']}" for _, r in df_sit.iterrows()]
         if busca_sit:
-            opcoes_sit = [op for op in opcoes_sit if busca_sit.lower() in str(op).lower() or "➕" in op]
+            opcoes_sit = [op for op in lista_completa_sit if busca_sit.lower() in op.lower()]
+            if not opcoes_sit:
+                opcoes_sit = ["➕ Novo Registro (Criar)"]
+        else:
+            opcoes_sit = ["➕ Novo Registro (Criar)"] + lista_completa_sit
             
-        selecao_sit = c2.selectbox("Selecione o Registro abaixo:", opcoes_sit, key="sel_sit")
+        selecao_sit = c2.selectbox("Selecione o Registro:", opcoes_sit, key="sel_sit")
         st.markdown("---")
         
         if selecao_sit == "➕ Novo Registro (Criar)":
@@ -454,11 +470,15 @@ def render(engine, *args, **kwargs):
         c1, c2 = st.columns([1, 2])
         busca_pr = c1.text_input("Busca Rápida (Digite ID ou Nome):", key="busca_pr")
         
-        opcoes_prem = ["➕ Novo Registro (Criar)"] + [f"{r['codigo_descricao']} | {r['nome_descricao']}" for _, r in df_prem.iterrows()]
+        lista_completa_pr = [f"{r['codigo_descricao']} | {r['nome_descricao']}" for _, r in df_prem.iterrows()]
         if busca_pr:
-            opcoes_prem = [op for op in opcoes_prem if busca_pr.lower() in str(op).lower() or "➕" in op]
+            opcoes_prem = [op for op in lista_completa_pr if busca_pr.lower() in op.lower()]
+            if not opcoes_prem:
+                opcoes_prem = ["➕ Novo Registro (Criar)"]
+        else:
+            opcoes_prem = ["➕ Novo Registro (Criar)"] + lista_completa_pr
             
-        selecao_prem = c2.selectbox("Selecione o Registro abaixo:", opcoes_prem, key="sel_pr")
+        selecao_prem = c2.selectbox("Selecione o Registro:", opcoes_prem, key="sel_pr")
         st.markdown("---")
         
         if selecao_prem == "➕ Novo Registro (Criar)":
