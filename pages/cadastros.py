@@ -6,22 +6,18 @@ def render(engine, *args, **kwargs):
     st.title("Gestão de Cadastros e Tabelas Base")
     st.markdown("Gerenciamento central da base de funcionários e dos domínios estruturais do sistema.")
 
-    # Criação das 7 Abas
     tabs = st.tabs([
         "Consultar Base", 
         "Novo Colaborador", 
-        "🏢 Gerenciar Obras", 
-        "👔 Gerenciar Cargos", 
+        "🏢 Obras", 
+        "👔 Cargos", 
         "🏢 Departamentos", 
         "🏥 Situações eSocial", 
-        "🏆 Tabela de Prêmios"
+        "🏆 Prêmios"
     ])
 
     tab_consultar, tab_novo, tab_obras, tab_cargos, tab_deptos, tab_situacoes, tab_premios = tabs
 
-    # ==========================================
-    # FUNÇÃO AUXILIAR GLOBAL
-    # ==========================================
     def buscar_opcoes(query_sql, coluna_retorno, fallback_list):
         try:
             df = pd.read_sql(text(query_sql), con=engine)
@@ -85,9 +81,7 @@ def render(engine, *args, **kwargs):
             salario_hora = col9.number_input("Salário Hora (R$)", min_value=0.0, format="%.2f")
             status_esocial = col10.text_input("Status eSocial", value="Ativo", disabled=True)
 
-            submit_button = st.form_submit_button("Salvar Colaborador", type="primary")
-
-            if submit_button:
+            if st.form_submit_button("Salvar Colaborador", type="primary"):
                 if not codigo or not nome:
                     st.error("Os campos 'Código' e 'Nome' são obrigatórios.")
                 else:
@@ -116,137 +110,290 @@ def render(engine, *args, **kwargs):
     # ABA 3: GERENCIAR OBRAS
     # ==========================================
     with tab_obras:
-        st.subheader("Cadastro de Obras")
-        with st.form("form_nova_obra", clear_on_submit=True):
+        st.subheader("Gestão de Obras")
+        df_obras = pd.read_sql("SELECT * FROM cadastro_obras ORDER BY nome", engine)
+        
+        opcoes_obras = ["➕ Novo Registro (Criar)"] + [f"{r['id']} | {r['nome']}" for _, r in df_obras.iterrows()]
+        selecao_obra = st.selectbox("Consultar Obra:", opcoes_obras, key="sel_obra")
+        
+        st.markdown("#### Formulário de Obra")
+        if selecao_obra == "➕ Novo Registro (Criar)":
+            obra_id = st.text_input("ID / Código da Obra", key="ob_id_n")
+            obra_nome = st.text_input("Nome da Obra", key="ob_nm_n")
             col1, col2 = st.columns(2)
-            obra_id = col1.text_input("ID / Código da Obra")
-            obra_nome = col2.text_input("Nome da Obra")
+            obra_cnpj = col1.text_input("CNPJ (Opcional)", key="ob_cn_n")
+            obra_cno = col2.text_input("CNO (Opcional)", key="ob_co_n")
             
-            col3, col4 = st.columns(2)
-            obra_cnpj = col3.text_input("CNPJ (Opcional)")
-            obra_cno = col4.text_input("CNO (Opcional)")
-            
-            if st.form_submit_button("Adicionar Obra"):
+            if st.button("💾 Salvar Nova Obra", type="primary", use_container_width=True):
                 if obra_id and obra_nome:
                     try:
                         with engine.begin() as conn:
                             conn.execute(text("INSERT INTO cadastro_obras (id, nome, cnpj, cno) VALUES (:id, :nome, :cnpj, :cno)"), 
                                          {"id": obra_id, "nome": obra_nome, "cnpj": obra_cnpj, "cno": obra_cno})
-                        st.success("Obra adicionada com sucesso!")
+                        st.success("Obra salva!")
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
                 else:
-                    st.warning("Preencha o ID e o Nome.")
-                    
-        st.markdown("---")
-        df_obras = pd.read_sql("SELECT * FROM cadastro_obras ORDER BY nome", engine)
+                    st.warning("Preencha ID e Nome.")
+        else:
+            id_sel = selecao_obra.split(" | ")[0]
+            row = df_obras[df_obras['id'].astype(str) == id_sel].iloc[0]
+            
+            obra_id = st.text_input("ID / Código (Inalterável)", value=row['id'], disabled=True, key="ob_id_e")
+            obra_nome = st.text_input("Nome da Obra", value=row['nome'], key="ob_nm_e")
+            col1, col2 = st.columns(2)
+            obra_cnpj = col1.text_input("CNPJ", value=str(row['cnpj']) if pd.notna(row['cnpj']) else "", key="ob_cn_e")
+            obra_cno = col2.text_input("CNO", value=str(row['cno']) if pd.notna(row['cno']) else "", key="ob_co_e")
+            
+            c_btn1, c_btn2 = st.columns(2)
+            if c_btn1.button("✏️ Alterar Obra", type="primary", use_container_width=True):
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("UPDATE cadastro_obras SET nome=:nome, cnpj=:cnpj, cno=:cno WHERE id=:id"), 
+                                     {"id": obra_id, "nome": obra_nome, "cnpj": obra_cnpj, "cno": obra_cno})
+                    st.success("Obra alterada!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro: {e}")
+            if c_btn2.button("🗑️ Excluir Obra", type="primary", use_container_width=True):
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("DELETE FROM cadastro_obras WHERE id=:id"), {"id": obra_id})
+                    st.success("Obra excluída!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro (Pode estar em uso): {e}")
+
         st.dataframe(df_obras, use_container_width=True, hide_index=True)
 
     # ==========================================
     # ABA 4: GERENCIAR CARGOS
     # ==========================================
     with tab_cargos:
-        st.subheader("Cadastro de Cargos")
-        with st.form("form_novo_cargo", clear_on_submit=True):
-            col1, col2, col3 = st.columns([1, 2, 1])
-            cargo_cod = col1.number_input("Código", min_value=1, step=1)
-            cargo_nome = col2.text_input("Nome do Cargo")
-            cargo_cbo = col3.text_input("CBO 2002")
+        st.subheader("Gestão de Cargos")
+        df_cargos = pd.read_sql("SELECT * FROM cadastro_cargos ORDER BY nome", engine)
+        
+        opcoes_cargos = ["➕ Novo Registro (Criar)"] + [f"{r['codigo']} | {r['nome']}" for _, r in df_cargos.iterrows()]
+        selecao_cargo = st.selectbox("Consultar Cargo:", opcoes_cargos, key="sel_cg")
+        
+        st.markdown("#### Formulário de Cargo")
+        if selecao_cargo == "➕ Novo Registro (Criar)":
+            col1, col2 = st.columns([1, 3])
+            cg_cod = col1.number_input("Código", min_value=1, step=1, key="cg_cod_n")
+            cg_nome = col2.text_input("Nome do Cargo", key="cg_nm_n")
+            cg_cbo = st.text_input("CBO 2002", key="cg_cbo_n")
             
-            if st.form_submit_button("Adicionar Cargo"):
-                if cargo_nome:
+            if st.button("💾 Salvar Novo Cargo", type="primary", use_container_width=True):
+                if cg_nome:
                     try:
                         with engine.begin() as conn:
                             conn.execute(text("INSERT INTO cadastro_cargos (codigo, nome, cbo_2002) VALUES (:cod, :nome, :cbo)"), 
-                                         {"cod": cargo_cod, "nome": cargo_nome, "cbo": cargo_cbo})
-                        st.success("Cargo adicionado com sucesso!")
+                                         {"cod": cg_cod, "nome": cg_nome, "cbo": cg_cbo})
+                        st.success("Cargo salvo!")
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
                 else:
-                    st.warning("O Nome do Cargo é obrigatório.")
-                    
-        st.markdown("---")
-        df_cargos = pd.read_sql("SELECT * FROM cadastro_cargos ORDER BY nome", engine)
+                    st.warning("Preencha o Nome.")
+        else:
+            id_sel = selecao_cargo.split(" | ")[0]
+            row = df_cargos[df_cargos['codigo'].astype(str) == id_sel].iloc[0]
+            
+            col1, col2 = st.columns([1, 3])
+            cg_cod = col1.number_input("Código (Inalterável)", value=int(row['codigo']), disabled=True, key="cg_cod_e")
+            cg_nome = col2.text_input("Nome do Cargo", value=row['nome'], key="cg_nm_e")
+            cg_cbo = st.text_input("CBO 2002", value=str(row['cbo_2002']) if pd.notna(row['cbo_2002']) else "", key="cg_cbo_e")
+            
+            c_btn1, c_btn2 = st.columns(2)
+            if c_btn1.button("✏️ Alterar Cargo", type="primary", use_container_width=True):
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("UPDATE cadastro_cargos SET nome=:nome, cbo_2002=:cbo WHERE codigo=:cod"), 
+                                     {"cod": cg_cod, "nome": cg_nome, "cbo": cg_cbo})
+                    st.success("Cargo alterado!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro: {e}")
+            if c_btn2.button("🗑️ Excluir Cargo", type="primary", use_container_width=True):
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("DELETE FROM cadastro_cargos WHERE codigo=:cod"), {"cod": cg_cod})
+                    st.success("Cargo excluído!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro (Pode estar em uso): {e}")
+
         st.dataframe(df_cargos, use_container_width=True, hide_index=True)
 
     # ==========================================
     # ABA 5: GERENCIAR DEPARTAMENTOS
     # ==========================================
     with tab_deptos:
-        st.subheader("Cadastro de Departamentos")
-        with st.form("form_novo_depto", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            depto_id = col1.text_input("ID / Sigla do Departamento")
-            depto_nome = col2.text_input("Nome do Departamento")
+        st.subheader("Gestão de Departamentos")
+        df_deptos = pd.read_sql("SELECT * FROM cadastro_departamentos ORDER BY nome", engine)
+        
+        opcoes_dp = ["➕ Novo Registro (Criar)"] + [f"{r['id']} | {r['nome']}" for _, r in df_deptos.iterrows()]
+        selecao_dp = st.selectbox("Consultar Departamento:", opcoes_dp, key="sel_dp")
+        
+        st.markdown("#### Formulário de Departamento")
+        if selecao_dp == "➕ Novo Registro (Criar)":
+            dp_id = st.text_input("ID / Sigla", key="dp_id_n")
+            dp_nome = st.text_input("Nome", key="dp_nm_n")
             
-            if st.form_submit_button("Adicionar Departamento"):
-                if depto_id and depto_nome:
+            if st.button("💾 Salvar Departamento", type="primary", use_container_width=True):
+                if dp_id and dp_nome:
                     try:
                         with engine.begin() as conn:
                             conn.execute(text("INSERT INTO cadastro_departamentos (id, nome) VALUES (:id, :nome)"), 
-                                         {"id": depto_id, "nome": depto_nome})
-                        st.success("Departamento adicionado!")
+                                         {"id": dp_id, "nome": dp_nome})
+                        st.success("Departamento salvo!")
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
                 else:
                     st.warning("Preencha ID e Nome.")
-                    
-        st.markdown("---")
-        df_deptos = pd.read_sql("SELECT * FROM cadastro_departamentos ORDER BY nome", engine)
+        else:
+            id_sel = selecao_dp.split(" | ")[0]
+            row = df_deptos[df_deptos['id'].astype(str) == id_sel].iloc[0]
+            
+            dp_id = st.text_input("ID / Sigla (Inalterável)", value=row['id'], disabled=True, key="dp_id_e")
+            dp_nome = st.text_input("Nome", value=row['nome'], key="dp_nm_e")
+            
+            c_btn1, c_btn2 = st.columns(2)
+            if c_btn1.button("✏️ Alterar Depto", type="primary", use_container_width=True):
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("UPDATE cadastro_departamentos SET nome=:nome WHERE id=:id"), 
+                                     {"id": dp_id, "nome": dp_nome})
+                    st.success("Departamento alterado!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro: {e}")
+            if c_btn2.button("🗑️ Excluir Depto", type="primary", use_container_width=True):
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("DELETE FROM cadastro_departamentos WHERE id=:id"), {"id": dp_id})
+                    st.success("Departamento excluído!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro: {e}")
+
         st.dataframe(df_deptos, use_container_width=True, hide_index=True)
 
     # ==========================================
     # ABA 6: SITUAÇÕES ESOCIAL
     # ==========================================
     with tab_situacoes:
-        st.subheader("Cadastro de Situações (eSocial)")
-        with st.form("form_nova_situacao", clear_on_submit=True):
-            col1, col2 = st.columns([1, 3])
-            sit_cod = col1.text_input("Código")
-            sit_desc = col2.text_input("Descrição da Situação")
+        st.subheader("Gestão de Situações (eSocial)")
+        df_sit = pd.read_sql("SELECT * FROM dominio_situacoes_esocial ORDER BY codigo", engine)
+        
+        opcoes_sit = ["➕ Novo Registro (Criar)"] + [f"{r['codigo']} | {r['descricao']}" for _, r in df_sit.iterrows()]
+        selecao_sit = st.selectbox("Consultar Situação:", opcoes_sit, key="sel_sit")
+        
+        st.markdown("#### Formulário de Situação")
+        if selecao_sit == "➕ Novo Registro (Criar)":
+            sit_cod = st.text_input("Código", key="sit_cod_n")
+            sit_desc = st.text_input("Descrição", key="sit_desc_n")
             
-            if st.form_submit_button("Adicionar Situação"):
+            if st.button("💾 Salvar Situação", type="primary", use_container_width=True):
                 if sit_cod and sit_desc:
                     try:
                         with engine.begin() as conn:
                             conn.execute(text("INSERT INTO dominio_situacoes_esocial (codigo, descricao) VALUES (:cod, :desc)"), 
                                          {"cod": sit_cod, "desc": sit_desc})
-                        st.success("Situação adicionada!")
+                        st.success("Situação salva!")
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
                 else:
                     st.warning("Preencha Código e Descrição.")
-                    
-        st.markdown("---")
-        df_situacoes = pd.read_sql("SELECT * FROM dominio_situacoes_esocial ORDER BY codigo", engine)
-        st.dataframe(df_situacoes, use_container_width=True, hide_index=True)
+        else:
+            id_sel = selecao_sit.split(" | ")[0]
+            row = df_sit[df_sit['codigo'].astype(str) == id_sel].iloc[0]
+            
+            sit_cod = st.text_input("Código (Inalterável)", value=row['codigo'], disabled=True, key="sit_cod_e")
+            sit_desc = st.text_input("Descrição", value=row['descricao'], key="sit_desc_e")
+            
+            c_btn1, c_btn2 = st.columns(2)
+            if c_btn1.button("✏️ Alterar Situação", type="primary", use_container_width=True):
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("UPDATE dominio_situacoes_esocial SET descricao=:desc WHERE codigo=:cod"), 
+                                     {"cod": sit_cod, "desc": sit_desc})
+                    st.success("Situação alterada!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro: {e}")
+            if c_btn2.button("🗑️ Excluir Situação", type="primary", use_container_width=True):
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("DELETE FROM dominio_situacoes_esocial WHERE codigo=:cod"), {"cod": sit_cod})
+                    st.success("Situação excluída!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro: {e}")
+
+        st.dataframe(df_sit, use_container_width=True, hide_index=True)
 
     # ==========================================
     # ABA 7: TABELA DE PRÊMIOS
     # ==========================================
     with tab_premios:
         st.subheader("Base de Descrições de Prêmios")
-        with st.form("form_novo_premio", clear_on_submit=True):
-            col1, col2, col3 = st.columns([1, 2, 2])
-            prem_cod = col1.text_input("Código da Descrição")
-            prem_nome = col2.text_input("Nome da Descrição")
-            prem_obra = col3.text_input("Obra Vinculada (Opcional)")
+        df_prem = pd.read_sql("SELECT * FROM lista_descricoes_premios ORDER BY nome_descricao", engine)
+        
+        opcoes_prem = ["➕ Novo Registro (Criar)"] + [f"{r['codigo_descricao']} | {r['nome_descricao']}" for _, r in df_prem.iterrows()]
+        selecao_prem = st.selectbox("Consultar Prêmio:", opcoes_prem, key="sel_prem")
+        
+        st.markdown("#### Formulário de Prêmio")
+        if selecao_prem == "➕ Novo Registro (Criar)":
+            col1, col2 = st.columns([1, 2])
+            pr_cod = col1.text_input("Código da Descrição", key="pr_cod_n")
+            pr_nome = col2.text_input("Nome da Descrição", key="pr_nm_n")
+            pr_obra = st.text_input("Obra Vinculada (Opcional)", key="pr_ob_n")
             
-            if st.form_submit_button("Adicionar Descrição"):
-                if prem_cod and prem_nome:
+            if st.button("💾 Salvar Prêmio", type="primary", use_container_width=True):
+                if pr_cod and pr_nome:
                     try:
                         with engine.begin() as conn:
                             conn.execute(text("INSERT INTO lista_descricoes_premios (codigo_descricao, nome_descricao, obra_vinculada) VALUES (:cod, :nome, :obra)"), 
-                                         {"cod": prem_cod, "nome": prem_nome, "obra": prem_obra})
-                        st.success("Descrição de prêmio adicionada!")
+                                         {"cod": pr_cod, "nome": pr_nome, "obra": pr_obra})
+                        st.success("Prêmio salvo!")
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
                 else:
-                    st.warning("Preencha Código e Nome da Descrição.")
-                    
-        st.markdown("---")
-        df_premios = pd.read_sql("SELECT * FROM lista_descricoes_premios ORDER BY nome_descricao", engine)
-        st.dataframe(df_premios, use_container_width=True, hide_index=True)
+                    st.warning("Preencha Código e Nome.")
+        else:
+            id_sel = selecao_prem.split(" | ")[0]
+            row = df_prem[df_prem['codigo_descricao'].astype(str) == id_sel].iloc[0]
+            
+            col1, col2 = st.columns([1, 2])
+            pr_cod = col1.text_input("Código (Inalterável)", value=row['codigo_descricao'], disabled=True, key="pr_cod_e")
+            pr_nome = col2.text_input("Nome da Descrição", value=row['nome_descricao'], key="pr_nm_e")
+            pr_obra = st.text_input("Obra Vinculada (Opcional)", value=str(row['obra_vinculada']) if pd.notna(row['obra_vinculada']) else "", key="pr_ob_e")
+            
+            c_btn1, c_btn2 = st.columns(2)
+            if c_btn1.button("✏️ Alterar Prêmio", type="primary", use_container_width=True):
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("UPDATE lista_descricoes_premios SET nome_descricao=:nome, obra_vinculada=:obra WHERE codigo_descricao=:cod"), 
+                                     {"cod": pr_cod, "nome": pr_nome, "obra": pr_obra})
+                    st.success("Prêmio alterado!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro: {e}")
+            if c_btn2.button("🗑️ Excluir Prêmio", type="primary", use_container_width=True):
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("DELETE FROM lista_descricoes_premios WHERE codigo_descricao=:cod"), {"cod": pr_cod})
+                    st.success("Prêmio excluído!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro: {e}")
+
+        st.dataframe(df_prem, use_container_width=True, hide_index=True)
 
     st.markdown("---")
     st.caption("🏗️ BRAGANÇA SYS | Módulo de Gestão Estrutural")
