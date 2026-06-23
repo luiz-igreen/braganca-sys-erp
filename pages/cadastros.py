@@ -153,13 +153,13 @@ def render(engine, *args, **kwargs):
             id_sel = selecao_obra.split(" | ")[0]
             row = df_obras[df_obras['id'].astype(str) == id_sel].iloc[0]
             
-            with st.form("form_obra_editar"):
+            with st.form(f"form_obra_editar_{id_sel}"):
                 st.markdown("#### Alterar / Excluir Obra")
-                obra_id = st.text_input("ID / Código (Inalterável)", value=row['id'], disabled=True, key="ob_id_e")
-                obra_nome = st.text_input("Nome da Obra", value=row['nome'], key="ob_nm_e")
+                obra_id = st.text_input("ID / Código (Inalterável)", value=row['id'], disabled=True, key=f"ob_id_e_{id_sel}")
+                obra_nome = st.text_input("Nome da Obra", value=row['nome'], key=f"ob_nm_e_{id_sel}")
                 col1, col2 = st.columns(2)
-                obra_cnpj = col1.text_input("CNPJ", value=str(row['cnpj']) if pd.notna(row['cnpj']) else "", key="ob_cn_e")
-                obra_cno = col2.text_input("CNO", value=str(row['cno']) if pd.notna(row['cno']) else "", key="ob_co_e")
+                obra_cnpj = col1.text_input("CNPJ", value=str(row['cnpj']) if pd.notna(row['cnpj']) else "", key=f"ob_cn_e_{id_sel}")
+                obra_cno = col2.text_input("CNO", value=str(row['cno']) if pd.notna(row['cno']) else "", key=f"ob_co_e_{id_sel}")
                 
                 b1, b2, b3 = st.columns(3)
                 if b1.form_submit_button("✏️ Alterar Obra", type="primary", use_container_width=True):
@@ -223,12 +223,12 @@ def render(engine, *args, **kwargs):
             id_sel = selecao_cargo.split(" | ")[0]
             row = df_cargos[df_cargos['codigo'].astype(str) == id_sel].iloc[0]
             
-            with st.form("form_cargo_editar"):
+            with st.form(f"form_cargo_editar_{id_sel}"):
                 st.markdown("#### Alterar / Excluir Cargo")
                 col1, col2 = st.columns([1, 3])
-                cg_cod = col1.number_input("Código (Inalterável)", value=int(row['codigo']), disabled=True, key="cg_cod_e")
-                cg_nome = col2.text_input("Nome do Cargo", value=row['nome'], key="cg_nm_e")
-                cg_cbo = st.text_input("CBO 2002", value=str(row['cbo_2002']) if pd.notna(row['cbo_2002']) else "", key="cg_cbo_e")
+                cg_cod = col1.number_input("Código (Inalterável)", value=int(row['codigo']), disabled=True, key=f"cg_cod_e_{id_sel}")
+                cg_nome = col2.text_input("Nome do Cargo", value=row['nome'], key=f"cg_nm_e_{id_sel}")
+                cg_cbo = st.text_input("CBO 2002", value=str(row['cbo_2002']) if pd.notna(row['cbo_2002']) else "", key=f"cg_cbo_e_{id_sel}")
                 
                 b1, b2, b3 = st.columns(3)
                 if b1.form_submit_button("✏️ Alterar Cargo", type="primary", use_container_width=True):
@@ -290,10 +290,10 @@ def render(engine, *args, **kwargs):
             id_sel = selecao_dp.split(" | ")[0]
             row = df_deptos[df_deptos['id'].astype(str) == id_sel].iloc[0]
             
-            with st.form("form_depto_editar"):
+            with st.form(f"form_depto_editar_{id_sel}"):
                 st.markdown("#### Alterar / Excluir Departamento")
-                dp_id = st.text_input("ID / Sigla (Inalterável)", value=row['id'], disabled=True, key="dp_id_e")
-                dp_nome = st.text_input("Nome do Departamento", value=row['nome'], key="dp_nm_e")
+                dp_id = st.text_input("ID / Sigla (Inalterável)", value=row['id'], disabled=True, key=f"dp_id_e_{id_sel}")
+                dp_nome = st.text_input("Nome do Departamento", value=row['nome'], key=f"dp_nm_e_{id_sel}")
                 
                 b1, b2, b3 = st.columns(3)
                 if b1.form_submit_button("✏️ Alterar Depto", type="primary", use_container_width=True):
@@ -355,10 +355,10 @@ def render(engine, *args, **kwargs):
             id_sel = selecao_sit.split(" | ")[0]
             row = df_sit[df_sit['codigo'].astype(str) == id_sel].iloc[0]
             
-            with st.form("form_sit_editar"):
+            with st.form(f"form_sit_editar_{id_sel}"):
                 st.markdown("#### Alterar / Excluir Situação")
-                sit_cod = st.text_input("Código (Inalterável)", value=row['codigo'], disabled=True, key="sit_cod_e")
-                sit_desc = st.text_input("Descrição", value=row['descricao'], key="sit_desc_e")
+                sit_cod = st.text_input("Código (Inalterável)", value=row['codigo'], disabled=True, key=f"sit_cod_e_{id_sel}")
+                sit_desc = st.text_input("Descrição", value=row['descricao'], key=f"sit_desc_e_{id_sel}")
                 
                 b1, b2, b3 = st.columns(3)
                 if b1.form_submit_button("✏️ Alterar Situação", type="primary", use_container_width=True):
@@ -422,12 +422,12 @@ def render(engine, *args, **kwargs):
             id_sel = selecao_prem.split(" | ")[0]
             row = df_prem[df_prem['codigo_descricao'].astype(str) == id_sel].iloc[0]
             
-            with st.form("form_premio_editar"):
+            with st.form(f"form_premio_editar_{id_sel}"):
                 st.markdown("#### Alterar / Excluir Descrição de Prêmio")
                 col1, col2 = st.columns([1, 2])
-                pr_cod = col1.text_input("Código (Inalterável)", value=row['codigo_descricao'], disabled=True, key="pr_cod_e")
-                pr_nome = col2.text_input("Nome da Descrição", value=row['nome_descricao'], key="pr_nm_e")
-                pr_obra = st.text_input("Obra Vinculada (Opcional)", value=str(row['obra_vinculada']) if pd.notna(row['obra_vinculada']) else "", key="pr_ob_e")
+                pr_cod = col1.text_input("Código (Inalterável)", value=row['codigo_descricao'], disabled=True, key=f"pr_cod_e_{id_sel}")
+                pr_nome = col2.text_input("Nome da Descrição", value=row['nome_descricao'], key=f"pr_nm_e_{id_sel}")
+                pr_obra = st.text_input("Obra Vinculada (Opcional)", value=str(row['obra_vinculada']) if pd.notna(row['obra_vinculada']) else "", key=f"pr_ob_e_{id_sel}")
                 
                 b1, b2, b3 = st.columns(3)
                 if b1.form_submit_button("✏️ Alterar Prêmio", type="primary", use_container_width=True):
