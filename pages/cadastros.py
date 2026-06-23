@@ -166,7 +166,8 @@ def render(engine, *args, **kwargs):
         
         st.markdown("#### 🔍 Consulta e Seleção")
         c1, c2 = st.columns([1, 2])
-        busca_ob = c1.text_input("Busca Rápida (ID Exato ou Parte do Nome):", key="busca_ob")
+        # autocomplete="off" inserido para blindar contra o histórico do navegador
+        busca_ob = c1.text_input("Busca Rápida (ID Exato ou Parte do Nome):", key="busca_ob", autocomplete="off")
         
         lista_completa_ob = [f"{r['id']} | {r['nome']}" for _, r in df_obras.iterrows()]
         busca_atual_ob = str(busca_ob).strip()
@@ -274,7 +275,7 @@ def render(engine, *args, **kwargs):
         
         st.markdown("#### 🔍 Consulta e Seleção")
         c1, c2 = st.columns([1, 2])
-        busca_cg = c1.text_input("Busca Rápida (ID Exato ou Parte do Nome):", key="busca_cg")
+        busca_cg = c1.text_input("Busca Rápida (ID Exato ou Parte do Nome):", key="busca_cg", autocomplete="off")
         
         lista_completa_cg = [f"{r['codigo']} | {r['nome']}" for _, r in df_cargos.iterrows()]
         busca_atual_cg = str(busca_cg).strip()
@@ -380,7 +381,7 @@ def render(engine, *args, **kwargs):
         
         st.markdown("#### 🔍 Consulta e Seleção")
         c1, c2 = st.columns([1, 2])
-        busca_dp = c1.text_input("Busca Rápida (ID Exato ou Parte do Nome):", key="busca_dp")
+        busca_dp = c1.text_input("Busca Rápida (ID Exato ou Parte do Nome):", key="busca_dp", autocomplete="off")
         
         lista_completa_dp = [f"{r['id']} | {r['nome']}" for _, r in df_deptos.iterrows()]
         busca_atual_dp = str(busca_dp).strip()
@@ -482,7 +483,7 @@ def render(engine, *args, **kwargs):
         
         st.markdown("#### 🔍 Consulta e Seleção")
         c1, c2 = st.columns([1, 2])
-        busca_sit = c1.text_input("Busca Rápida (ID Exato ou Parte do Nome):", key="busca_sit")
+        busca_sit = c1.text_input("Busca Rápida (ID Exato ou Parte do Nome):", key="busca_sit", autocomplete="off")
         
         lista_completa_sit = [f"{r['codigo']} | {r['descricao']}" for _, r in df_sit.iterrows()]
         busca_atual_sit = str(busca_sit).strip()
@@ -584,7 +585,7 @@ def render(engine, *args, **kwargs):
         
         st.markdown("#### 🔍 Consulta e Seleção")
         c1, c2 = st.columns([1, 2])
-        busca_pr = c1.text_input("Busca Rápida (ID Exato ou Parte do Nome):", key="busca_pr")
+        busca_pr = c1.text_input("Busca Rápida (ID Exato ou Parte do Nome):", key="busca_pr", autocomplete="off")
         
         lista_completa_pr = [f"{r['codigo_descricao']} | {r['nome_descricao']}" for _, r in df_prem.iterrows()]
         busca_atual_pr = str(busca_pr).strip()
