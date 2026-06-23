@@ -81,7 +81,11 @@ def render(engine, *args, **kwargs):
             salario_hora = col9.number_input("Salário Hora (R$)", min_value=0.0, format="%.2f")
             status_esocial = col10.text_input("Status eSocial", value="Ativo", disabled=True)
 
-            if st.form_submit_button("Salvar Colaborador", type="primary"):
+            c_col1, c_col2 = st.columns(2)
+            submit_button = c_col1.form_submit_button("💾 Salvar Colaborador", type="primary", use_container_width=True)
+            cancel_button = c_col2.form_submit_button("❌ Cancelar", use_container_width=True)
+
+            if submit_button:
                 if not codigo or not nome:
                     st.error("Os campos 'Código' e 'Nome' são obrigatórios.")
                 else:
@@ -103,8 +107,12 @@ def render(engine, *args, **kwargs):
                         with engine.begin() as conn:
                             conn.execute(query_insert, parametros)
                         st.success(f"Colaborador {nome} cadastrado com sucesso!")
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao salvar: {e}")
+            
+            if cancel_button:
+                st.rerun()
 
     # ==========================================
     # ABA 3: GERENCIAR OBRAS
@@ -114,57 +122,67 @@ def render(engine, *args, **kwargs):
         df_obras = pd.read_sql("SELECT * FROM cadastro_obras ORDER BY nome", engine)
         
         opcoes_obras = ["➕ Novo Registro (Criar)"] + [f"{r['id']} | {r['nome']}" for _, r in df_obras.iterrows()]
-        selecao_obra = st.selectbox("Consultar Obra:", opcoes_obras, key="sel_obra")
+        selecao_obra = st.selectbox("Consultar / Selecionar Obra:", opcoes_obras, key="sel_obra")
         
-        st.markdown("#### Formulário de Obra")
+        st.markdown("---")
         if selecao_obra == "➕ Novo Registro (Criar)":
-            obra_id = st.text_input("ID / Código da Obra", key="ob_id_n")
-            obra_nome = st.text_input("Nome da Obra", key="ob_nm_n")
-            col1, col2 = st.columns(2)
-            obra_cnpj = col1.text_input("CNPJ (Opcional)", key="ob_cn_n")
-            obra_cno = col2.text_input("CNO (Opcional)", key="ob_co_n")
-            
-            if st.button("💾 Salvar Nova Obra", type="primary", use_container_width=True):
-                if obra_id and obra_nome:
-                    try:
-                        with engine.begin() as conn:
-                            conn.execute(text("INSERT INTO cadastro_obras (id, nome, cnpj, cno) VALUES (:id, :nome, :cnpj, :cno)"), 
-                                         {"id": obra_id, "nome": obra_nome, "cnpj": obra_cnpj, "cno": obra_cno})
-                        st.success("Obra salva!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro: {e}")
-                else:
-                    st.warning("Preencha ID e Nome.")
+            with st.form("form_obra_novo", clear_on_submit=True):
+                st.markdown("#### Criar Nova Obra")
+                obra_id = st.text_input("ID / Código da Obra", key="ob_id_n")
+                obra_nome = st.text_input("Nome da Obra", key="ob_nm_n")
+                col1, col2 = st.columns(2)
+                obra_cnpj = col1.text_input("CNPJ (Opcional)", key="ob_cn_n")
+                obra_cno = col2.text_input("CNO (Opcional)", key="ob_co_n")
+                
+                b1, b2 = st.columns(2)
+                if b1.form_submit_button("💾 Salvar Obra", type="primary", use_container_width=True):
+                    if obra_id and obra_nome:
+                        try:
+                            with engine.begin() as conn:
+                                conn.execute(text("INSERT INTO cadastro_obras (id, nome, cnpj, cno) VALUES (:id, :nome, :cnpj, :cno)"), 
+                                             {"id": obra_id, "nome": obra_nome, "cnpj": obra_cnpj, "cno": obra_cno})
+                            st.success("Obra cadastrada!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro: {e}")
+                    else:
+                        st.warning("ID e Nome são obrigatórios.")
+                if b2.form_submit_button("❌ Cancelar", use_container_width=True):
+                    st.rerun()
         else:
             id_sel = selecao_obra.split(" | ")[0]
             row = df_obras[df_obras['id'].astype(str) == id_sel].iloc[0]
             
-            obra_id = st.text_input("ID / Código (Inalterável)", value=row['id'], disabled=True, key="ob_id_e")
-            obra_nome = st.text_input("Nome da Obra", value=row['nome'], key="ob_nm_e")
-            col1, col2 = st.columns(2)
-            obra_cnpj = col1.text_input("CNPJ", value=str(row['cnpj']) if pd.notna(row['cnpj']) else "", key="ob_cn_e")
-            obra_cno = col2.text_input("CNO", value=str(row['cno']) if pd.notna(row['cno']) else "", key="ob_co_e")
-            
-            c_btn1, c_btn2 = st.columns(2)
-            if c_btn1.button("✏️ Alterar Obra", type="primary", use_container_width=True):
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(text("UPDATE cadastro_obras SET nome=:nome, cnpj=:cnpj, cno=:cno WHERE id=:id"), 
-                                     {"id": obra_id, "nome": obra_nome, "cnpj": obra_cnpj, "cno": obra_cno})
-                    st.success("Obra alterada!")
+            with st.form("form_obra_editar"):
+                st.markdown("#### Alterar / Excluir Obra")
+                obra_id = st.text_input("ID / Código (Inalterável)", value=row['id'], disabled=True, key="ob_id_e")
+                obra_nome = st.text_input("Nome da Obra", value=row['nome'], key="ob_nm_e")
+                col1, col2 = st.columns(2)
+                obra_cnpj = col1.text_input("CNPJ", value=str(row['cnpj']) if pd.notna(row['cnpj']) else "", key="ob_cn_e")
+                obra_cno = col2.text_input("CNO", value=str(row['cno']) if pd.notna(row['cno']) else "", key="ob_co_e")
+                
+                b1, b2, b3 = st.columns(3)
+                if b1.form_submit_button("✏️ Alterar Obra", type="primary", use_container_width=True):
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(text("UPDATE cadastro_obras SET nome=:nome, cnpj=:cnpj, cno=:cno WHERE id=:id"), 
+                                         {"id": obra_id, "nome": obra_nome, "cnpj": obra_cnpj, "cno": obra_cno})
+                        st.success("Obra atualizada!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro: {e}")
+                if b2.form_submit_button("🗑️ Excluir Obra", use_container_width=True):
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(text("DELETE FROM cadastro_obras WHERE id=:id"), {"id": obra_id})
+                        st.success("Obra removida!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro (Pode estar vinculada a colaboradores): {e}")
+                if b3.form_submit_button("❌ Cancelar", use_container_width=True):
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Erro: {e}")
-            if c_btn2.button("🗑️ Excluir Obra", type="primary", use_container_width=True):
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(text("DELETE FROM cadastro_obras WHERE id=:id"), {"id": obra_id})
-                    st.success("Obra excluída!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro (Pode estar em uso): {e}")
 
+        st.markdown("---")
         st.dataframe(df_obras, use_container_width=True, hide_index=True)
 
     # ==========================================
@@ -175,55 +193,65 @@ def render(engine, *args, **kwargs):
         df_cargos = pd.read_sql("SELECT * FROM cadastro_cargos ORDER BY nome", engine)
         
         opcoes_cargos = ["➕ Novo Registro (Criar)"] + [f"{r['codigo']} | {r['nome']}" for _, r in df_cargos.iterrows()]
-        selecao_cargo = st.selectbox("Consultar Cargo:", opcoes_cargos, key="sel_cg")
+        selecao_cargo = st.selectbox("Consultar / Selecionar Cargo:", opcoes_cargos, key="sel_cg")
         
-        st.markdown("#### Formulário de Cargo")
+        st.markdown("---")
         if selecao_cargo == "➕ Novo Registro (Criar)":
-            col1, col2 = st.columns([1, 3])
-            cg_cod = col1.number_input("Código", min_value=1, step=1, key="cg_cod_n")
-            cg_nome = col2.text_input("Nome do Cargo", key="cg_nm_n")
-            cg_cbo = st.text_input("CBO 2002", key="cg_cbo_n")
-            
-            if st.button("💾 Salvar Novo Cargo", type="primary", use_container_width=True):
-                if cg_nome:
-                    try:
-                        with engine.begin() as conn:
-                            conn.execute(text("INSERT INTO cadastro_cargos (codigo, nome, cbo_2002) VALUES (:cod, :nome, :cbo)"), 
-                                         {"cod": cg_cod, "nome": cg_nome, "cbo": cg_cbo})
-                        st.success("Cargo salvo!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro: {e}")
-                else:
-                    st.warning("Preencha o Nome.")
+            with st.form("form_cargo_novo", clear_on_submit=True):
+                st.markdown("#### Criar Novo Cargo")
+                col1, col2 = st.columns([1, 3])
+                cg_cod = col1.number_input("Código", min_value=1, step=1, key="cg_cod_n")
+                cg_nome = col2.text_input("Nome do Cargo", key="cg_nm_n")
+                cg_cbo = st.text_input("CBO 2002", key="cg_cbo_n")
+                
+                b1, b2 = st.columns(2)
+                if b1.form_submit_button("💾 Salvar Cargo", type="primary", use_container_width=True):
+                    if cg_nome:
+                        try:
+                            with engine.begin() as conn:
+                                conn.execute(text("INSERT INTO cadastro_cargos (codigo, nome, cbo_2002) VALUES (:cod, :nome, :cbo)"), 
+                                             {"cod": cg_cod, "nome": cg_nome, "cbo": cg_cbo})
+                            st.success("Cargo cadastrado!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro: {e}")
+                    else:
+                        st.warning("O Nome do Cargo é obrigatório.")
+                if b2.form_submit_button("❌ Cancelar", use_container_width=True):
+                    st.rerun()
         else:
             id_sel = selecao_cargo.split(" | ")[0]
             row = df_cargos[df_cargos['codigo'].astype(str) == id_sel].iloc[0]
             
-            col1, col2 = st.columns([1, 3])
-            cg_cod = col1.number_input("Código (Inalterável)", value=int(row['codigo']), disabled=True, key="cg_cod_e")
-            cg_nome = col2.text_input("Nome do Cargo", value=row['nome'], key="cg_nm_e")
-            cg_cbo = st.text_input("CBO 2002", value=str(row['cbo_2002']) if pd.notna(row['cbo_2002']) else "", key="cg_cbo_e")
-            
-            c_btn1, c_btn2 = st.columns(2)
-            if c_btn1.button("✏️ Alterar Cargo", type="primary", use_container_width=True):
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(text("UPDATE cadastro_cargos SET nome=:nome, cbo_2002=:cbo WHERE codigo=:cod"), 
-                                     {"cod": cg_cod, "nome": cg_nome, "cbo": cg_cbo})
-                    st.success("Cargo alterado!")
+            with st.form("form_cargo_editar"):
+                st.markdown("#### Alterar / Excluir Cargo")
+                col1, col2 = st.columns([1, 3])
+                cg_cod = col1.number_input("Código (Inalterável)", value=int(row['codigo']), disabled=True, key="cg_cod_e")
+                cg_nome = col2.text_input("Nome do Cargo", value=row['nome'], key="cg_nm_e")
+                cg_cbo = st.text_input("CBO 2002", value=str(row['cbo_2002']) if pd.notna(row['cbo_2002']) else "", key="cg_cbo_e")
+                
+                b1, b2, b3 = st.columns(3)
+                if b1.form_submit_button("✏️ Alterar Cargo", type="primary", use_container_width=True):
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(text("UPDATE cadastro_cargos SET nome=:nome, cbo_2002=:cbo WHERE codigo=:cod"), 
+                                         {"cod": cg_cod, "nome": cg_nome, "cbo": cg_cbo})
+                        st.success("Cargo alterado!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro: {e}")
+                if b2.form_submit_button("🗑️ Excluir Cargo", use_container_width=True):
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(text("DELETE FROM cadastro_cargos WHERE codigo=:cod"), {"cod": cg_cod})
+                        st.success("Cargo excluído!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro: {e}")
+                if b3.form_submit_button("❌ Cancelar", use_container_width=True):
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Erro: {e}")
-            if c_btn2.button("🗑️ Excluir Cargo", type="primary", use_container_width=True):
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(text("DELETE FROM cadastro_cargos WHERE codigo=:cod"), {"cod": cg_cod})
-                    st.success("Cargo excluído!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro (Pode estar em uso): {e}")
 
+        st.markdown("---")
         st.dataframe(df_cargos, use_container_width=True, hide_index=True)
 
     # ==========================================
@@ -234,51 +262,61 @@ def render(engine, *args, **kwargs):
         df_deptos = pd.read_sql("SELECT * FROM cadastro_departamentos ORDER BY nome", engine)
         
         opcoes_dp = ["➕ Novo Registro (Criar)"] + [f"{r['id']} | {r['nome']}" for _, r in df_deptos.iterrows()]
-        selecao_dp = st.selectbox("Consultar Departamento:", opcoes_dp, key="sel_dp")
+        selecao_dp = st.selectbox("Consultar / Selecionar Departamento:", opcoes_dp, key="sel_dp")
         
-        st.markdown("#### Formulário de Departamento")
+        st.markdown("---")
         if selecao_dp == "➕ Novo Registro (Criar)":
-            dp_id = st.text_input("ID / Sigla", key="dp_id_n")
-            dp_nome = st.text_input("Nome", key="dp_nm_n")
-            
-            if st.button("💾 Salvar Departamento", type="primary", use_container_width=True):
-                if dp_id and dp_nome:
-                    try:
-                        with engine.begin() as conn:
-                            conn.execute(text("INSERT INTO cadastro_departamentos (id, nome) VALUES (:id, :nome)"), 
-                                         {"id": dp_id, "nome": dp_nome})
-                        st.success("Departamento salvo!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro: {e}")
-                else:
-                    st.warning("Preencha ID e Nome.")
+            with st.form("form_depto_novo", clear_on_submit=True):
+                st.markdown("#### Criar Novo Departamento")
+                dp_id = st.text_input("ID / Sigla do Departamento", key="dp_id_n")
+                dp_nome = st.text_input("Nome do Departamento", key="dp_nm_n")
+                
+                b1, b2 = st.columns(2)
+                if b1.form_submit_button("💾 Salvar Departamento", type="primary", use_container_width=True):
+                    if dp_id and dp_nome:
+                        try:
+                            with engine.begin() as conn:
+                                conn.execute(text("INSERT INTO cadastro_departamentos (id, nome) VALUES (:id, :nome)"), 
+                                             {"id": dp_id, "nome": dp_nome})
+                            st.success("Departamento cadastrado!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro: {e}")
+                    else:
+                        st.warning("ID e Nome são obrigatórios.")
+                if b2.form_submit_button("❌ Cancelar", use_container_width=True):
+                    st.rerun()
         else:
             id_sel = selecao_dp.split(" | ")[0]
             row = df_deptos[df_deptos['id'].astype(str) == id_sel].iloc[0]
             
-            dp_id = st.text_input("ID / Sigla (Inalterável)", value=row['id'], disabled=True, key="dp_id_e")
-            dp_nome = st.text_input("Nome", value=row['nome'], key="dp_nm_e")
-            
-            c_btn1, c_btn2 = st.columns(2)
-            if c_btn1.button("✏️ Alterar Depto", type="primary", use_container_width=True):
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(text("UPDATE cadastro_departamentos SET nome=:nome WHERE id=:id"), 
-                                     {"id": dp_id, "nome": dp_nome})
-                    st.success("Departamento alterado!")
+            with st.form("form_depto_editar"):
+                st.markdown("#### Alterar / Excluir Departamento")
+                dp_id = st.text_input("ID / Sigla (Inalterável)", value=row['id'], disabled=True, key="dp_id_e")
+                dp_nome = st.text_input("Nome do Departamento", value=row['nome'], key="dp_nm_e")
+                
+                b1, b2, b3 = st.columns(3)
+                if b1.form_submit_button("✏️ Alterar Depto", type="primary", use_container_width=True):
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(text("UPDATE cadastro_departamentos SET nome=:nome WHERE id=:id"), 
+                                         {"id": dp_id, "nome": dp_nome})
+                        st.success("Departamento atualizado!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro: {e}")
+                if b2.form_submit_button("🗑️ Excluir Depto", use_container_width=True):
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(text("DELETE FROM cadastro_departamentos WHERE id=:id"), {"id": dp_id})
+                        st.success("Departamento excluído!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro: {e}")
+                if b3.form_submit_button("❌ Cancelar", use_container_width=True):
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Erro: {e}")
-            if c_btn2.button("🗑️ Excluir Depto", type="primary", use_container_width=True):
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(text("DELETE FROM cadastro_departamentos WHERE id=:id"), {"id": dp_id})
-                    st.success("Departamento excluído!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro: {e}")
 
+        st.markdown("---")
         st.dataframe(df_deptos, use_container_width=True, hide_index=True)
 
     # ==========================================
@@ -289,51 +327,61 @@ def render(engine, *args, **kwargs):
         df_sit = pd.read_sql("SELECT * FROM dominio_situacoes_esocial ORDER BY codigo", engine)
         
         opcoes_sit = ["➕ Novo Registro (Criar)"] + [f"{r['codigo']} | {r['descricao']}" for _, r in df_sit.iterrows()]
-        selecao_sit = st.selectbox("Consultar Situação:", opcoes_sit, key="sel_sit")
+        selecao_sit = st.selectbox("Consultar / Selecionar Situação:", opcoes_sit, key="sel_sit")
         
-        st.markdown("#### Formulário de Situação")
+        st.markdown("---")
         if selecao_sit == "➕ Novo Registro (Criar)":
-            sit_cod = st.text_input("Código", key="sit_cod_n")
-            sit_desc = st.text_input("Descrição", key="sit_desc_n")
-            
-            if st.button("💾 Salvar Situação", type="primary", use_container_width=True):
-                if sit_cod and sit_desc:
-                    try:
-                        with engine.begin() as conn:
-                            conn.execute(text("INSERT INTO dominio_situacoes_esocial (codigo, descricao) VALUES (:cod, :desc)"), 
-                                         {"cod": sit_cod, "desc": sit_desc})
-                        st.success("Situação salva!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro: {e}")
-                else:
-                    st.warning("Preencha Código e Descrição.")
+            with st.form("form_sit_novo", clear_on_submit=True):
+                st.markdown("#### Criar Nova Situação")
+                sit_cod = st.text_input("Código da Situação", key="sit_cod_n")
+                sit_desc = st.text_input("Descrição da Situação", key="sit_desc_n")
+                
+                b1, b2 = st.columns(2)
+                if b1.form_submit_button("💾 Salvar Situação", type="primary", use_container_width=True):
+                    if sit_cod and sit_desc:
+                        try:
+                            with engine.begin() as conn:
+                                conn.execute(text("INSERT INTO dominio_situacoes_esocial (codigo, descricao) VALUES (:cod, :desc)"), 
+                                             {"cod": sit_cod, "desc": sit_desc})
+                            st.success("Situação salva!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro: {e}")
+                    else:
+                        st.warning("Código e Descrição são obrigatórios.")
+                if b2.form_submit_button("❌ Cancelar", use_container_width=True):
+                    st.rerun()
         else:
             id_sel = selecao_sit.split(" | ")[0]
             row = df_sit[df_sit['codigo'].astype(str) == id_sel].iloc[0]
             
-            sit_cod = st.text_input("Código (Inalterável)", value=row['codigo'], disabled=True, key="sit_cod_e")
-            sit_desc = st.text_input("Descrição", value=row['descricao'], key="sit_desc_e")
-            
-            c_btn1, c_btn2 = st.columns(2)
-            if c_btn1.button("✏️ Alterar Situação", type="primary", use_container_width=True):
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(text("UPDATE dominio_situacoes_esocial SET descricao=:desc WHERE codigo=:cod"), 
-                                     {"cod": sit_cod, "desc": sit_desc})
-                    st.success("Situação alterada!")
+            with st.form("form_sit_editar"):
+                st.markdown("#### Alterar / Excluir Situação")
+                sit_cod = st.text_input("Código (Inalterável)", value=row['codigo'], disabled=True, key="sit_cod_e")
+                sit_desc = st.text_input("Descrição", value=row['descricao'], key="sit_desc_e")
+                
+                b1, b2, b3 = st.columns(3)
+                if b1.form_submit_button("✏️ Alterar Situação", type="primary", use_container_width=True):
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(text("UPDATE dominio_situacoes_esocial SET descricao=:desc WHERE codigo=:cod"), 
+                                         {"cod": sit_cod, "desc": sit_desc})
+                        st.success("Situação atualizada!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro: {e}")
+                if b2.form_submit_button("🗑️ Excluir Situação", use_container_width=True):
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(text("DELETE FROM dominio_situacoes_esocial WHERE codigo=:cod"), {"cod": sit_cod})
+                        st.success("Situação removida!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro: {e}")
+                if b3.form_submit_button("❌ Cancelar", use_container_width=True):
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Erro: {e}")
-            if c_btn2.button("🗑️ Excluir Situação", type="primary", use_container_width=True):
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(text("DELETE FROM dominio_situacoes_esocial WHERE codigo=:cod"), {"cod": sit_cod})
-                    st.success("Situação excluída!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro: {e}")
 
+        st.markdown("---")
         st.dataframe(df_sit, use_container_width=True, hide_index=True)
 
     # ==========================================
@@ -344,55 +392,65 @@ def render(engine, *args, **kwargs):
         df_prem = pd.read_sql("SELECT * FROM lista_descricoes_premios ORDER BY nome_descricao", engine)
         
         opcoes_prem = ["➕ Novo Registro (Criar)"] + [f"{r['codigo_descricao']} | {r['nome_descricao']}" for _, r in df_prem.iterrows()]
-        selecao_prem = st.selectbox("Consultar Prêmio:", opcoes_prem, key="sel_prem")
+        selecao_prem = st.selectbox("Consultar / Selecionar Prêmio:", opcoes_prem, key="sel_prem")
         
-        st.markdown("#### Formulário de Prêmio")
+        st.markdown("---")
         if selecao_prem == "➕ Novo Registro (Criar)":
-            col1, col2 = st.columns([1, 2])
-            pr_cod = col1.text_input("Código da Descrição", key="pr_cod_n")
-            pr_nome = col2.text_input("Nome da Descrição", key="pr_nm_n")
-            pr_obra = st.text_input("Obra Vinculada (Opcional)", key="pr_ob_n")
-            
-            if st.button("💾 Salvar Prêmio", type="primary", use_container_width=True):
-                if pr_cod and pr_nome:
-                    try:
-                        with engine.begin() as conn:
-                            conn.execute(text("INSERT INTO lista_descricoes_premios (codigo_descricao, nome_descricao, obra_vinculada) VALUES (:cod, :nome, :obra)"), 
-                                         {"cod": pr_cod, "nome": pr_nome, "obra": pr_obra})
-                        st.success("Prêmio salvo!")
+            with st.form("form_premio_novo", clear_on_submit=True):
+                st.markdown("#### Criar Nova Descrição de Prêmio")
+                col1, col2 = st.columns([1, 2])
+                pr_cod = col1.text_input("Código da Descrição", key="pr_cod_n")
+                pr_nome = col2.text_input("Nome da Descrição", key="pr_nm_n")
+                pr_obra = st.text_input("Obra Vinculada (Opcional)", key="pr_ob_n")
+                
+                b1, b2 = st.columns(2)
+                if b1.form_submit_button("💾 Salvar Prêmio", type="primary", use_container_width=True):
+                    if pr_cod and pr_nome:
+                        try:
+                            with engine.begin() as conn:
+                                conn.execute(text("INSERT INTO lista_descricoes_premios (codigo_descricao, nome_descricao, obra_vinculada) VALUES (:cod, :nome, :obra)"), 
+                                             {"cod": pr_cod, "nome": pr_nome, "obra": pr_obra})
+                        st.success("Descrição de prêmio cadastrada!")
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro: {e}")
-                else:
-                    st.warning("Preencha Código e Nome.")
+                        except Exception as e:
+                            st.error(f"Erro: {e}")
+                    else:
+                        st.warning("Código e Nome da Descrição são obrigatórios.")
+                if b2.form_submit_button("❌ Cancelar", use_container_width=True):
+                    st.rerun()
         else:
             id_sel = selecao_prem.split(" | ")[0]
             row = df_prem[df_prem['codigo_descricao'].astype(str) == id_sel].iloc[0]
             
-            col1, col2 = st.columns([1, 2])
-            pr_cod = col1.text_input("Código (Inalterável)", value=row['codigo_descricao'], disabled=True, key="pr_cod_e")
-            pr_nome = col2.text_input("Nome da Descrição", value=row['nome_descricao'], key="pr_nm_e")
-            pr_obra = st.text_input("Obra Vinculada (Opcional)", value=str(row['obra_vinculada']) if pd.notna(row['obra_vinculada']) else "", key="pr_ob_e")
-            
-            c_btn1, c_btn2 = st.columns(2)
-            if c_btn1.button("✏️ Alterar Prêmio", type="primary", use_container_width=True):
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(text("UPDATE lista_descricoes_premios SET nome_descricao=:nome, obra_vinculada=:obra WHERE codigo_descricao=:cod"), 
-                                     {"cod": pr_cod, "nome": pr_nome, "obra": pr_obra})
-                    st.success("Prêmio alterado!")
+            with st.form("form_premio_editar"):
+                st.markdown("#### Alterar / Excluir Descrição de Prêmio")
+                col1, col2 = st.columns([1, 2])
+                pr_cod = col1.text_input("Código (Inalterável)", value=row['codigo_descricao'], disabled=True, key="pr_cod_e")
+                pr_nome = col2.text_input("Nome da Descrição", value=row['nome_descricao'], key="pr_nm_e")
+                pr_obra = st.text_input("Obra Vinculada (Opcional)", value=str(row['obra_vinculada']) if pd.notna(row['obra_vinculada']) else "", key="pr_ob_e")
+                
+                b1, b2, b3 = st.columns(3)
+                if b1.form_submit_button("✏️ Alterar Prêmio", type="primary", use_container_width=True):
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(text("UPDATE lista_descricoes_premios SET nome_descricao=:nome, obra_vinculada=:obra WHERE codigo_descricao=:cod"), 
+                                         {"cod": pr_cod, "nome": pr_nome, "obra": pr_obra})
+                        st.success("Descrição de prêmio alterada!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro: {e}")
+                if b2.form_submit_button("🗑️ Excluir Prêmio", use_container_width=True):
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(text("DELETE FROM lista_descricoes_premios WHERE codigo_descricao=:cod"), {"cod": pr_cod})
+                        st.success("Descrição de prêmio removida!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro: {e}")
+                if b3.form_submit_button("❌ Cancelar", use_container_width=True):
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Erro: {e}")
-            if c_btn2.button("🗑️ Excluir Prêmio", type="primary", use_container_width=True):
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(text("DELETE FROM lista_descricoes_premios WHERE codigo_descricao=:cod"), {"cod": pr_cod})
-                    st.success("Prêmio excluído!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro: {e}")
 
+        st.markdown("---")
         st.dataframe(df_prem, use_container_width=True, hide_index=True)
 
     st.markdown("---")
