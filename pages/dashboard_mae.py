@@ -58,21 +58,30 @@ def render(engine, *args, **kwargs):
     st.markdown("---")
 
     # ==========================================
-    # MOTOR DE DADOS: BUSCA GERAL (ORDENAÇÃO CORRIGIDA)
+    # MOTOR DE DADOS: BUSCA GERAL (ORDENAÇÃO CORRIGIDA - ABORDAGEM SEGURA)
     # ==========================================
-    # O comando regexp_replace limpa letras e o CAST converte para INTEIRO, 
-    # garantindo que 2 venha antes de 10.
+    # Extrai apenas os dígitos da string 'id' e converte para numérico para ordenação correta
     query_all = """
         SELECT id as codigo, nome, cpf, cargo, obra, admissao 
         FROM public.cadastro_geral_colaborador 
-        ORDER BY CAST(NULLIF(regexp_replace(id, '\D', '', 'g'), '') AS INTEGER) ASC
+        ORDER BY NULLIF(regexp_replace(id, '\D', '', 'g'), '')::numeric ASC
     """
     
     try:
         df_all = get_cached_dataframe(engine, query_all)
     except Exception as e:
-        st.error(f"Erro ao buscar os dados: {e}")
-        df_all = pd.DataFrame()
+        # Se a primeira abordagem falhar, tenta ordenar sem o tratamento
+        try:
+             query_fallback = """
+                 SELECT id as codigo, nome, cpf, cargo, obra, admissao 
+                 FROM public.cadastro_geral_colaborador 
+                 ORDER BY id ASC
+             """
+             df_all = get_cached_dataframe(engine, query_fallback)
+             st.warning("A ordenação numérica falhou. Exibindo por ordem de texto (fallback).")
+        except Exception as fallback_e:
+             st.error(f"Erro crítico ao buscar os dados: {fallback_e}")
+             df_all = pd.DataFrame()
 
     if not df_all.empty:
         # ==========================================
