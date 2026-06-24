@@ -188,4 +188,4 @@ def render(engine, *args, **kwargs):
         st.error("Erro ao carregar o log de auditoria de transferências.")
 
     st.markdown("---")
-    st.caption("🏗️ BRAGANÇA SYS | Módulo de Gestão Estrutural")
+    st.caption("🏗️ BRAGANÇA SYS | Módulo de Gestão Estrutural")    
