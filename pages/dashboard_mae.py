@@ -140,4 +140,4 @@ def render(engine, *args, **kwargs):
         st.info("Nenhum colaborador encontrado na base de dados matriz.")
 
     st.markdown("---")
-    st.caption("🏗️ BRAGANÇA SYS | Painel Gerencial de Recursos Humanos")  
+    st.caption("🏗️ BRAGANÇA SYS | Painel Gerencial de Recursos Humanos")
