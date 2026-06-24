@@ -14,12 +14,11 @@ def render(engine, *args, **kwargs):
     # PREVENÇÃO DE ERROS (AUTO-CORREÇÃO DO BANCO)
     # ==========================================
     # Garante que a coluna 'obra' existe na tabela para evitar erros estruturais.
-    # Se não existir, ele cria-a automaticamente e define todos como 'CONSTRUART'.
     try:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE public.cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS obra TEXT DEFAULT 'CONSTRUART';"))
     except Exception:
-        pass # Ignora silenciosamente caso não tenha permissões, pois o erro seria tratado na query abaixo
+        pass # Ignora silenciosamente caso não tenha permissões, o erro seria tratado na query
 
     # ==========================================
     # PADRÃO VISUAL: DARK PREMIUM & GLASSMORPHISM
@@ -59,13 +58,14 @@ def render(engine, *args, **kwargs):
     st.markdown("---")
 
     # ==========================================
-    # MOTOR DE DADOS: BUSCA GERAL (Corrigido para 'id')
+    # MOTOR DE DADOS: BUSCA GERAL (ORDENAÇÃO CORRIGIDA)
     # ==========================================
-    # Lemos a coluna 'id' como 'codigo' para manter a compatibilidade com a tabela
+    # O comando regexp_replace limpa letras e o CAST converte para INTEIRO, 
+    # garantindo que 2 venha antes de 10.
     query_all = """
         SELECT id as codigo, nome, cpf, cargo, obra, admissao 
         FROM public.cadastro_geral_colaborador 
-        ORDER BY nome
+        ORDER BY CAST(NULLIF(regexp_replace(id, '\D', '', 'g'), '') AS INTEGER) ASC
     """
     
     try:
