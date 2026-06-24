@@ -156,20 +156,41 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# --- IMPORTAÇÃO DAS ROTAS (PÁGINAS) ---
 from pages import cadastros as gestao_cadastros_page
 from pages import importacao_inteligente
 from pages import premios as premios_page
+from pages import dashboard_mae # <--- AQUI IMPORTAMOS O NOVO FICHEIRO
 
-st.sidebar.title("Navegacao")
-selection = st.sidebar.radio("Ir para", ["Visao Geral", "Importacao Inteligente", "Gestao de Cadastros", "Gestao de Premios (ZAUT)", "Auditoria CCT (IA)"])
+st.sidebar.title("Navegação")
 
-if selection == "Visao Geral":
-    st.title("Visao Geral do Sistema")
-elif selection == "Importacao Inteligente":
+# --- LISTA DE BOTÕES DO MENU (ADICIONEI O NOVO AQUI) ---
+opcoes_menu = [
+    "Visão Geral", 
+    "Dashboard Construart", # <--- NOVO BOTÃO
+    "Importação Inteligente", 
+    "Gestão de Cadastros", 
+    "Gestão de Prêmios (ZAUT)", 
+    "Auditoria CCT (IA)"
+]
+
+selection = st.sidebar.radio("Ir para", opcoes_menu)
+
+# --- ROTEAMENTO DINÂMICO ---
+if selection == "Visão Geral":
+    st.title("Visão Geral do Sistema")
+
+elif selection == "Dashboard Construart": # <--- A ROTA DO DASHBOARD
+    dashboard_mae.render(engine)
+
+elif selection == "Importação Inteligente":
     importacao_inteligente.render(engine, ler_planilha_inteligente, parse_br_date_smart, format_cpf, format_competencia_smart, LISTA_SITUACOES_ESOCIAL)
-elif selection == "Gestao de Cadastros":
+
+elif selection == "Gestão de Cadastros":
     gestao_cadastros_page.render(engine, parse_br_date_smart, format_cpf, LISTA_SITUACOES_ESOCIAL)
-elif selection == "Gestao de Premios (ZAUT)":
+
+elif selection == "Gestão de Prêmios (ZAUT)":
     premios_page.render(engine, parse_br_date_smart)
+
 elif selection == "Auditoria CCT (IA)":
     st.title("Auditoria CCT (IA)")
