@@ -11,13 +11,23 @@ def get_cached_dataframe(_engine, query, params=None):
 
 def render(engine, *args, **kwargs):
     # ==========================================
+    # PREVENÇÃO DE ERROS (AUTO-CORREÇÃO DO BANCO)
+    # ==========================================
+    # Garante que a coluna 'obra' existe na tabela para evitar erros estruturais.
+    # Se não existir, ele cria-a automaticamente e define todos como 'CONSTRUART'.
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE public.cadastro_geral_colaborador ADD COLUMN IF NOT EXISTS obra TEXT DEFAULT 'CONSTRUART';"))
+    except Exception:
+        pass # Ignora silenciosamente caso não tenha permissões, pois o erro seria tratado na query abaixo
+
+    # ==========================================
     # PADRÃO VISUAL: DARK PREMIUM & GLASSMORPHISM
     # ==========================================
     st.markdown("""
     <style>
-        /* Container estilo Glassmorphism */
         .glass-card {
-            background: rgba(15, 23, 42, 0.6); /* Navy Blue / Dark Gray */
+            background: rgba(15, 23, 42, 0.6);
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
             border-radius: 16px;
@@ -27,17 +37,13 @@ def render(engine, *args, **kwargs):
             box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
             color: #f8fafc;
         }
-        
-        /* Valores dos Indicadores */
         .metric-value {
             font-size: 2.5rem;
             font-weight: 800;
-            color: #38bdf8; /* Azul claro para contraste premium */
+            color: #38bdf8;
             margin-top: 8px;
             line-height: 1;
         }
-        
-        /* Títulos dos Indicadores */
         .metric-label {
             font-size: 1rem;
             font-weight: 600;
@@ -53,10 +59,11 @@ def render(engine, *args, **kwargs):
     st.markdown("---")
 
     # ==========================================
-    # MOTOR DE DADOS: BUSCA GERAL
+    # MOTOR DE DADOS: BUSCA GERAL (Corrigido para 'id')
     # ==========================================
+    # Lemos a coluna 'id' como 'codigo' para manter a compatibilidade com a tabela
     query_all = """
-        SELECT codigo, nome, cpf, cargo, obra, admissao 
+        SELECT id as codigo, nome, cpf, cargo, obra, admissao 
         FROM public.cadastro_geral_colaborador 
         ORDER BY nome
     """
@@ -64,7 +71,7 @@ def render(engine, *args, **kwargs):
     try:
         df_all = get_cached_dataframe(engine, query_all)
     except Exception as e:
-        st.error(f"Erro de conexão com o banco de dados: {e}")
+        st.error(f"Erro ao buscar os dados: {e}")
         df_all = pd.DataFrame()
 
     if not df_all.empty:
@@ -72,9 +79,7 @@ def render(engine, *args, **kwargs):
         # CÁLCULO DE INDICADORES (KPIs)
         # ==========================================
         total_geral = len(df_all)
-        # Conta quem está fisicamente na Construart
         total_mae = len(df_all[df_all['obra'] == 'CONSTRUART'])
-        # Conta quem está espalhado pelas outras obras
         total_obras = total_geral - total_mae
 
         col1, col2, col3 = st.columns(3)
@@ -117,12 +122,10 @@ def render(engine, *args, **kwargs):
             'admissao': 'Data de Admissão'
         })
 
-        # Tratamento da data para o formato BR
         if 'Data de Admissão' in df_display.columns:
             df_display['Data de Admissão'] = pd.to_datetime(df_display['Data de Admissão'], errors='coerce').dt.strftime('%d/%m/%Y')
             df_display['Data de Admissão'] = df_display['Data de Admissão'].fillna('Não informada')
 
-        # Tabela com larguras profissionais
         st.dataframe(
             df_display,
             use_container_width=True,
