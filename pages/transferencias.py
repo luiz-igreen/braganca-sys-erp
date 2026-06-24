@@ -14,22 +14,19 @@ def render(engine, *args, **kwargs):
     st.title("Gestão de Transferências e Alocações")
     st.markdown("Módulo central para movimentação de colaboradores entre obras com registo de histórico para cálculo pró-rata.")
 
-    # Função interna para limpar o estado das buscas e formulários
+    # Função interna para limpar estritamente as chaves desta aba
     def limpar_estado(chaves):
         get_cached_dataframe.clear()
         for chave in chaves:
             if chave in st.session_state:
                 del st.session_state[chave]
 
-    # 1. Carrega todos os colaboradores da base central (Mãe Construart)
+    # Carrega dados essenciais
     try:
         df_colaboradores = get_cached_dataframe(engine, "SELECT codigo, nome, cpf, obra, cargo FROM public.cadastro_geral_colaborador ORDER BY nome")
-        lista_colaboradores = [f"{r['codigo']} | {r['nome']}" for _, r in df_colaboradores.iterrows()] if not df_colaboradores.empty else []
     except Exception:
         df_colaboradores = pd.DataFrame()
-        lista_colaboradores = []
 
-    # Carrega todas as obras cadastradas no sistema
     try:
         df_obras = get_cached_dataframe(engine, "SELECT nome FROM public.cadastro_obras ORDER BY nome")
         lista_todas_obras = df_obras['nome'].tolist() if not df_obras.empty else ["CONSTRUART"]
@@ -38,30 +35,54 @@ def render(engine, *args, **kwargs):
 
     st.markdown("#### 🔄 Registrar Nova Movimentação")
     
-    if not lista_colaboradores:
+    if df_colaboradores.empty:
         st.info("⚠️ Nenhum colaborador cadastrado na base central (Mãe Construart).")
     else:
-        # Campo 1: Lista completa de todos os colaboradores para busca imediata
-        selecao_colab = st.selectbox(
-            "Selecione o Colaborador (Listagem Geral Mãe):", 
-            options=lista_colaboradores, 
-            index=None, 
-            placeholder="Digite o código ou nome para pesquisar...",
-            key="busca_colab_transf"
-        )
-        st.markdown("---")
+        # --- MOTOR DE BUSCA RÁPIDA ---
+        c1, c2 = st.columns([1, 2])
+        busca_colab = c1.text_input("Busca Rápida (Matrícula ou Nome):", key="busca_transf_rápida", autocomplete="off")
         
-        if selecao_colab:
+        lista_completa_colab = [f"{r['codigo']} | {r['nome']}" for _, r in df_colaboradores.iterrows()]
+        busca_atual = str(busca_colab).strip()
+        ultima_busca = st.session_state.get('last_busca_transf_rapida', '')
+
+        filtrados = []
+        if busca_atual:
+            for op in lista_completa_colab:
+                parts = op.split(" | ", 1)
+                if len(parts) == 2:
+                    id_part, nome_part = parts
+                    if busca_atual.lower() == id_part.strip().lower() or busca_atual.lower() in nome_part.lower():
+                        filtrados.append(op)
+
+        if busca_atual != ultima_busca:
+            st.session_state['last_busca_transf_rapida'] = busca_atual
+            if busca_atual and filtrados:
+                st.session_state['sel_transf_final'] = filtrados[0]
+
+        if busca_atual:
+            if not filtrados:
+                st.warning("⚠️ Colaborador não encontrado na base.")
+                opcoes_colab = []
+            else:
+                opcoes_colab = filtrados
+        else:
+            opcoes_colab = lista_completa_colab
+            
+        if opcoes_colab:
+            selecao_colab = c2.selectbox("Colaborador Selecionado:", opcoes_colab, key="sel_transf_final")
+            st.markdown("---")
+            
+            # --- FORMULÁRIO DE TRANSFERÊNCIA ---
             id_colab = selecao_colab.split(" | ")[0]
             row_colab = df_colaboradores[df_colaboradores['codigo'].astype(str) == id_colab].iloc[0]
             
-            # Captura a obra onde ele se encontra alocado atualmente
             obra_atual = str(row_colab['obra']) if pd.notna(row_colab['obra']) and str(row_colab['obra']).strip() else "Não Alocado"
             
             with st.form("form_transferencia_inteligente", clear_on_submit=True):
                 col1, col2 = st.columns(2)
                 
-                # Campo 2: Preenchido automaticamente com a lotação atual do funcionário
+                # Preenchimento automático e travado
                 col1.text_input(
                     "Obra de Origem (De onde foi transferido):", 
                     value=obra_atual, 
@@ -69,12 +90,11 @@ def render(engine, *args, **kwargs):
                     autocomplete="off"
                 )
                 
-                # Remove apenas a obra atual para evitar transferências redundantes para o mesmo lugar
+                # Destino: Remove a obra atual da lista de opções
                 opcoes_destino = [o for o in lista_todas_obras if o != obra_atual]
                 if not opcoes_destino:
                     opcoes_destino = lista_todas_obras
                 
-                # Campo 3: Lista completa das obras do sistema para seleção do destino
                 obra_destino = col2.selectbox(
                     "Obra de Destino (Para onde vai ser transferido):", 
                     options=opcoes_destino
@@ -97,7 +117,6 @@ def render(engine, *args, **kwargs):
                         WHERE codigo = :codigo
                     """
                     try:
-                        # Execução atómica unificada para manter a integridade dos dados
                         with engine.begin() as conn:
                             conn.execute(text(query_insert_hist), {
                                 "codigo": id_colab, 
@@ -112,13 +131,13 @@ def render(engine, *args, **kwargs):
                             })
                             
                         st.toast(f"✅ {row_colab['nome']} transferido para {obra_destino} com sucesso!")
-                        limpar_estado(['busca_colab_transf'])
+                        limpar_estado(['busca_transf_rápida', 'last_busca_transf_rapida', 'sel_transf_final'])
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Erro ao processar a transferência no banco de dados: {e}")
+                        st.error(f"Erro ao processar a transferência: {e}")
                         
                 if b2.form_submit_button("❌ Cancelar", use_container_width=True):
-                    limpar_estado(['busca_colab_transf'])
+                    limpar_estado(['busca_transf_rápida', 'last_busca_transf_rapida', 'sel_transf_final'])
                     st.rerun()
 
     st.markdown("---")
@@ -164,7 +183,7 @@ def render(engine, *args, **kwargs):
                 }
             )
         else:
-            st.info("Nenhuma transferência registrada no sistema até o momento.")
+            st.info("Nenhuma transferência registada no sistema até o momento.")
     except Exception:
         st.error("Erro ao carregar o log de auditoria de transferências.")
 
